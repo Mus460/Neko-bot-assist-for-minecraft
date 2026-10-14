@@ -53,6 +53,11 @@ public class MineTargetAction implements BotAction {
 	private int walkStuckTicks;
 	@Nullable
 	private Vec3 lastPosition;
+	/** The block the bot is stepping into while digging its way; the next step is planned once it is there. */
+	@Nullable
+	private BlockPos pendingStep;
+	private int pendingTicks;
+	private final BlockPos.MutableBlockPos stepOut = new BlockPos.MutableBlockPos();
 
 	@Override
 	public int getPriority(ButterBotEntity bot) {
@@ -148,6 +153,7 @@ public class MineTargetAction implements BotAction {
 		stepCooldown = 0;
 		blockedSteps = 0;
 		walkStuckTicks = 0;
+		pendingStep = null;
 		lastPosition = bot.position();
 		bestDistance = Math.sqrt(bot.getEyePosition().distanceToSqr(Vec3.atCenterOf(target)));
 		bot.getMiner().cancel();
@@ -196,11 +202,27 @@ public class MineTargetAction implements BotAction {
 		if (--stepCooldown > 0) {
 			return;
 		}
-		switch (TunnelHelper.digStepTowards(bot, target)) {
+		if (!bot.onGround() && !bot.isInWater() && !bot.isInLava()) {
+			// Still dropping into the hole just dug: land first, or the next step is planned from mid-air
+			// and digs out the wrong blocks.
+			return;
+		}
+		if (pendingStep != null) {
+			if (TunnelHelper.isStandingIn(bot, pendingStep) || ++pendingTicks > 20) {
+				pendingStep = null;
+			} else {
+				TunnelHelper.stepInto(bot, pendingStep);
+				return;
+			}
+		}
+		switch (TunnelHelper.digStepTowards(bot, target, stepOut)) {
 			case DIGGING -> stepCooldown = 0;
 			case BUILDING -> stepCooldown = 6;
-			// Stepping into the spot just dug: give the bot a moment to get there.
-			case MOVING -> stepCooldown = 8;
+			case MOVING -> {
+				// Walk into the spot just dug and land there before planning the next step.
+				pendingStep = stepOut.immutable();
+				pendingTicks = 0;
+			}
 			case BLOCKED -> {
 				if (++blockedSteps >= MAX_BLOCKED_STEPS) {
 					giveUp(bot, target);

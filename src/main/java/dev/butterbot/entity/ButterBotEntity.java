@@ -465,6 +465,11 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 	}
 
+	/** The tool the bot digs {@code blockState} with (what it shows in its hand). */
+	public ItemStack diggingTool(BlockState blockState) {
+		return toolFor(blockState, BotLevels.toolTier(getBotLevel()));
+	}
+
 	private static ItemStack toolFor(BlockState blockState, int tier) {
 		if (blockState.is(BlockTags.MINEABLE_WITH_AXE)) {
 			return new ItemStack(tier == 2 ? Items.NETHERITE_AXE : tier == 1 ? Items.DIAMOND_AXE : Items.IRON_AXE);
