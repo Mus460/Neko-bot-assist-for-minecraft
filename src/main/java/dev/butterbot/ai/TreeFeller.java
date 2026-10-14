@@ -1,5 +1,6 @@
 package dev.butterbot.ai;
 
+import dev.butterbot.entity.BotProgress;
 import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -54,8 +55,10 @@ public final class TreeFeller {
 			if (isRoot(level, log)) {
 				roots.add(log);
 			}
-			bot.harvestBlock(level, log, level.getBlockState(log), true);
+			BlockState state = level.getBlockState(log);
+			bot.harvestBlock(level, log, state, true, bot.rollBonus(state) ? 1 : 0);
 			bot.gainWorkXp(1);
+			bot.addLifetimeStat(BotProgress.Stat.MINED, 1);
 		}
 		clearLeaves(bot, level, trunk);
 		replant(bot, level, roots, logBlock);

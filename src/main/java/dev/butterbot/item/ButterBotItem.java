@@ -84,8 +84,10 @@ public class ButterBotItem extends Item {
 		tag.getInt("SkinVariant").ifPresent(bot::setSkinVariant);
 		bot.setLuaScript(tag.getStringOr("Script", ""));
 		bot.setDeliveryMode(DeliveryMode.byOrdinal(tag.getIntOr("Delivery", 0)));
+		tag.getIntArray("Progress").ifPresent(bot.getProgress()::load);
 		bot.restoreProgress(tag.getIntOr("Level", 1), tag.getIntOr("WorkXp", 0));
 		bot.addStoredXp(tag.getIntOr("StoredXp", 0));
+		bot.setSecondWindReadyAt(tag.getLongOr("SecondWind", 0L));
 		bot.setGuarding(tag.getBooleanOr("Guard", true));
 		bot.setAutoTorch(tag.getBooleanOr("AutoTorch", true));
 		bot.setFeedOwner(tag.getBooleanOr("FeedOwner", true));
@@ -110,6 +112,8 @@ public class ButterBotItem extends Item {
 		tag.putInt("Delivery", bot.getDeliveryMode().ordinal());
 		tag.putInt("Level", bot.getBotLevel());
 		tag.putInt("WorkXp", bot.getWorkXp());
+		tag.putIntArray("Progress", bot.getProgress().save());
+		tag.putLong("SecondWind", bot.getSecondWindReadyAt());
 		tag.putInt("StoredXp", bot.getStoredXp());
 		tag.putBoolean("Guard", bot.guardSetting());
 		tag.putBoolean("AutoTorch", bot.placesTorchesWhileMining());

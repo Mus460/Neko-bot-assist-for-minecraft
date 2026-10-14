@@ -1,6 +1,6 @@
 package dev.butterbot.ai;
 
-import dev.butterbot.entity.BotLevels;
+import dev.butterbot.entity.BotProgress;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.entity.SmeltMode;
 import net.minecraft.core.component.DataComponents;
@@ -62,7 +62,8 @@ public final class BotSmelter {
 		}
 		SimpleContainer backpack = bot.getInventory();
 		int smelted = 0;
-		for (int round = 0; round < BotLevels.smeltPerCycle(bot.getBotLevel()); round++) {
+		int rounds = bot.stats().smeltPerCycle();
+		for (int round = 0; round < rounds; round++) {
 			int slot = findInput(level, backpack, mode);
 			if (slot < 0) {
 				break;
@@ -94,6 +95,7 @@ public final class BotSmelter {
 			bot.addStoredXp(wholeXp);
 		}
 		bot.gainWorkXp(smelted);
+		bot.addLifetimeStat(BotProgress.Stat.CRAFTED, smelted);
 		level.sendParticles(ParticleTypes.SMOKE, bot.getX(), bot.getY() + 1.2D, bot.getZ(), 3, 0.15D, 0.1D, 0.15D, 0.01D);
 		if (bot.getRandom().nextInt(6) == 0) {
 			level.playSound(null, bot.blockPosition(), SoundEvents.FURNACE_FIRE_CRACKLE, SoundSource.NEUTRAL, 0.4F, 1.0F);

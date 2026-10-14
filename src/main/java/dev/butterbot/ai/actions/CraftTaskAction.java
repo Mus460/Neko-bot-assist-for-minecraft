@@ -3,6 +3,7 @@ package dev.butterbot.ai.actions;
 import dev.butterbot.ai.BotAction;
 import dev.butterbot.ai.Walker;
 import dev.butterbot.block.BotBaseBlockEntity;
+import dev.butterbot.entity.BotProgress;
 import dev.butterbot.entity.BotState;
 import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
@@ -503,6 +504,7 @@ public class CraftTaskAction implements BotAction {
 		bot.level().playSound(null, bot.blockPosition(), SoundEvents.UI_LOOM_TAKE_RESULT, SoundSource.NEUTRAL, 0.8F, 1.0F);
 		bot.say(Component.translatable("butterbot.msg.crafted", total, new ItemStack(target).getHoverName()));
 		bot.gainWorkXp(crafts);
+		bot.addLifetimeStat(BotProgress.Stat.CRAFTED, total);
 		bot.setReturnRequested(true);
 	}
 

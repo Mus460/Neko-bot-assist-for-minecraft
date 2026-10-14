@@ -1,5 +1,6 @@
 package dev.butterbot.entity;
 
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Player;
@@ -30,24 +31,36 @@ public final class BotBackpack implements Container {
 		return inventory().isEmpty();
 	}
 
+	private boolean exists(int slot) {
+		return slot >= 0 && slot < inventory().getContainerSize();
+	}
+
 	@Override
 	public ItemStack getItem(int slot) {
-		return inventory().getItem(slot);
+		return exists(slot) ? inventory().getItem(slot) : ItemStack.EMPTY;
 	}
 
 	@Override
 	public ItemStack removeItem(int slot, int count) {
-		return inventory().removeItem(slot, count);
+		return exists(slot) ? inventory().removeItem(slot, count) : ItemStack.EMPTY;
 	}
 
 	@Override
 	public ItemStack removeItemNoUpdate(int slot) {
-		return inventory().removeItemNoUpdate(slot);
+		return exists(slot) ? inventory().removeItemNoUpdate(slot) : ItemStack.EMPTY;
 	}
 
 	@Override
 	public void setItem(int slot, ItemStack stack) {
-		inventory().setItem(slot, stack);
+		if (exists(slot)) {
+			inventory().setItem(slot, stack);
+			return;
+		}
+		// The backpack got smaller while the menu was open: keep the item anyway.
+		ItemStack leftover = inventory().addItem(stack);
+		if (!leftover.isEmpty()) {
+			bot.spawnAtLocation((ServerLevel) bot.level(), leftover);
+		}
 	}
 
 	@Override

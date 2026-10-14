@@ -4,8 +4,9 @@ import dev.butterbot.ai.OreFinder;
 import dev.butterbot.ai.actions.LightAreaAction;
 import dev.butterbot.ai.job.JobStorage;
 import dev.butterbot.entity.BotJob;
-import dev.butterbot.entity.BotLevels;
 import dev.butterbot.entity.BotResource;
+import dev.butterbot.entity.BotSkill;
+import dev.butterbot.entity.BotStats;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.entity.DeliveryMode;
 import dev.butterbot.entity.JobConfig;
@@ -38,7 +39,7 @@ import java.util.Optional;
 public final class ModNetworking {
 
 	public static final int MAX_TUNNEL_LENGTH = 512;
-	public static final int MAX_JOB_COUNT = BotLevels.MAX_BACKPACK * 64;
+	public static final int MAX_JOB_COUNT = BotStats.MAX_BACKPACK * 64;
 
 	public static void init() {
 		PayloadTypeRegistry.serverboundPlay().register(Payloads.RequestBots.TYPE, Payloads.RequestBots.CODEC);
@@ -101,7 +102,12 @@ public final class ModNetworking {
 					bot.getSmeltMode().ordinal(),
 					bot.refillsHotbar(),
 					bot.getSkinVariant(),
-					jobView(bot)));
+					jobView(bot),
+					bot.getMaxHealth(),
+					bot.getInventory().getContainerSize(),
+					bot.getProgress().ranks(),
+					bot.getProgress().mastery(),
+					bot.getProgress().stats()));
 		}
 		Optional<BlockPos> validBase = BotAccess.isValidBase(player, base) ? base : Optional.empty();
 		ServerPlayNetworking.send(player, new Payloads.BotList(validBase, entries));
@@ -296,6 +302,14 @@ public final class ModNetworking {
 					? new BlockPos(payload.arg(0, 0), payload.arg(1, 0), payload.arg(2, 0)) : player.blockPosition());
 			case Payloads.BotCommand.JOB_CHEST -> JobControl.setChest(player, bot, payload.args().length >= 3
 					? new BlockPos(payload.arg(0, 0), payload.arg(1, 0), payload.arg(2, 0)) : null);
+			case Payloads.BotCommand.SKILL_UP -> {
+				BotSkill skill = BotSkill.byOrdinal(payload.arg(0, -1));
+				Component problem = skill == null ? null : bot.raiseSkill(skill);
+				if (problem != null) {
+					player.sendSystemMessage(Msg.prefixed(problem.copy().withStyle(ChatFormatting.RED)));
+				}
+			}
+			case Payloads.BotCommand.SKILL_RESET -> bot.resetSkills();
 			case Payloads.BotCommand.LINK_BASE -> {
 				if (validBase) {
 					bot.setBasePos(payload.base().get());

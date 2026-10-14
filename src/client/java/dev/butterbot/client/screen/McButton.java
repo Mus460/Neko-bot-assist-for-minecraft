@@ -30,6 +30,8 @@ public class McButton extends Button {
 	private BooleanSupplier lamp;
 	@Nullable
 	private BooleanSupplier selected;
+	@Nullable
+	private BooleanSupplier activeWhen;
 	private boolean danger;
 
 	public McButton(int x, int y, int width, int height, Component message, @Nullable ItemStack icon, Layout layout, OnPress onPress) {
@@ -86,6 +88,13 @@ public class McButton extends Button {
 		return this;
 	}
 
+	/** Enabled while {@code when} is true, checked live (clicks follow it too). */
+	public McButton activeWhen(BooleanSupplier when) {
+		this.activeWhen = when;
+		this.active = when.getAsBoolean();
+		return this;
+	}
+
 	private boolean isSelectedNow() {
 		return selected != null && selected.getAsBoolean();
 	}
@@ -98,6 +107,9 @@ public class McButton extends Button {
 		int h = getHeight();
 		Font font = Minecraft.getInstance().font;
 		Component text = label != null ? label.get() : getMessage();
+		if (activeWhen != null) {
+			active = activeWhen.getAsBoolean();
+		}
 
 		if (layout == Layout.TAB) {
 			McStyle.tab(g, x, y, w, h, isSelectedNow());

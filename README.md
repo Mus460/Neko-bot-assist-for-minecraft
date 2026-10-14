@@ -161,23 +161,55 @@ Pencegahan lain:
 - Powder snow tidak membekukannya, dan api serta lava tidak melukainya.
 - Mengikutimu dan mengantar barang tetap jalan saat kamu naik perahu atau kuda.
 
-### Level
+### Level (1 sampai 30)
 
-Bot mendapat XP kerja dari setiap blok yang digali, tanaman yang dipanen, crafting, item yang dilebur dan monster yang dikalahkan (+5). Level tampil di atas kepala bot (`Lv3 Mochi-3F`).
+Bot mendapat XP kerja dari setiap blok yang digali, tanaman yang dipanen, crafting, item yang dilebur dan monster yang dikalahkan. Kerja yang lebih sulit memberi lebih banyak XP: batu 1, batu bara/tembaga 2, besi/redstone 3, emas/lapis 4, zamrud 8, berlian 10, ancient debris 15; monster sesuai kekuatannya (boss 200). Level tampil di atas kepala bot (`Lv3 Mochi-3F`). Saat naik level ada kembang api, dan untuk level penting muncul judul besar di layarmu.
 
 | Level | Kemampuan baru |
 |---|---|
-| Setiap level | Menggali 15% lebih cepat, HP +4, serangan +0,5 |
+| Setiap level | Lebih cepat menggali, HP dan serangan bertambah, **+1 poin skill** |
 | 3 | Menambang seluruh urat bijih sekaligus (sampai 8 blok) |
 | 4 | Tas 27 slot |
 | 5 | Alat berlian, Fortune I |
 | 6 | Urat bijih sampai 24 blok |
 | 7 | Tas 36 slot |
-| 8 | Fortune II |
+| 8 | Fortune II, baris skill ke-2 terbuka |
 | 9 | Alat netherite, urat bijih sampai 64 blok |
-| 10 | Fortune III (maksimal) |
+| 10 | Fortune III |
+| 12 | **Kebal Api**: api dan lava tidak melukai |
+| 14 | **Kebal Racun**: racun dan wither tidak mempan |
+| 16 | **Regenerasi Kuat** (pulih 2x lebih cepat), baris skill ke-3 terbuka |
+| 18 | **Tangan Emas**: 10% peluang hasil bijih ganda |
+| 20 | **Tahan Ledakan**: ledakan hanya melukai setengahnya |
+| 24 | Baris skill ke-4 terbuka |
+| 25 | **Hati Baja**: sekali tiap 10 menit, pukulan mematikan menyisakan setengah darah |
+| 30 | **Legenda**: +10% darah, serangan dan kecepatan gali, kilau emas |
 
-Level, XP dan pengaturan ikut tersimpan saat bot dikemas jadi item.
+#### Pohon skill
+
+Poin skill dibelanjakan di panel (`B` → **Lainnya** → **Skill**) atau dengan `/butterbot skill <nama>`. Baris skill terbuka di level 1, 8, 16 dan 24, dan setiap skill butuh skill di atasnya minimal 1 tingkat. Poin tidak cukup untuk semuanya, jadi tiap bot bisa punya spesialisasi. **Reset** (klik dua kali) mengembalikan semua poin.
+
+| Cabang | Skill (tingkat maks) |
+|---|---|
+| Tambang | Gali Cepat (5): +10% kecepatan gali · Mata Bijih (3): radius cari +4 · Urat Raksasa (3): +16 blok urat · Untung Besar (2): +1 Fortune |
+| Tempur | Kuat (5): +1,5 serangan · Tangguh (5): +6 darah · Kulit Besi (3): +4 armor · Tebasan (2): pukulan ikut kena monster di sekitar (40%/70%) |
+| Tani | Tangan Hijau (3): +15% peluang panen ganda · Tungku Panas (3): +1 lebur sekaligus · Ladang Luas (2): radius bertani +4 · Kantong Ajaib (2): tas +9 slot (maks 54) |
+| Gerak | Lincah (3): +8% kecepatan · Magnet (3): item di sekitar masuk ke tas saat bekerja · Perenang (1): bernapas di air · Bulu (1): tanpa damage jatuh |
+
+#### Mastery pekerjaan
+
+Kerja untuk job juga melatih job itu: Pemula → Magang → Terampil → Ahli → Master → Grandmaster (100, 300, 700, 1500, 3000 XP job). Tingkat 3 dan 5 memberi poin skill tambahan.
+
+| Job | Bonus per tingkat |
+|---|---|
+| Penambang | +5% kecepatan gali; Grandmaster: +1 Fortune |
+| Pengumpul | +6% peluang kayu/tanaman ganda |
+| Penjaga | +8% serangan, +4 darah (dilatih dengan mengalahkan monster) |
+| Petani | +8% peluang panen ganda; Grandmaster: tanaman di sekitarnya tumbuh lebih cepat |
+
+Halaman **Statistik** di panel menampilkan semua angka bot, mastery, kemampuan level dan jumlah total yang pernah digali, dikalahkan, dipanen dan dibuat.
+
+Level, XP, skill, mastery dan pengaturan ikut tersimpan saat bot dikemas jadi item.
 
 ### Bertani
 
@@ -234,6 +266,9 @@ Semua perintah bisa dipakai tanpa cheat. Perintah kerja berlaku untuk bot milikm
 /butterbot feed <true|false>      suapi aku saat lapar on/off
 /butterbot smelt <off|ores|all>   tungku bawaan: mati / bijih & makanan / semua
 /butterbot level                  level, kemampuan dan XP yang disimpan
+/butterbot skill                  daftar skill dan sisa poin
+/butterbot skill <nama>           pelajari skill (contoh: quick_dig, magnet)
+/butterbot skill reset            lupakan semua skill, poin kembali
 /butterbot light [radius]         terangi area di sekitarmu (bawaan 24, maks 48)
 /butterbot fetch <item> [jumlah]  ambilkan barang dari peti dan Bot Base
 /butterbot where <item>           di peti mana barang itu disimpan
@@ -321,7 +356,7 @@ bot.say("Kayu sudah di base!")
 | Tas | 9 slot, tidak bisa dibuka | 18 sampai 36 slot (naik dengan level), bisa dibuka |
 | Bertarung | Tidak | Mode pengawal: melawan monster di dekatmu |
 | Bertani & rapikan peti | Tidak | Ada |
-| Naik level | Tidak | Level 1 sampai 10: lebih cepat, Fortune, urat bijih, tas lebih besar |
+| Naik level | Tidak | Level 1 sampai 30, pohon skill, mastery pekerjaan, kemampuan khusus |
 | Lava | Berhenti | Ditutup dengan cobblestone, bot kebal api |
 | Tujuan antar barang | Pemilik saja | Pemilik atau storage Bot Base (27 slot, bisa dipakai hopper) |
 | Membuka panel | Hanya di Bot Base | Di Bot Base, klik kanan bot, atau `/butterbot menu` |

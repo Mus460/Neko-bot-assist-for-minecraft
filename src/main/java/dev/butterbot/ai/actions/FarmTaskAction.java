@@ -9,6 +9,7 @@ import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
@@ -49,6 +50,9 @@ public class FarmTaskAction implements BotAction {
 	private static final int MAX_STUCK_TICKS = 200;
 	private static final int UNLOAD_WHEN_IDLE_ITEMS = 32;
 	private static final long BASE_FULL_RETRY_TICKS = 20L * 60L;
+	/** How often a grandmaster farmer helps the crops around it grow. */
+	private static final int GROWTH_INTERVAL = 100;
+	private static final int GROWTH_CROPS = 3;
 
 	private enum Work {CROP, WART, COCOA, BERRY, CANE, FRUIT, TREE, SOW}
 
@@ -92,6 +96,10 @@ public class FarmTaskAction implements BotAction {
 		if (bot.getMiner().isDigging()) {
 			bot.getMiner().tickDig();
 			return;
+		}
+
+		if (bot.tickCount % GROWTH_INTERVAL == 0 && bot.stats().growthAura()) {
+			growthAura(bot, level);
 		}
 
 		BlockPos storage = bot.getFarmStorage();
@@ -194,6 +202,26 @@ public class FarmTaskAction implements BotAction {
 			}
 		}
 		return count;
+	}
+
+	/** Grandmaster farmer: every few seconds a few young crops in the field grow one stage. */
+	private static void growthAura(ButterBotEntity bot, ServerLevel level) {
+		BlockPos center = bot.getFarmCenter();
+		int radius = bot.getFarmRadius();
+		int grown = 0;
+		for (int attempt = 0; attempt < 24 && grown < GROWTH_CROPS; attempt++) {
+			BlockPos pos = center.offset(bot.getRandom().nextInt(radius * 2 + 1) - radius, bot.getRandom().nextInt(VERTICAL * 2 + 1) - VERTICAL,
+					bot.getRandom().nextInt(radius * 2 + 1) - radius);
+			if (!level.isLoaded(pos)) {
+				continue;
+			}
+			BlockState state = level.getBlockState(pos);
+			if (state.getBlock() instanceof CropBlock crop && !crop.isMaxAge(state)) {
+				level.setBlock(pos, crop.getStateForAge(crop.getAge(state) + 1), Block.UPDATE_CLIENTS);
+				level.sendParticles(ParticleTypes.HAPPY_VILLAGER, pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D, 4, 0.3D, 0.3D, 0.3D, 0.0D);
+				grown++;
+			}
+		}
 	}
 
 	// ---------------------------------------------------------------- finding work
@@ -306,6 +334,9 @@ public class FarmTaskAction implements BotAction {
 			case BERRY -> {
 				int age = state.getValue(SweetBerryBushBlock.AGE);
 				int count = 1 + level.getRandom().nextInt(2) + (age >= SweetBerryBushBlock.MAX_AGE ? 1 : 0);
+				if (bonusHarvest(bot)) {
+					count *= 2;
+				}
 				bot.collectLoot(new ItemStack(Items.SWEET_BERRIES, count), pos, true);
 				level.setBlock(pos, state.setValue(SweetBerryBushBlock.AGE, 1), 2);
 				level.playSound(null, pos, SoundEvents.SWEET_BERRY_BUSH_PICK_BERRIES, SoundSource.BLOCKS, 1.0F, 1.0F);
@@ -354,9 +385,19 @@ public class FarmTaskAction implements BotAction {
 		}
 		level.levelEvent(2001, pos, Block.getId(ripe));
 		level.setBlock(pos, replanted ? young : Blocks.AIR.defaultBlockState(), 3);
+		boolean bonus = bonusHarvest(bot);
 		for (ItemStack drop : drops) {
+			if (bonus && !drop.isEmpty()) {
+				bot.collectLoot(drop.copy(), pos, true);
+			}
 			bot.collectLoot(drop, pos, true);
 		}
+	}
+
+	/** Green Thumb skill and farmer mastery: sometimes a plant gives twice as much. */
+	private static boolean bonusHarvest(ButterBotEntity bot) {
+		float chance = bot.stats().cropBonusChance();
+		return chance > 0.0F && bot.getRandom().nextFloat() < chance;
 	}
 
 	@Override

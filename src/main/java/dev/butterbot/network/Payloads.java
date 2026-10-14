@@ -102,6 +102,10 @@ public final class Payloads {
 		public static final int JOB_CENTER = 31;
 		/** Job chest at {@code args[0..2]}, or no chest without args. */
 		public static final int JOB_CHEST = 32;
+		/** Spend a skill point on skill {@code args[0]} (a {@code BotSkill} ordinal). */
+		public static final int SKILL_UP = 33;
+		/** Forget all skills and get the points back. */
+		public static final int SKILL_RESET = 34;
 
 		public static final Type<BotCommand> TYPE = typeOf("bot_command");
 		public static final StreamCodec<RegistryFriendlyByteBuf, BotCommand> CODEC = StreamCodec.of(
@@ -307,7 +311,10 @@ public final class Payloads {
 	public record BotEntry(UUID id, String name, Component status, boolean neko, int task, String skinId,
 						   String script, int deliveryMode, int itemCount, BlockPos pos, boolean hasBase, float health,
 						   int level, int workXp, int storedXp, boolean guard, boolean autoTorch, boolean feedOwner,
-						   int smeltMode, boolean autoRefill, int skinVariant, JobView jobView) {
+						   int smeltMode, boolean autoRefill, int skinVariant, JobView jobView, float maxHealth, int backpackSlots,
+						   int[] skills, int[] mastery, int[] lifetime) {
+
+		private static final int MAX_ARRAY = 64;
 
 		static void write(RegistryFriendlyByteBuf buf, BotEntry e) {
 			buf.writeUUID(e.id);
@@ -332,6 +339,11 @@ public final class Payloads {
 			buf.writeBoolean(e.autoRefill);
 			buf.writeVarInt(e.skinVariant);
 			JobView.write(buf, e.jobView);
+			buf.writeFloat(e.maxHealth);
+			buf.writeVarInt(e.backpackSlots);
+			buf.writeVarIntArray(e.skills);
+			buf.writeVarIntArray(e.mastery);
+			buf.writeVarIntArray(e.lifetime);
 		}
 
 		static BotEntry read(RegistryFriendlyByteBuf buf) {
@@ -339,7 +351,8 @@ public final class Payloads {
 					buf.readBoolean(), buf.readVarInt(), buf.readUtf(64), buf.readUtf(LuaProgram.MAX_SCRIPT_LENGTH),
 					buf.readVarInt(), buf.readVarInt(), buf.readBlockPos(), buf.readBoolean(), buf.readFloat(),
 					buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readBoolean(), buf.readBoolean(), buf.readBoolean(),
-					buf.readVarInt(), buf.readBoolean(), buf.readVarInt(), JobView.read(buf));
+					buf.readVarInt(), buf.readBoolean(), buf.readVarInt(), JobView.read(buf), buf.readFloat(), buf.readVarInt(),
+					buf.readVarIntArray(MAX_ARRAY), buf.readVarIntArray(MAX_ARRAY), buf.readVarIntArray(MAX_ARRAY));
 		}
 	}
 
