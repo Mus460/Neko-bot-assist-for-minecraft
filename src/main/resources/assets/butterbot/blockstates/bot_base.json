@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "butterbot:block/bot_base"
+    }
+  }
+}
