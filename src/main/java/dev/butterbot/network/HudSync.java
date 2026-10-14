@@ -3,9 +3,12 @@ package dev.butterbot.network;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.registry.ModEntities;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -57,8 +60,10 @@ public final class HudSync {
 					break;
 				}
 				int distance = bot.level() == player.level() ? (int) Math.round(Math.sqrt(bot.distanceToSqr(player))) : -1;
-				lines.add(new Payloads.HudBot(bot.getName().getString(), bot.getBotLevel(), bot.getHealth(), bot.getMaxHealth(),
-						bot.describeShortStatus(), distance, bot.countInventoryItems(), bot.getInventory().getContainerSize() * 64));
+				Item icon = bot.hudIcon();
+				lines.add(new Payloads.HudBot(bot.getName().getString(), bot.getHealth(), bot.getMaxHealth(), bot.describeHudStatus(),
+						icon == Items.AIR ? "" : BuiltInRegistries.ITEM.getKey(icon).toString(), distance, bot.countInventoryItems(),
+						bot.getInventory().getContainerSize() * 64));
 			}
 			ServerPlayNetworking.send(player, new Payloads.HudUpdate(lines));
 		}

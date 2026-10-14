@@ -1,5 +1,6 @@
 package dev.butterbot.client.screen;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import dev.butterbot.client.BotKeys;
 import dev.butterbot.network.Payloads;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -128,7 +129,7 @@ public class CommandWheelScreen extends Screen {
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (event.button() == 0) {
+		if (event.button() == InputConstants.MOUSE_BUTTON_LEFT) {
 			int option = optionAt(event.x(), event.y());
 			if (option >= 0) {
 				run(option);

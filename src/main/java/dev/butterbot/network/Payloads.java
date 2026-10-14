@@ -210,24 +210,27 @@ public final class Payloads {
 
 	// ================================================================ server -> client
 
-	/** One line of the on-screen bot list. {@code distance} is -1 when the bot is in another dimension. */
-	public record HudBot(String name, int level, float health, float maxHealth, Component status, int distance,
+	/**
+	 * One line of the on-screen bot list. {@code icon} is the id of an item that stands for what the bot
+	 * is doing (empty when idle); {@code distance} is -1 when the bot is in another dimension.
+	 */
+	public record HudBot(String name, float health, float maxHealth, Component status, String icon, int distance,
 						 int items, int capacity) {
 
 		static void write(RegistryFriendlyByteBuf buf, HudBot bot) {
 			buf.writeUtf(bot.name, 64);
-			buf.writeVarInt(bot.level);
 			buf.writeFloat(bot.health);
 			buf.writeFloat(bot.maxHealth);
 			ComponentSerialization.TRUSTED_STREAM_CODEC.encode(buf, bot.status);
+			buf.writeUtf(bot.icon, 128);
 			buf.writeVarInt(bot.distance + 1);
 			buf.writeVarInt(bot.items);
 			buf.writeVarInt(bot.capacity);
 		}
 
 		static HudBot read(RegistryFriendlyByteBuf buf) {
-			return new HudBot(buf.readUtf(64), buf.readVarInt(), buf.readFloat(), buf.readFloat(),
-					ComponentSerialization.TRUSTED_STREAM_CODEC.decode(buf), buf.readVarInt() - 1, buf.readVarInt(), buf.readVarInt());
+			return new HudBot(buf.readUtf(64), buf.readFloat(), buf.readFloat(), ComponentSerialization.TRUSTED_STREAM_CODEC.decode(buf),
+					buf.readUtf(128), buf.readVarInt() - 1, buf.readVarInt(), buf.readVarInt());
 		}
 	}
 

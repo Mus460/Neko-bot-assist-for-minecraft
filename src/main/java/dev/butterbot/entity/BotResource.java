@@ -42,9 +42,10 @@ public enum BotResource {
 	EMERALD(100,
 			state -> state.is(BlockItemTags.EMERALD_ORES.block()),
 			stack -> stack.is(Items.EMERALD)),
+	// Natural stone only: cobblestone is what the bot builds with (and what houses are made of), so
+	// counting it would have the bot dig up its own steps, lava plugs and the owner's walls.
 	STONE(40,
-			state -> state.is(Blocks.STONE) || state.is(Blocks.DEEPSLATE) || state.is(Blocks.COBBLESTONE)
-					|| state.is(Blocks.COBBLED_DEEPSLATE),
+			state -> state.is(Blocks.STONE) || state.is(Blocks.DEEPSLATE),
 			stack -> stack.is(Items.COBBLESTONE) || stack.is(Items.COBBLED_DEEPSLATE)),
 	WOOD(null,
 			state -> state.is(BlockTags.LOGS),

@@ -101,6 +101,7 @@ import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.NetherWartBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -158,6 +159,8 @@ public class ButterBotEntity extends PathfinderMob {
 	private static final int SCAN_INTERVAL_TICKS = 40;
 	private static final int SCAN_HORIZONTAL_RADIUS = 20;
 	private static final int SCAN_VERTICAL_RADIUS = 12;
+	/** A buried block counts as this much farther (squared) than one with an open side. */
+	private static final double BURIED_PENALTY = 20.0D;
 	private static final float MAX_DIGGABLE_HARDNESS = 10.0F;
 	/** How long the bot keeps holding its tool after the last block it dug. */
 	private static final int TOOL_HOLD_TICKS = 60;
@@ -222,6 +225,8 @@ public class ButterBotEntity extends PathfinderMob {
 	private SmeltMode smeltMode = SmeltMode.ORES;
 
 	private int scanCooldown;
+	/** Counts mining orders, so the search knows when a new one started. */
+	private int mineRun;
 	private long lastLavaWarning;
 	private long lastLavaSealed;
 	private long lastUnstuckMessage;
@@ -681,6 +686,90 @@ public class ButterBotEntity extends PathfinderMob {
 		};
 	}
 
+	/** A few words for the on-screen list: only what the bot is doing right now. */
+	public Component describeHudStatus() {
+		if (jobs.hasJob() && jobs.isPaused()) {
+			return Component.translatable("butterbot.hud.s.paused");
+		}
+		if (combatTicks > 0) {
+			return Component.translatable("butterbot.hud.s.fighting");
+		}
+		if (recoverPos != null || !recoveredItems.isEmpty()) {
+			return Component.translatable("butterbot.hud.s.recovering");
+		}
+		if (returnRequested) {
+			return Component.translatable("butterbot.hud.s.delivering");
+		}
+		return switch (task) {
+			case NONE -> !jobs.hasJob() ? Component.translatable("butterbot.hud.s.idle") : switch (jobs.phase()) {
+				case SETUP -> Component.translatable("butterbot.hud.s.setup");
+				case CHECKING -> Component.translatable("butterbot.hud.s.checking");
+				case TRAVEL, WORKING -> Component.translatable("butterbot.hud.s.travel");
+				case DEPOSIT, LOOT -> Component.translatable("butterbot.hud.s.storing");
+				case STANDBY -> Component.translatable("butterbot.hud.s.done");
+				case NOT_FOUND -> Component.translatable("butterbot.hud.s.not_found");
+				case CHEST_PROBLEM -> Component.translatable("butterbot.hud.s.chest_problem");
+				case PATROL -> Component.translatable("butterbot.hud.s.patrol", jobs.stat());
+				case FARMING -> Component.translatable("butterbot.hud.s.farming", harvestedCount);
+			};
+			case MINE -> mineFilter == null && resource == null ? Component.translatable("butterbot.hud.s.idle")
+					: Component.translatable("butterbot.hud.s.mining",
+					mineFilter != null ? new ItemStack(mineFilter.item()).getHoverName() : resource.displayName(), collectedCount, targetCount);
+			case TUNNEL -> Component.translatable("butterbot.hud.s.tunnel", tunnelProgress, tunnelLength);
+			case CRAFT -> craftItem == null ? Component.translatable("butterbot.hud.s.idle")
+					: Component.translatable("butterbot.hud.s.crafting", new ItemStack(craftItem).getHoverName());
+			case GO_TO_BASE -> Component.translatable("butterbot.hud.s.home");
+			case FOLLOW -> Component.translatable("butterbot.hud.s.follow");
+			case LUA -> Component.translatable("butterbot.hud.s.program");
+			case FARM -> Component.translatable("butterbot.hud.s.farming", harvestedCount);
+			case SORT -> Component.translatable("butterbot.hud.s.sorting");
+			case LIGHT -> Component.translatable("butterbot.hud.s.lighting", torchesPlaced);
+			case FETCH -> fetchItem == null ? Component.translatable("butterbot.hud.s.idle")
+					: Component.translatable("butterbot.hud.s.fetching", new ItemStack(fetchItem).getHoverName());
+			case GOTO -> Component.translatable("butterbot.hud.s.waiting");
+		};
+	}
+
+	/** An item that stands for the bot's work in the on-screen list (air when it has nothing to do). */
+	public Item hudIcon() {
+		if (combatTicks > 0) {
+			return Items.IRON_SWORD;
+		}
+		if (returnRequested) {
+			return Items.CHEST;
+		}
+		switch (jobs.job()) {
+			case MINER -> {
+				return Items.IRON_PICKAXE;
+			}
+			case GATHERER -> {
+				return Items.IRON_AXE;
+			}
+			case GUARD -> {
+				return Items.IRON_SWORD;
+			}
+			case FARMER -> {
+				return Items.IRON_HOE;
+			}
+			case NONE -> {
+			}
+		}
+		return switch (task) {
+			case NONE -> Items.AIR;
+			case MINE -> resource == BotResource.WOOD ? Items.IRON_AXE : resource == BotResource.SAND ? Items.IRON_SHOVEL : Items.IRON_PICKAXE;
+			case TUNNEL -> Items.IRON_PICKAXE;
+			case CRAFT -> Items.CRAFTING_TABLE;
+			case GO_TO_BASE -> Items.COMPASS;
+			case FOLLOW -> Items.LEAD;
+			case LUA -> Items.REDSTONE;
+			case FARM -> Items.IRON_HOE;
+			case SORT -> Items.CHEST;
+			case LIGHT -> Items.TORCH;
+			case FETCH -> Items.BUNDLE;
+			case GOTO -> Items.MAP;
+		};
+	}
+
 	private Component describeTaskStatus() {
 		if (combatTicks > 0) {
 			return Component.translatable("butterbot.status.fighting");
@@ -958,6 +1047,10 @@ public class ButterBotEntity extends PathfinderMob {
 		return targetCount;
 	}
 
+	public int getMineRun() {
+		return mineRun;
+	}
+
 	public int getCollectedCount() {
 		return collectedCount;
 	}
@@ -976,6 +1069,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.resource = resource;
 		this.targetCount = count;
 		this.state = BotState.SEARCHING;
+		this.mineRun++;
 		requestRescan();
 		say(Component.translatable("butterbot.msg.start_mining", count, resource.displayName()));
 		speak(ModSounds.VOICE_OK);
@@ -1469,6 +1563,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.targetCount = Math.max(1, count);
 		this.state = BotState.SEARCHING;
 		this.jobSiteSpent = false;
+		this.mineRun++;
 		requestRescan();
 	}
 
@@ -1671,6 +1766,10 @@ public class ButterBotEntity extends PathfinderMob {
 		if (mineFilter != null) {
 			return mineFilter.matches(this.level(), pos, blockState) && !isJobZoneBlocked(pos);
 		}
+		if (resource == BotResource.WOOD) {
+			// Only real trees: log houses and other builds are left alone.
+			return isTargetBlock(blockState) && ResourceCatalog.isNaturalTree(this.level(), pos, blockState);
+		}
 		return isTargetBlock(blockState);
 	}
 
@@ -1689,33 +1788,96 @@ public class ButterBotEntity extends PathfinderMob {
 		targetBlock = scanForTargetBlock();
 	}
 
+	/**
+	 * The best block to go for next. Not simply the nearest: blocks around the bot's own height are
+	 * cheaper than ones far below or above, and blocks with an open side (in a cave wall, the side of
+	 * the tunnel) are cheaper than buried ones. Trees are taken from the bottom log and canes from the
+	 * top. Searches outwards ring by ring and stops once no farther ring can do better.
+	 */
 	@Nullable
 	private BlockPos scanForTargetBlock() {
+		Level level = this.level();
 		BlockPos origin = this.blockPosition();
 		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-		BlockPos closest = null;
-		double closestDistance = Double.MAX_VALUE;
+		boolean surface = !isMiningUnderground();
+		BlockPos best = null;
+		double bestScore = Double.MAX_VALUE;
 
-		for (int x = -SCAN_HORIZONTAL_RADIUS; x <= SCAN_HORIZONTAL_RADIUS; x++) {
-			for (int y = -SCAN_VERTICAL_RADIUS; y <= SCAN_VERTICAL_RADIUS; y++) {
-				for (int z = -SCAN_HORIZONTAL_RADIUS; z <= SCAN_HORIZONTAL_RADIUS; z++) {
-					cursor.setWithOffset(origin, x, y, z);
-					if (!this.level().isLoaded(cursor)) {
+		for (int ring = 0; ring <= SCAN_HORIZONTAL_RADIUS; ring++) {
+			// Every block in this ring is at least `ring` blocks away sideways.
+			if (best != null && bestScore <= (double) ring * ring) {
+				break;
+			}
+			for (int x = -ring; x <= ring; x++) {
+				for (int z = -ring; z <= ring; z++) {
+					if (Math.max(Math.abs(x), Math.abs(z)) != ring) {
 						continue;
 					}
-					BlockState blockState = this.level().getBlockState(cursor);
-					if (!isTargetAt(cursor, blockState) || isBlacklisted(cursor)) {
-						continue;
-					}
-					double distance = origin.distSqr(cursor);
-					if (distance < closestDistance) {
-						closestDistance = distance;
-						closest = cursor.immutable();
+					for (int y = -SCAN_VERTICAL_RADIUS; y <= SCAN_VERTICAL_RADIUS; y++) {
+						cursor.setWithOffset(origin, x, y, z);
+						if (!level.isLoaded(cursor)) {
+							continue;
+						}
+						BlockState blockState = level.getBlockState(cursor);
+						if (!isTargetAt(cursor, blockState)) {
+							continue;
+						}
+						BlockPos pos = settleTarget(level, cursor.immutable(), blockState);
+						if (isBlacklisted(pos) || !canDig(pos, level.getBlockState(pos))
+								|| (surface && !level.getFluidState(pos.above()).isEmpty())) {
+							continue;
+						}
+						double score = targetScore(level, origin, pos);
+						if (score < bestScore) {
+							bestScore = score;
+							best = pos;
+						}
 					}
 				}
 			}
 		}
-		return closest;
+		return best;
+	}
+
+	/** The bottom log of a tree (the whole tree falls and a sapling goes there); the top of canes, cactus and bamboo. */
+	private static BlockPos settleTarget(Level level, BlockPos pos, BlockState blockState) {
+		BlockPos.MutableBlockPos cursor = pos.mutable();
+		if (blockState.is(BlockTags.LOGS)) {
+			for (int i = 0; i < 32 && level.getBlockState(cursor.below()).is(blockState.getBlock()); i++) {
+				cursor.move(0, -1, 0);
+			}
+		} else if (blockState.is(Blocks.SUGAR_CANE) || blockState.is(Blocks.CACTUS) || blockState.is(Blocks.BAMBOO)) {
+			for (int i = 0; i < 32 && level.getBlockState(cursor.above()).is(blockState.getBlock()); i++) {
+				cursor.move(0, 1, 0);
+			}
+		}
+		return cursor.immutable();
+	}
+
+	private static double targetScore(Level level, BlockPos origin, BlockPos pos) {
+		int dx = pos.getX() - origin.getX();
+		int dy = pos.getY() - origin.getY();
+		int dz = pos.getZ() - origin.getZ();
+		double score = dx * dx + dz * dz;
+		if (dy < 0) {
+			score += dy * dy * 2.0D;
+		} else if (dy > 1) {
+			score += (dy - 1) * (dy - 1) * 3.0D;
+		}
+		if (!isExposed(level, pos)) {
+			score += BURIED_PENALTY;
+		}
+		return score;
+	}
+
+	private static boolean isExposed(Level level, BlockPos pos) {
+		for (Direction direction : Direction.values()) {
+			BlockPos side = pos.relative(direction);
+			if (level.getBlockState(side).getCollisionShape(level, side).isEmpty()) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	public void blacklistTarget(BlockPos pos) {
@@ -2007,11 +2169,7 @@ public class ButterBotEntity extends PathfinderMob {
 			return;
 		}
 		long now = level.getGameTime();
-		int lowest = Integer.MAX_VALUE;
-		for (Seal seal : pendingSeals) {
-			lowest = Math.min(lowest, seal.pos().getY());
-		}
-		boolean below = this.getBlockY() <= lowest - 3;
+		// Bottom first, so each restored block rests on the one below it.
 		pendingSeals.sort(java.util.Comparator.comparingInt(seal -> seal.pos().getY()));
 		boolean played = false;
 		for (java.util.Iterator<Seal> it = pendingSeals.iterator(); it.hasNext(); ) {
@@ -2023,16 +2181,23 @@ public class ButterBotEntity extends PathfinderMob {
 			}
 			double dx = this.getX() - (pos.getX() + 0.5D);
 			double dz = this.getZ() - (pos.getZ() + 0.5D);
-			if (!below && dx * dx + dz * dz < 6.0D * 6.0D) {
+			boolean wellBelow = this.getBlockY() <= pos.getY() - 3;
+			if (!wellBelow && dx * dx + dz * dz < 6.0D * 6.0D) {
 				continue;
 			}
 			if (!level.getEntities((Entity) null, new AABB(pos), entity -> !(entity instanceof ItemEntity)).isEmpty()) {
 				continue;
 			}
-			level.setBlock(pos, seal.state(), Block.UPDATE_ALL);
+			BlockState restored = seal.state();
+			if (restored.getBlock() instanceof FallingBlock && FallingBlock.isFree(level.getBlockState(pos.below()))) {
+				// Sand or gravel over an open shaft would fall straight down onto the bot: use a block that stays put.
+				restored = restored.is(Blocks.RED_SAND) ? Blocks.RED_SANDSTONE.defaultBlockState()
+						: restored.is(BlockTags.SAND) ? Blocks.SANDSTONE.defaultBlockState() : Blocks.COBBLESTONE.defaultBlockState();
+			}
+			level.setBlock(pos, restored, Block.UPDATE_ALL);
 			if (!played) {
 				played = true;
-				level.playSound(null, pos, seal.state().getSoundType().getPlaceSound(), SoundSource.BLOCKS, 0.8F, 1.0F);
+				level.playSound(null, pos, restored.getSoundType().getPlaceSound(), SoundSource.BLOCKS, 0.8F, 1.0F);
 			}
 			it.remove();
 		}
@@ -2086,7 +2251,7 @@ public class ButterBotEntity extends PathfinderMob {
 	public boolean hasLineOfSight(BlockPos pos) {
 		Vec3 eye = this.getEyePosition();
 		Vec3 center = Vec3.atCenterOf(pos);
-		BlockHitResult hit = this.level().clip(new ClipContext(eye, center, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, this));
+		BlockHitResult hit = this.level().clip(new ClipContext(eye, center, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));
 		return hit.getType() == HitResult.Type.MISS || hit.getBlockPos().equals(pos);
 	}
 
