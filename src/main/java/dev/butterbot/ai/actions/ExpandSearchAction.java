@@ -26,7 +26,6 @@ public class ExpandSearchAction implements BotAction {
 
 	private static final int UNDERGROUND_EFFORT_CAP = 500;
 	private static final int SURFACE_EFFORT_CAP = 40;
-	private static final int MOVE_INTERVAL_TICKS = 10;
 	private static final int POSITION_CHECK_INTERVAL_TICKS = 30;
 	private static final double STUCK_MOVEMENT_THRESHOLD_SQ = 0.16D;
 	private static final int BRANCH_LENGTH = 24;
@@ -39,7 +38,6 @@ public class ExpandSearchAction implements BotAction {
 	private int effort;
 	private int branchSteps;
 	private boolean gaveUp;
-	private int moveCooldown;
 	private int positionCheckCooldown;
 	private int turnsInPlace;
 	@Nullable
@@ -50,6 +48,9 @@ public class ExpandSearchAction implements BotAction {
 	private int run = Integer.MIN_VALUE;
 	private int collectedAtStop;
 	private double roamAngle;
+	/** The block of the stairs/tunnel the bot is walking into; the next step is dug once it stands there. */
+	@Nullable
+	private BlockPos pendingStep;
 
 	@Override
 	public int getPriority(ButterBotEntity bot) {
@@ -79,9 +80,9 @@ public class ExpandSearchAction implements BotAction {
 			// Found something since last time: this area is worth digging on.
 			effort = 0;
 		}
-		moveCooldown = 0;
 		positionCheckCooldown = POSITION_CHECK_INTERVAL_TICKS;
 		turnsInPlace = 0;
+		pendingStep = null;
 		lastFeet = bot.blockPosition();
 		lastPosition = bot.position();
 	}
@@ -90,6 +91,8 @@ public class ExpandSearchAction implements BotAction {
 	public void tick(ButterBotEntity bot) {
 		MiningController miner = bot.getMiner();
 		if (miner.isDigging()) {
+			// Standing still while digging is not being stuck.
+			resetStuckCheck(bot);
 			if (miner.tickDig()) {
 				effort++;
 				checkEffortCap(bot);
@@ -101,9 +104,38 @@ public class ExpandSearchAction implements BotAction {
 		if (resource == null || gaveUp) {
 			return;
 		}
+		if (!bot.isMiningUnderground()) {
+			roamStep(bot);
+			return;
+		}
+		if (!bot.onGround() && !bot.isInWater() && !bot.isInLava()) {
+			// Dropping onto the step just dug: plan the next step after landing, not from mid-air.
+			resetStuckCheck(bot);
+			return;
+		}
 
-		if (!bot.blockPosition().equals(lastFeet)) {
-			lastFeet = bot.blockPosition();
+		if (pendingStep != null) {
+			if (TunnelHelper.isStandingIn(bot, pendingStep)) {
+				pendingStep = null;
+			} else if (bot.blockPosition().distManhattan(pendingStep) > 3) {
+				pendingStep = null;
+			} else {
+				stepTo(bot, pendingStep);
+				trackStuck(bot);
+				return;
+			}
+		}
+
+		Level level = bot.level();
+		boolean descending = bot.getBlockY() > bot.getMiningY() + 2 && bot.getBlockY() > level.getMinY() + 6;
+		BlockPos feet = bot.blockPosition();
+		if (!feet.equals(lastFeet)) {
+			if (!descending && lastFeet != null && feet.getY() == lastFeet.getY() && ++branchSteps >= BRANCH_LENGTH) {
+				// Branch mining: turn every so often to cover new ground instead of one endless line.
+				branchSteps = 0;
+				tunnelDirection = bot.getRandom().nextBoolean() ? tunnelDirection.getClockWise() : tunnelDirection.getCounterClockWise();
+			}
+			lastFeet = feet;
 			turnsInPlace = 0;
 		}
 		if (turnsInPlace >= TURNS_BEFORE_CLIMBING) {
@@ -115,15 +147,10 @@ public class ExpandSearchAction implements BotAction {
 			return;
 		}
 
-		Level level = bot.level();
-		if (bot.isMiningUnderground()) {
-			if (bot.getBlockY() > bot.getMiningY() + 2 && bot.getBlockY() > level.getMinY() + 6) {
-				descendStep(bot, level);
-			} else {
-				tunnelStep(bot, level);
-			}
+		if (descending) {
+			descendStep(bot, level);
 		} else {
-			roamStep(bot);
+			tunnelStep(bot, level);
 		}
 	}
 
@@ -139,7 +166,8 @@ public class ExpandSearchAction implements BotAction {
 			turn();
 			return;
 		}
-		moveTo(bot, landing);
+		pendingStep = landing;
+		stepTo(bot, landing);
 		trackStuck(bot);
 	}
 
@@ -154,14 +182,8 @@ public class ExpandSearchAction implements BotAction {
 			turn();
 			return;
 		}
-		moveTo(bot, forward);
-		if (bot.blockPosition().equals(forward) || Math.abs(bot.getX() - (forward.getX() + 0.5)) + Math.abs(bot.getZ() - (forward.getZ() + 0.5)) < 0.6) {
-			if (++branchSteps >= BRANCH_LENGTH) {
-				// Branch mining: turn every so often to cover new ground instead of one endless line.
-				branchSteps = 0;
-				tunnelDirection = bot.getRandom().nextBoolean() ? tunnelDirection.getClockWise() : tunnelDirection.getCounterClockWise();
-			}
-		}
+		pendingStep = forward;
+		stepTo(bot, forward);
 		trackStuck(bot);
 	}
 
@@ -226,11 +248,18 @@ public class ExpandSearchAction implements BotAction {
 		return false;
 	}
 
-	private void moveTo(ButterBotEntity bot, BlockPos pos) {
-		if (--moveCooldown <= 0) {
-			moveCooldown = MOVE_INTERVAL_TICKS;
-			bot.getNavigation().moveTo(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D, 1.0D);
-		}
+	/**
+	 * Walks straight into the next block of the tunnel or stairs. The pathfinder can't be used for
+	 * this: it counts a neighbouring block as already reached, so the bot would just stand there.
+	 */
+	private static void stepTo(ButterBotEntity bot, BlockPos pos) {
+		bot.getNavigation().stop();
+		bot.getMoveControl().setWantedPosition(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D, 1.0D);
+	}
+
+	private void resetStuckCheck(ButterBotEntity bot) {
+		positionCheckCooldown = POSITION_CHECK_INTERVAL_TICKS;
+		lastPosition = bot.position();
 	}
 
 	private void trackStuck(ButterBotEntity bot) {
@@ -246,8 +275,8 @@ public class ExpandSearchAction implements BotAction {
 
 	private void turn() {
 		tunnelDirection = tunnelDirection.getClockWise();
-		moveCooldown = 0;
 		branchSteps = 0;
+		pendingStep = null;
 		turnsInPlace++;
 	}
 

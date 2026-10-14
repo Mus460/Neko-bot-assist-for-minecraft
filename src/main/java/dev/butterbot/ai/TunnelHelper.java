@@ -8,6 +8,7 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Gets a stuck bot moving again, one step at a time: it cuts through cobwebs and natural terrain in
@@ -25,6 +26,11 @@ public final class TunnelHelper {
 	}
 
 	public static StepResult digStepTowards(ButterBotEntity bot, BlockPos target) {
+		return digStepTowards(bot, target, null);
+	}
+
+	/** {@link #digStepTowards(ButterBotEntity, BlockPos)}; on {@link StepResult#MOVING} {@code stepOut} is set to the block stepped into. */
+	public static StepResult digStepTowards(ButterBotEntity bot, BlockPos target, @Nullable BlockPos.MutableBlockPos stepOut) {
 		Level level = bot.level();
 		BlockPos feet = bot.blockPosition();
 		int dx = target.getX() - feet.getX();
@@ -76,14 +82,14 @@ public final class TunnelHelper {
 			if (isPassable(level, forward)) {
 				return bot.placeFillerAt(forward) ? StepResult.BUILDING : pillarUp(bot);
 			}
-			moveTo(bot, forward.above());
+			moveTo(bot, forward.above(), stepOut);
 			return StepResult.MOVING;
 		}
 		if (dy > -2 && isPassable(level, forward.below()) && isPassable(level, forward.below(2))) {
 			// A gap or a deep drop at our level: bridge it.
 			return bot.placeFillerAt(forward.below()) ? StepResult.BUILDING : StepResult.BLOCKED;
 		}
-		moveTo(bot, forward);
+		moveTo(bot, forward, stepOut);
 		return StepResult.MOVING;
 	}
 
@@ -155,8 +161,37 @@ public final class TunnelHelper {
 		return bot.getMiner().beginDig(pos) ? StepResult.DIGGING : StepResult.BLOCKED;
 	}
 
-	private static void moveTo(ButterBotEntity bot, BlockPos pos) {
-		bot.getNavigation().moveTo(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D, 1.0D);
+	/**
+	 * True once the bot really stands in the column of {@code step}: on the floor there, not just
+	 * over the edge (or dropped lower on the way down), so the next step is planned from the right spot.
+	 */
+	public static boolean isStandingIn(ButterBotEntity bot, BlockPos step) {
+		BlockPos feet = bot.blockPosition();
+		if (feet.getX() != step.getX() || feet.getZ() != step.getZ()) {
+			return false;
+		}
+		if (bot.isInWater() || bot.isInLava()) {
+			return true;
+		}
+		BlockPos floor = feet.below();
+		return bot.onGround() && !bot.level().getBlockState(floor).getCollisionShape(bot.level(), floor).isEmpty();
+	}
+
+	/** Keeps walking straight into {@code pos} (call every tick until there). */
+	public static void stepInto(ButterBotEntity bot, BlockPos pos) {
+		moveTo(bot, pos, null);
+	}
+
+	/**
+	 * Steps straight into a neighbouring block (one tick of walking; call again to keep going). The
+	 * pathfinder counts a neighbouring block as already reached and wouldn't move the bot at all.
+	 */
+	private static void moveTo(ButterBotEntity bot, BlockPos pos, @Nullable BlockPos.MutableBlockPos stepOut) {
+		if (stepOut != null) {
+			stepOut.set(pos);
+		}
+		bot.getNavigation().stop();
+		bot.getMoveControl().setWantedPosition(pos.getX() + 0.5D, pos.getY(), pos.getZ() + 0.5D, 1.0D);
 	}
 
 	private TunnelHelper() {

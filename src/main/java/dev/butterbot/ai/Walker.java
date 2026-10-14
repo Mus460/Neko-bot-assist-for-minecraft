@@ -23,6 +23,8 @@ public final class Walker {
 	private int repathCooldown;
 	private int stuckTicks;
 	private int blocksPlaced;
+	/** Ticks left to finish a step that a dig-out move started (instead of re-pathing mid-step). */
+	private int stepTicks;
 	@Nullable
 	private Vec3 lastPosition;
 
@@ -30,6 +32,7 @@ public final class Walker {
 		repathCooldown = 0;
 		stuckTicks = 0;
 		blocksPlaced = 0;
+		stepTicks = 0;
 		lastPosition = bot.position();
 	}
 
@@ -47,6 +50,21 @@ public final class Walker {
 		if (miner.isDigging()) {
 			miner.tickDig();
 			stuckTicks = 0;
+			lastPosition = bot.position();
+			return true;
+		}
+
+		if (stepTicks > 0) {
+			// Finishing the step out of a tight spot: keep stepping, the pathfinder would undo it.
+			stepTicks--;
+			TunnelHelper.StepResult step = TunnelHelper.digStepTowards(bot, BlockPos.containing(target));
+			if (step == TunnelHelper.StepResult.BUILDING) {
+				blocksPlaced++;
+			}
+			if (step != TunnelHelper.StepResult.MOVING) {
+				stepTicks = 0;
+			}
+			repathCooldown = 0;
 			lastPosition = bot.position();
 			return true;
 		}
@@ -76,8 +94,11 @@ public final class Walker {
 			if (blocksPlaced >= MAX_BLOCKS_PLACED) {
 				return false;
 			}
-			if (TunnelHelper.digStepTowards(bot, BlockPos.containing(target)) == TunnelHelper.StepResult.BUILDING) {
+			TunnelHelper.StepResult step = TunnelHelper.digStepTowards(bot, BlockPos.containing(target));
+			if (step == TunnelHelper.StepResult.BUILDING) {
 				blocksPlaced++;
+			} else if (step == TunnelHelper.StepResult.MOVING) {
+				stepTicks = 10;
 			}
 		}
 
