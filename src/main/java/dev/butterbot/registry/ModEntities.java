@@ -21,7 +21,7 @@ public final class ModEntities {
 					.sized(0.6F, 1.8F)
 					.eyeHeight(1.62F)
 					.fireImmune()
-					.clientTrackingRange(10)
+					.clientTrackingRange(32)
 					.build(BUTTER_BOT_KEY));
 
 	public static void init() {

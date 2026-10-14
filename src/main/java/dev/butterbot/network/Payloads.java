@@ -87,6 +87,21 @@ public final class Payloads {
 		public static final int REFILL = 23;
 		/** Takes off the custom skin and puts on built-in skin {@code args[0]}. */
 		public static final int DEFAULT_SKIN = 24;
+		/** Job {@code args[0]} (a {@code BotJob} ordinal). */
+		public static final int JOB_SET = 25;
+		/** {@code args[0]} 1 pauses the job, 0 resumes it. */
+		public static final int JOB_PAUSE = 26;
+		/** Keep {@code args[0]} of item {@code text} in the job chest (0 takes it off the list). */
+		public static final int JOB_NEED = 27;
+		public static final int JOB_CLEAR_LIST = 28;
+		/** No-dig zone radius {@code args[0]}. */
+		public static final int JOB_ZONE = 29;
+		/** Patrol/farm radius {@code args[0]}. */
+		public static final int JOB_RADIUS = 30;
+		/** Work spot at {@code args[0..2]}, or the player's spot without args. */
+		public static final int JOB_CENTER = 31;
+		/** Job chest at {@code args[0..2]}, or no chest without args. */
+		public static final int JOB_CHEST = 32;
 
 		public static final Type<BotCommand> TYPE = typeOf("bot_command");
 		public static final StreamCodec<RegistryFriendlyByteBuf, BotCommand> CODEC = StreamCodec.of(
@@ -175,6 +190,8 @@ public final class Payloads {
 		public static final int CONTEXT = 7;
 		public static final int LIGHT = 8;
 		public static final int FETCH_HELD = 9;
+		/** Pauses every working bot, or puts them all back to work if none is working. */
+		public static final int JOB_TOGGLE = 10;
 
 		public static final Type<Hotkey> TYPE = typeOf("hotkey");
 		public static final StreamCodec<RegistryFriendlyByteBuf, Hotkey> CODEC = StreamCodec.of(
@@ -239,11 +256,55 @@ public final class Payloads {
 		}
 	}
 
+	/** One line of a job's list: {@code have} is -1 while the chest hasn't been looked at. */
+	public record NeedView(String item, int target, int have) {
+	}
+
+	/** A bot's job for the control panel. */
+	public record JobView(int job, boolean paused, Optional<BlockPos> chest, boolean chestOk, Optional<BlockPos> center,
+						  int zone, int radius, int stat, List<NeedView> needs) {
+		public static final JobView NONE = new JobView(0, false, Optional.empty(), false, Optional.empty(), 200, 30, 0, List.of());
+
+		static void write(RegistryFriendlyByteBuf buf, JobView v) {
+			buf.writeVarInt(v.job);
+			buf.writeBoolean(v.paused);
+			writeOptionalPos(buf, v.chest);
+			buf.writeBoolean(v.chestOk);
+			writeOptionalPos(buf, v.center);
+			buf.writeVarInt(v.zone);
+			buf.writeVarInt(v.radius);
+			buf.writeVarInt(v.stat);
+			buf.writeVarInt(v.needs.size());
+			for (NeedView need : v.needs) {
+				buf.writeUtf(need.item, 128);
+				buf.writeVarInt(need.target);
+				buf.writeVarInt(need.have + 1);
+			}
+		}
+
+		static JobView read(RegistryFriendlyByteBuf buf) {
+			int job = buf.readVarInt();
+			boolean paused = buf.readBoolean();
+			Optional<BlockPos> chest = readOptionalPos(buf);
+			boolean chestOk = buf.readBoolean();
+			Optional<BlockPos> center = readOptionalPos(buf);
+			int zone = buf.readVarInt();
+			int radius = buf.readVarInt();
+			int stat = buf.readVarInt();
+			int size = Math.min(buf.readVarInt(), 16);
+			List<NeedView> needs = new ArrayList<>(size);
+			for (int i = 0; i < size; i++) {
+				needs.add(new NeedView(buf.readUtf(128), buf.readVarInt(), buf.readVarInt() - 1));
+			}
+			return new JobView(job, paused, chest, chestOk, center, zone, radius, stat, needs);
+		}
+	}
+
 	/** Snapshot of one bot for the control panel. */
 	public record BotEntry(UUID id, String name, Component status, boolean neko, int task, String skinId,
 						   String script, int deliveryMode, int itemCount, BlockPos pos, boolean hasBase, float health,
 						   int level, int workXp, int storedXp, boolean guard, boolean autoTorch, boolean feedOwner,
-						   int smeltMode, boolean autoRefill, int skinVariant) {
+						   int smeltMode, boolean autoRefill, int skinVariant, JobView jobView) {
 
 		static void write(RegistryFriendlyByteBuf buf, BotEntry e) {
 			buf.writeUUID(e.id);
@@ -267,6 +328,7 @@ public final class Payloads {
 			buf.writeVarInt(e.smeltMode);
 			buf.writeBoolean(e.autoRefill);
 			buf.writeVarInt(e.skinVariant);
+			JobView.write(buf, e.jobView);
 		}
 
 		static BotEntry read(RegistryFriendlyByteBuf buf) {
@@ -274,7 +336,7 @@ public final class Payloads {
 					buf.readBoolean(), buf.readVarInt(), buf.readUtf(64), buf.readUtf(LuaProgram.MAX_SCRIPT_LENGTH),
 					buf.readVarInt(), buf.readVarInt(), buf.readBlockPos(), buf.readBoolean(), buf.readFloat(),
 					buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readBoolean(), buf.readBoolean(), buf.readBoolean(),
-					buf.readVarInt(), buf.readBoolean(), buf.readVarInt());
+					buf.readVarInt(), buf.readBoolean(), buf.readVarInt(), JobView.read(buf));
 		}
 	}
 

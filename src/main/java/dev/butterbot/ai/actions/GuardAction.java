@@ -6,6 +6,7 @@ import dev.butterbot.entity.BotState;
 import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.registry.ModSounds;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.LivingEntity;
@@ -44,6 +45,8 @@ public class GuardAction implements BotAction {
 	private static final int GIVE_UP_TICKS = 200;
 	private static final int FLEE_TICKS = 60;
 	private static final long IGNORE_TICKS = 20L * 30L;
+	/** A patrolling guard chases monsters this far past the edge of its area, no farther. */
+	private static final double PATROL_CHASE_MARGIN = 10.0D;
 
 	@Nullable
 	private Mob target;
@@ -182,7 +185,19 @@ public class GuardAction implements BotAction {
 			return mob.level() == bot.level() && bot.distanceToSqr(mob) < MAX_ORDERED_CHASE_SQ;
 		}
 		return mob.isAlive() && !mob.isRemoved() && mob.level() == bot.level()
-				&& bot.distanceToSqr(mob) < MAX_CHASE_SQ && isHostile(bot, mob) && !isIgnored(bot, mob);
+				&& withinChase(bot, mob) && isHostile(bot, mob) && !isIgnored(bot, mob);
+	}
+
+	/** Normally monsters near the bot; a patrolling guard keeps to its area instead. */
+	private static boolean withinChase(ButterBotEntity bot, Mob mob) {
+		BlockPos center = bot.getPatrolCenter();
+		if (center == null) {
+			return bot.distanceToSqr(mob) < MAX_CHASE_SQ;
+		}
+		double limit = bot.getPatrolRadius() + PATROL_CHASE_MARGIN;
+		double dx = mob.getX() - (center.getX() + 0.5D);
+		double dz = mob.getZ() - (center.getZ() + 0.5D);
+		return dx * dx + dz * dz < limit * limit && Math.abs(mob.getY() - center.getY()) < 16.0D;
 	}
 
 	@Nullable
@@ -195,6 +210,20 @@ public class GuardAction implements BotAction {
 			if (distance < bestDistance && !isIgnored(bot, mob) && bot.getSensing().hasLineOfSight(mob)) {
 				best = mob;
 				bestDistance = distance;
+			}
+		}
+		BlockPos center = bot.getPatrolCenter();
+		if (center != null) {
+			// Patrolling: every monster in the area, not just the ones next to the bot.
+			double radius = bot.getPatrolRadius();
+			AABB area = new AABB(center).inflate(radius, 8.0D, radius);
+			for (Mob mob : bot.level().getEntitiesOfClass(Mob.class, area, mob -> isHostile(bot, mob))) {
+				double distance = bot.distanceToSqr(mob);
+				if (distance < bestDistance && !isIgnored(bot, mob) && withinChase(bot, mob)
+						&& (bot.getSensing().hasLineOfSight(mob) || Math.abs(mob.getY() - center.getY()) < 6.0D)) {
+					best = mob;
+					bestDistance = distance;
+				}
 			}
 		}
 		Player owner = bot.getOwner();

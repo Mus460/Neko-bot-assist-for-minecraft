@@ -28,6 +28,7 @@ import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -40,7 +41,18 @@ public final class HotkeyHandler {
 	private static final int CONTEXT_WOOD_COUNT = 32;
 
 	public static void handle(ServerPlayer player, Payloads.Hotkey payload) {
-		List<ButterBotEntity> bots = BotAccess.listBots(player, Optional.empty());
+		List<ButterBotEntity> all = BotAccess.listBots(player, Optional.empty());
+		if (payload.action() == Payloads.Hotkey.JOB_TOGGLE) {
+			toggleJobs(player, all);
+			return;
+		}
+		// Bots with a job are listed from anywhere, but "all my bots" orders are for the ones around the player.
+		List<ButterBotEntity> bots = new ArrayList<>();
+		for (ButterBotEntity bot : all) {
+			if (BotAccess.isNearby(player, bot)) {
+				bots.add(bot);
+			}
+		}
 		if (bots.isEmpty()) {
 			fail(player, Component.translatable("butterbot.msg.no_bot_nearby", (int) BotAccess.DIRECT_RANGE));
 			return;
@@ -48,13 +60,17 @@ public final class HotkeyHandler {
 		ButterBotEntity nearest = bots.getFirst();
 		switch (payload.action()) {
 			case Payloads.Hotkey.CALL_ALL -> {
-				bots.forEach(ButterBotEntity::assignFollowTask);
+				for (ButterBotEntity bot : bots) {
+					bot.pauseJob();
+					bot.assignFollowTask();
+				}
 				tell(player, Component.translatable("butterbot.msg.hotkey_call", bots.size()));
 			}
 			case Payloads.Hotkey.HOME_ALL -> {
 				int sent = 0;
 				for (ButterBotEntity bot : bots) {
 					if (bot.getBasePos() != null) {
+						bot.pauseJob();
 						bot.assignGoToBaseTask();
 						sent++;
 					}
@@ -67,6 +83,7 @@ public final class HotkeyHandler {
 			}
 			case Payloads.Hotkey.STOP_ALL -> {
 				for (ButterBotEntity bot : bots) {
+					bot.pauseJob();
 					bot.clearTask();
 					bot.clearOrderedTarget();
 					bot.say(Component.translatable("butterbot.msg.stopping"));
@@ -92,7 +109,7 @@ public final class HotkeyHandler {
 				}
 			}
 			case Payloads.Hotkey.GUARD_TOGGLE -> {
-				boolean turnOn = bots.stream().anyMatch(bot -> !bot.isGuarding());
+				boolean turnOn = bots.stream().anyMatch(bot -> !bot.guardSetting());
 				for (ButterBotEntity bot : bots) {
 					bot.setGuarding(turnOn);
 					bot.say(Component.translatable(turnOn ? "butterbot.msg.guard_on" : "butterbot.msg.guard_off"));
@@ -112,6 +129,26 @@ public final class HotkeyHandler {
 			default -> {
 			}
 		}
+	}
+
+	/** Pauses every bot that is working at its job; if none is, puts every bot with a job back to work. */
+	private static void toggleJobs(ServerPlayer player, List<ButterBotEntity> bots) {
+		List<ButterBotEntity> withJob = new ArrayList<>();
+		for (ButterBotEntity bot : bots) {
+			if (bot.hasJob()) {
+				withJob.add(bot);
+			}
+		}
+		if (withJob.isEmpty()) {
+			fail(player, Component.translatable("butterbot.msg.hotkey_no_jobs"));
+			return;
+		}
+		boolean pause = withJob.stream().anyMatch(bot -> !bot.getJobs().isPaused());
+		for (ButterBotEntity bot : withJob) {
+			JobControl.setPaused(bot, pause);
+		}
+		tell(player, Component.translatable(pause ? "butterbot.msg.hotkey_jobs_paused" : "butterbot.msg.hotkey_jobs_resumed",
+				withJob.size()));
 	}
 
 	/** "Do what I'm looking at": mine an ore, fell a tree, farm, sort chests, attack, or just go there. */

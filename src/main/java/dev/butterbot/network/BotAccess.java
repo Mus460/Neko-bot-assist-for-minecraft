@@ -2,6 +2,7 @@ package dev.butterbot.network;
 
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.registry.ModBlocks;
+import dev.butterbot.registry.ModEntities;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -20,13 +21,14 @@ import java.util.UUID;
 
 /**
  * Server-side validation for every control packet: the player must own the bot and either stand
- * at a Bot Base (bot within 200 blocks of it) or be within 200 blocks of the bot itself.
+ * at a Bot Base (bot within 500 blocks of it) or be within 500 blocks of the bot itself. Bots with a
+ * job work far away, so those can be reached from anywhere in the same dimension.
  */
 public final class BotAccess {
 
 	public static final double BASE_USE_DISTANCE_SQ = 8.0D * 8.0D;
-	public static final double BASE_RANGE = 200.0D;
-	public static final double DIRECT_RANGE = 200.0D;
+	public static final double BASE_RANGE = 500.0D;
+	public static final double DIRECT_RANGE = 500.0D;
 
 	public static boolean isValidBase(ServerPlayer player, Optional<BlockPos> base) {
 		if (base.isEmpty()) {
@@ -48,7 +50,7 @@ public final class BotAccess {
 		if (isValidBase(player, base) && bot.distanceToSqr(Vec3.atCenterOf(base.get())) <= BASE_RANGE * BASE_RANGE) {
 			return bot;
 		}
-		if (player.distanceToSqr(bot) <= DIRECT_RANGE * DIRECT_RANGE) {
+		if (player.distanceToSqr(bot) <= DIRECT_RANGE * DIRECT_RANGE || bot.hasJob()) {
 			return bot;
 		}
 		return null;
@@ -66,10 +68,16 @@ public final class BotAccess {
 		}
 		found.addAll(level.getEntitiesOfClass(ButterBotEntity.class, player.getBoundingBox().inflate(DIRECT_RANGE),
 				bot -> bot.isAlive() && bot.isOwnedBy(player)));
+		found.addAll(level.getEntities(ModEntities.BUTTER_BOT, bot -> bot.isAlive() && bot.isOwnedBy(player) && bot.hasJob()));
 		List<ButterBotEntity> list = new ArrayList<>(found);
 		Vec3 center = sortCenter;
 		list.sort(Comparator.comparingDouble(bot -> bot.distanceToSqr(center)));
 		return list;
+	}
+
+	/** True if {@code bot} is close enough for orders meant for "the bots around me". */
+	public static boolean isNearby(ServerPlayer player, ButterBotEntity bot) {
+		return bot.level() == player.level() && player.distanceToSqr(bot) <= DIRECT_RANGE * DIRECT_RANGE;
 	}
 
 	private BotAccess() {

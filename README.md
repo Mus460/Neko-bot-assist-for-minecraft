@@ -33,7 +33,7 @@ Bot Base adalah peti 27 slot tempat bot menyimpan hasil kerja. Bisa dipakai hopp
 
 - Dapatkan gratis dengan `/butterbot getbase`, atau craft: 1 Chest di tengah, 4 Iron Ingot di sisi, 4 Redstone di sudut.
 - Bot milikmu dalam radius 64 blok otomatis tertaut ke base yang baru ditaruh.
-- Klik kanan base untuk mengatur semua bot di sekitarnya (radius 200 blok). Jongkok + klik kanan untuk membuka storage.
+- Klik kanan base untuk mengatur semua bot di sekitarnya (radius 500 blok). Jongkok + klik kanan untuk membuka storage.
 
 ### Kontrol cepat
 
@@ -62,6 +62,9 @@ Semua tombol bisa diganti di **Options → Controls → Key Binds**, bagian **Bu
 | `I` | Terangi area 24 blok di sekitarmu |
 | `M` | Ambilkan satu tumpuk lagi barang yang sedang kamu pegang |
 | `]` | Tampilkan/sembunyikan daftar bot di pojok layar |
+| `[` | **Jeda semua job**, atau kalau semua sedang dijeda, suruh semua bot kerja lagi |
+
+`H`, `N` dan `J` hanya berlaku untuk bot dalam 500 blok darimu, dan sekaligus menjeda job bot itu (tekan `[` untuk menyuruh mereka kerja lagi).
 
 `Z` (kerjakan yang kamu lihat) memilih bot terdekat dan menyesuaikan perintah dengan yang kamu lihat:
 
@@ -74,6 +77,32 @@ Semua tombol bisa diganti di **Options → Controls → Key Binds**, bagian **Bu
 - **bot milikmu** → buka panelnya;
 - **blok lain** → bot berjalan ke sana lalu **menunggu di situ** sampai diberi perintah lain.
 
+### Job (pekerjaan tetap)
+
+Setiap bot bisa diberi **job**: pekerjaan tetap yang terus dikerjakan selama kamu tidak memberinya perintah lain. Perintah biasa (tambang, ikuti, ambilkan, dll.) tetap bisa dipakai; setelah selesai, bot otomatis kembali ke job-nya. Atur di panel bot (tombol `B` atau klik kanan bot), tab **Job**.
+
+| Job | Yang dikerjakan |
+|---|---|
+| **Penambang** | Menggali bijih dan batu: batu bara, besi, tembaga, emas, redstone, lapis, berlian, zamrud, cobblestone, cobbled deepslate, andesit, diorit, granit, tuff, kerikil |
+| **Pengumpul** | Mengumpulkan barang permukaan: 9 jenis kayu, pasir, pasir merah, tanah, tebu, kaktus, labu, semangka, bambu, bola salju, biji gandum |
+| **Penjaga** | Patroli di sekitar titik pilihanmu (radius 30 blok, bisa 6–64), melawan semua monster di area itu, memungut loot dan XP yang tergeletak, lalu menyimpan loot ke peti di area itu |
+| **Petani** | Memanen dan menanam ulang ladang di sekitar titik pilihanmu (radius 16 blok, bisa 6–32) terus-menerus. Hasil panen masuk ke peti pilihanmu (atau Bot Base) |
+
+**Penambang dan Pengumpul** bekerja dengan **satu peti khusus** dan **daftar barang**:
+
+1. Pilih job, lalu tekan **Pilih peti (Z)**: panel tertutup, lihat ke peti (atau barrel / Bot Base) lalu tekan `Z`.
+2. Klik **+ Tambah** dan pilih barangnya (maksimal 9 barang). Jumlahnya diatur dengan tombol −64 / −16 / +16 / +64.
+3. Bot memilih barang pertama yang masih kurang di peti, pergi ke lokasi kerja dan mencarinya, lalu menyetorkannya ke peti. Ini diulang **sampai semua jumlah di daftar ada di peti**. Angka di tiap kotak menunjukkan isi peti / target.
+4. Setelah daftar lengkap, bot menunggu di dekat peti. Kalau kamu mengambil barang dari peti sampai kurang dari target, bot langsung berangkat kerja lagi.
+
+**Zona larangan**: Penambang dan Pengumpul **tidak pernah menggali atau menebang dalam 200 blok dari Bot Base** (dari peti job kalau bot belum punya base). Jaraknya bisa diubah per 25 blok (0–1000). Bot memilih lokasi kerja di luar zona itu, sebisa mungkin di biome yang cocok (misalnya hutan birch untuk kayu birch, gurun untuk pasir dan kaktus, gunung untuk zamrud). Lokasi yang ternyata kosong tidak didatangi lagi; kalau 6 lokasi berturut-turut kosong, barang itu dilewati dulu selama 10 menit. Perintah manual (misalnya `Z` ke bijih) tetap boleh dipakai dekat base.
+
+Bot yang punya job **tetap bekerja walaupun kamu jauh**: area kecil di sekitar bot tetap dimuat game, jadi penambang 300 blok dari base tidak berhenti. Lokasi yang jauh didatangi dengan teleport (lokasinya dimuat dulu). Setelah menyetor, bot kembali tepat ke terowongannya. Bot ber-job bisa diatur dari panel dan perintah dari jarak berapa pun (di dimensi yang sama), dan selalu muncul di HUD.
+
+**Penjaga**: tekan **Di sini** (titik = tempatmu berdiri) atau **Pilih (Z)**. Peti loot bisa dipilih dengan **Peti (Z)**; dengan **Auto**, bot memakai peti terdekat di area patrolinya. Yang dipungut hanya barang yang tidak dibuang pemain (loot monster dan sejenisnya).
+
+**Jeda**: tombol **Jeda / Lanjut** di tab Job, `/butterbot job pause|resume`, atau `[` untuk semua bot sekaligus.
+
 ### Daftar bot di layar (HUD)
 
 Di pojok kiri atas tampil semua bot milikmu: nama, level, bar darah, apa yang sedang dikerjakan, jaraknya darimu (atau "dimensi lain"), dan isi tas. Daftar disembunyikan otomatis saat layar F3 terbuka. Tekan `]` untuk menyembunyikan atau menampilkannya (pilihan ini diingat).
@@ -81,6 +110,7 @@ Di pojok kiri atas tampil semua bot milikmu: nama, level, bar darah, apa yang se
 ### Tab panel kontrol
 
 - **Bot Saya**: daftar bot dan tombol lepaskan kepemilikan (✖).
+- **Job**: pilih pekerjaan tetap bot dan atur peti, daftar barang, zona larangan atau area kerjanya (lihat [Job](#job-pekerjaan-tetap)).
 - **Kontrol**: pulang ke base, ikuti aku, berhenti, antar sekarang, buka tas (18 slot), laporan status, tujuan antar (aku / base), tautkan base, ganti nama.
 - **Tambang**: berlian, besi, emas, tembaga, batu bara, redstone, lapis, zamrud, batu, kayu, pasir. Bot menggali tangga turun ke ketinggian terbaik, lalu membuat cabang terowongan. Bijih lain yang kebetulan tergali ikut disimpan. Untuk kayu, bot menebang **seluruh pohon** sekaligus lalu menanam bibitnya. Tombol **Cari** memberi tahu koordinat blok terdekat (lihat [Cari bijih](#cari-bijih)).
 - **Bertani**: tombol **Mulai bertani**, **Rapikan peti** dan **Terangi area** (lihat [Bertani](#bertani), [Rapikan peti](#rapikan-peti) dan [Terangi area](#terangi-area)).
@@ -104,7 +134,7 @@ Semua aktif sejak awal dan bisa dimatikan di tab **Level** atau lewat perintah c
 - **Suapi aku**: kalau bar laparmu tinggal 7 drumstick atau kurang dan kamu dalam 6 blok, bot memberimu makanan terbaik dari tasnya. Makanan dengan efek samping (daging busuk, mata laba-laba, apel emas, chorus fruit) dan sup tidak pernah diberikan.
 - **Pulih sendiri**: 5 detik setelah terakhir terluka, HP bot pulih sedikit demi sedikit. Saat HP di bawah 50%, bot juga makan dari tasnya.
 - **Tidak merusak ladang**: bot tidak menginjak farmland sampai rusak.
-- **Penjaga barang saat kamu mati**: begitu kamu mati, bot terdekat (dalam 200 blok) berlari ke tempatmu mati dan memungut semua barang dan XP yang jatuh sebelum hilang. Koordinat tempatmu mati muncul di chat. Setelah kamu bangkit, bot menyusulmu (juga ke dimensi lain), mengembalikan barangnya, dan langsung memakaikan armor ke slot armor yang kosong. Barang yang dibawanya tidak hilang walaupun dunia disimpan atau bot ikut mati. `/butterbot death` menampilkan lagi tempat terakhir kamu mati.
+- **Penjaga barang saat kamu mati**: begitu kamu mati, bot terdekat (dalam 500 blok) berlari ke tempatmu mati dan memungut semua barang dan XP yang jatuh sebelum hilang. Koordinat tempatmu mati muncul di chat. Setelah kamu bangkit, bot menyusulmu (juga ke dimensi lain), mengembalikan barangnya, dan langsung memakaikan armor ke slot armor yang kosong. Barang yang dibawanya tidak hilang walaupun dunia disimpan atau bot ikut mati. `/butterbot death` menampilkan lagi tempat terakhir kamu mati.
 - **Isi ulang hotbar**: saat bot dalam 8 blok darimu, tumpukan block, obor, makanan, panah, roket kembang api, ender pearl, snowball, bone meal dan wind charge di hotbar yang tinggal seperempat atau kurang diisi lagi. Bot mengambil dulu dari inventory-mu sendiri, lalu dari tasnya, lalu dari Bot Base kalau ia berada dekat base. Tumpukan yang habis sama sekali juga diisi lagi kalau bot punya barangnya.
 
 ### Anti nyangkut
@@ -185,7 +215,7 @@ Tombol **Terangi area** di tab **Bertani**, tombol `I`, atau ketik `/butterbot l
 
 ### Perintah chat
 
-Semua perintah bisa dipakai tanpa cheat. Perintah kerja berlaku untuk bot milikmu yang terdekat (radius 200 blok).
+Semua perintah bisa dipakai tanpa cheat. Perintah kerja berlaku untuk bot milikmu yang terdekat (radius 500 blok; bot yang punya job bisa diatur dari jarak berapa pun).
 
 ```
 /butterbot summon [nama]          panggil bot baru
@@ -211,6 +241,17 @@ Semua perintah bisa dipakai tanpa cheat. Perintah kerja berlaku untuk bot milikm
 /butterbot death                  tempat terakhir kamu mati
 /butterbot skin <1-5>             pakai skin neko bawaan nomor 1-5
 /butterbot base | follow | come | deliver | stop | status | list
+/butterbot job                    info job bot terdekat (isi peti, daftar, area)
+/butterbot job set <miner|gatherer|guard|farmer|none>
+                                  (juga: penambang, pengumpul, penjaga, petani, asisten)
+/butterbot job chest [clear]      jadikan peti yang kamu lihat sebagai peti job
+/butterbot job need <item> [jumlah]   tambah/ubah barang di daftar (0 = hapus)
+/butterbot job remove <item>      hapus barang dari daftar
+/butterbot job clear              kosongkan daftar
+/butterbot job zone <0-1000>      zona larangan gali dari base (bawaan 200)
+/butterbot job center             titik kerja penjaga/petani = posisimu
+/butterbot job radius <6-64>      radius patroli/ladang
+/butterbot job pause | resume     jeda / lanjutkan job
 ```
 
 ## Skin

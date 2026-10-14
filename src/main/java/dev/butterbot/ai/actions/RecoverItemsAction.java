@@ -4,6 +4,7 @@ import dev.butterbot.ai.BotAction;
 import dev.butterbot.ai.Walker;
 import dev.butterbot.entity.BotState;
 import dev.butterbot.entity.ButterBotEntity;
+import dev.butterbot.network.BotAccess;
 import dev.butterbot.util.Msg;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
@@ -183,7 +184,7 @@ public class RecoverItemsAction implements BotAction {
 		String where = spot.getX() + " " + spot.getY() + " " + spot.getZ();
 		ButterBotEntity nearest = null;
 		double best = Double.MAX_VALUE;
-		for (ButterBotEntity bot : level.getEntitiesOfClass(ButterBotEntity.class, player.getBoundingBox().inflate(200.0D),
+		for (ButterBotEntity bot : level.getEntitiesOfClass(ButterBotEntity.class, player.getBoundingBox().inflate(BotAccess.DIRECT_RANGE),
 				bot -> bot.isAlive() && bot.isOwnedBy(player))) {
 			double distance = bot.distanceToSqr(player);
 			if (distance < best) {

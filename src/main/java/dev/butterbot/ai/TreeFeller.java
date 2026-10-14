@@ -46,6 +46,9 @@ public final class TreeFeller {
 			roots.add(origin);
 		}
 		for (BlockPos log : logs) {
+			if (bot.isJobZoneBlocked(log)) {
+				continue;
+			}
 			if (isRoot(level, log)) {
 				roots.add(log);
 			}

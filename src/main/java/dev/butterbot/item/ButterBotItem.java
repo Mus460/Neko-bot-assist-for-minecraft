@@ -2,6 +2,7 @@ package dev.butterbot.item;
 
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.entity.DeliveryMode;
+import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
 import dev.butterbot.registry.ModEntities;
 import dev.butterbot.registry.ModItems;
@@ -91,6 +92,7 @@ public class ButterBotItem extends Item {
 		bot.setAutoRefill(tag.getBooleanOr("AutoRefill", true));
 		bot.setSmeltMode(SmeltMode.byOrdinal(tag.getIntOr("SmeltMode", SmeltMode.ORES.ordinal())));
 		tag.getLong("Base").ifPresent(base -> bot.setBasePos(BlockPos.of(base)));
+		tag.read("Job", JobConfig.Data.CODEC).ifPresent(job -> bot.getJobs().load(job));
 		String name = tag.getStringOr("Name", "");
 		if (!name.isEmpty()) {
 			bot.setCustomName(Component.literal(name));
@@ -109,13 +111,16 @@ public class ButterBotItem extends Item {
 		tag.putInt("Level", bot.getBotLevel());
 		tag.putInt("WorkXp", bot.getWorkXp());
 		tag.putInt("StoredXp", bot.getStoredXp());
-		tag.putBoolean("Guard", bot.isGuarding());
+		tag.putBoolean("Guard", bot.guardSetting());
 		tag.putBoolean("AutoTorch", bot.placesTorchesWhileMining());
 		tag.putBoolean("FeedOwner", bot.feedsOwner());
 		tag.putBoolean("AutoRefill", bot.refillsHotbar());
 		tag.putInt("SmeltMode", bot.getSmeltMode().ordinal());
 		if (bot.getBasePos() != null) {
 			tag.putLong("Base", bot.getBasePos().asLong());
+		}
+		if (bot.hasJob()) {
+			tag.store("Job", JobConfig.Data.CODEC, bot.getJobs().save());
 		}
 		if (bot.hasCustomName()) {
 			tag.putString("Name", bot.getName().getString());

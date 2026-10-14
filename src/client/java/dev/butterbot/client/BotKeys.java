@@ -10,6 +10,8 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.phys.AABB;
@@ -19,6 +21,7 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Shortcut keys for the bots. All of them can be changed under Options, Controls, Key Binds,
@@ -41,6 +44,30 @@ public final class BotKeys {
 	private static final KeyMapping LIGHT = key("light", InputConstants.KEY_I);
 	private static final KeyMapping FETCH = key("fetch", InputConstants.KEY_M);
 	private static final KeyMapping HUD = key("hud", InputConstants.KEY_RBRACKET);
+	private static final KeyMapping JOBS = key("jobs", InputConstants.KEY_LBRACKET);
+
+	/** What the next press of the context key picks for a bot's job (set from the Job tab). */
+	public enum PickKind {CHEST, CENTER}
+
+	private static final long PICK_MILLIS = 30_000L;
+	private static UUID pickBot;
+	private static PickKind pickKind;
+	private static Optional<BlockPos> pickBase = Optional.empty();
+	private static long pickUntil;
+	private static int pickHintTicks;
+
+	/** Waits for the player to look at a chest (or a spot) and press the context key. */
+	public static void beginPick(UUID bot, Optional<BlockPos> base, PickKind kind) {
+		pickBot = bot;
+		pickKind = kind;
+		pickBase = base;
+		pickUntil = System.currentTimeMillis() + PICK_MILLIS;
+		pickHintTicks = 0;
+	}
+
+	private static boolean picking() {
+		return pickBot != null && System.currentTimeMillis() < pickUntil;
+	}
 
 	private static KeyMapping key(String name, int defaultKey) {
 		return KeyMappingHelper.registerKeyMapping(new KeyMapping("key.butterbot." + name, InputConstants.Type.KEYBOARD, defaultKey, CATEGORY));
@@ -55,6 +82,7 @@ public final class BotKeys {
 		boolean connected = player != null && minecraft.getConnection() != null
 				&& ClientPlayNetworking.canSend(Payloads.Hotkey.TYPE);
 		while (PANEL.consumeClick()) {
+			pickBot = null;
 			if (connected) {
 				minecraft.gui.setScreen(new BotControlScreen(Optional.empty(), null));
 			}
@@ -70,11 +98,38 @@ public final class BotKeys {
 		send(connected, GUARD, Payloads.Hotkey.GUARD_TOGGLE);
 		send(connected, LIGHT, Payloads.Hotkey.LIGHT);
 		send(connected, FETCH, Payloads.Hotkey.FETCH_HELD);
+		send(connected, JOBS, Payloads.Hotkey.JOB_TOGGLE);
+		if (connected && picking() && pickHintTicks-- <= 0) {
+			pickHintTicks = 20;
+			player.sendOverlayMessage(Component.translatable(pickKind == PickKind.CHEST
+					? "butterbot.gui.pick_chest_hint" : "butterbot.gui.pick_spot_hint", CONTEXT.getTranslatedKeyMessage()));
+		}
 		while (CONTEXT.consumeClick()) {
-			if (connected) {
+			if (!connected) {
+				continue;
+			}
+			if (picking()) {
+				pick(minecraft, player);
+			} else {
+				pickBot = null;
 				pointAt(player);
 			}
 		}
+	}
+
+	/** Sends the looked-at block as the bot's job chest or work spot, then reopens the panel. */
+	private static void pick(Minecraft minecraft, LocalPlayer player) {
+		HitResult hit = player.pick(POINT_RANGE, 1.0F, false);
+		if (!(hit instanceof BlockHitResult blockHit) || hit.getType() != HitResult.Type.BLOCK) {
+			player.sendOverlayMessage(Component.translatable("butterbot.gui.pick_nothing"));
+			return;
+		}
+		BlockPos pos = pickKind == PickKind.CENTER ? blockHit.getBlockPos().above() : blockHit.getBlockPos();
+		int action = pickKind == PickKind.CHEST ? Payloads.BotCommand.JOB_CHEST : Payloads.BotCommand.JOB_CENTER;
+		ClientPlayNetworking.send(new Payloads.BotCommand(pickBase, pickBot, action, "", new int[]{pos.getX(), pos.getY(), pos.getZ()}));
+		UUID bot = pickBot;
+		pickBot = null;
+		minecraft.gui.setScreen(new BotControlScreen(pickBase, bot));
 	}
 
 	private static void send(boolean connected, KeyMapping key, int action) {
