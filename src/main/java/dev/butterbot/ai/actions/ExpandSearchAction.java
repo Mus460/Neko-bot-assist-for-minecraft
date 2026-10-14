@@ -10,7 +10,7 @@ import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.ai.util.DefaultRandomPos;
+import net.minecraft.world.entity.ai.util.LandRandomPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -18,7 +18,9 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * When nothing is in scan range: underground resources make the bot dig a staircase down to the
- * resource's best Y level and then branch-mine; surface resources make it roam.
+ * resource's best Y level and then branch-mine; surface resources make it explore in one general
+ * direction (not back and forth). Breaking off to mine a find doesn't lose the way: the bot carries
+ * on in the same direction afterwards, and the search effort only starts over after a find.
  */
 public class ExpandSearchAction implements BotAction {
 
@@ -30,6 +32,8 @@ public class ExpandSearchAction implements BotAction {
 	private static final int BRANCH_LENGTH = 24;
 	/** Turning this often without getting anywhere means the bot is boxed in: it climbs out. */
 	private static final int TURNS_BEFORE_CLIMBING = 8;
+	/** How far ahead each exploring walk aims. */
+	private static final double ROAM_AHEAD = 32.0D;
 
 	private Direction tunnelDirection = Direction.NORTH;
 	private int effort;
@@ -42,6 +46,10 @@ public class ExpandSearchAction implements BotAction {
 	private BlockPos lastFeet;
 	@Nullable
 	private Vec3 lastPosition;
+	/** The mining order this search belongs to; a new order starts a fresh search. */
+	private int run = Integer.MIN_VALUE;
+	private int collectedAtStop;
+	private double roamAngle;
 
 	@Override
 	public int getPriority(ButterBotEntity bot) {
@@ -60,10 +68,17 @@ public class ExpandSearchAction implements BotAction {
 	@Override
 	public void start(ButterBotEntity bot) {
 		bot.setBotState(BotState.SEARCHING);
-		tunnelDirection = bot.getDirection();
-		effort = 0;
-		branchSteps = 0;
-		gaveUp = false;
+		if (bot.getMineRun() != run) {
+			run = bot.getMineRun();
+			tunnelDirection = bot.getDirection();
+			roamAngle = Math.toRadians(bot.getYRot() + 90.0F);
+			effort = 0;
+			branchSteps = 0;
+			gaveUp = false;
+		} else if (bot.getCollectedCount() > collectedAtStop) {
+			// Found something since last time: this area is worth digging on.
+			effort = 0;
+		}
 		moveCooldown = 0;
 		positionCheckCooldown = POSITION_CHECK_INTERVAL_TICKS;
 		turnsInPlace = 0;
@@ -152,26 +167,42 @@ public class ExpandSearchAction implements BotAction {
 
 	private void roamStep(ButterBotEntity bot) {
 		if (!bot.getNavigation().isDone()) {
-			trackStuck(bot);
+			if (--positionCheckCooldown <= 0) {
+				positionCheckCooldown = POSITION_CHECK_INTERVAL_TICKS;
+				if (lastPosition != null && bot.position().distanceToSqr(lastPosition) < STUCK_MOVEMENT_THRESHOLD_SQ) {
+					// Walking into a wall or a cliff: try another direction.
+					bot.getNavigation().stop();
+					turnRoam(bot);
+				}
+				lastPosition = bot.position();
+			}
 			return;
 		}
-		Vec3 destination = DefaultRandomPos.getPos(bot, 20, 7);
 		if (bot.isJobDriven()) {
-			// Job runs roam away from the base's no-dig zone rather than back into it.
+			// Job runs explore away from the base's no-dig zone rather than back into it.
 			BlockPos middle = bot.getJobs().zoneCenter(bot.getBasePos());
 			int zone = bot.getJobs().zone();
 			if (middle != null && zone > 0 && bot.blockPosition().distSqr(middle.atY(bot.getBlockY())) < (zone + 32.0D) * (zone + 32.0D)) {
-				Vec3 away = DefaultRandomPos.getPosAway(bot, 20, 7, Vec3.atCenterOf(middle));
-				if (away != null) {
-					destination = away;
-				}
+				roamAngle = Math.atan2(bot.getZ() - (middle.getZ() + 0.5D), bot.getX() - (middle.getX() + 0.5D));
 			}
 		}
-		if (destination != null) {
+		// Keep heading the same general way, drifting a little so the search covers a strip of land.
+		roamAngle += (bot.getRandom().nextDouble() - 0.5D) * 0.5D;
+		Vec3 ahead = bot.position().add(Math.cos(roamAngle) * ROAM_AHEAD, 0.0D, Math.sin(roamAngle) * ROAM_AHEAD);
+		Vec3 destination = LandRandomPos.getPosTowards(bot, 20, 7, ahead);
+		if (destination == null) {
+			turnRoam(bot);
+		} else {
 			bot.getNavigation().moveTo(destination.x, destination.y, destination.z, 1.0D);
+			positionCheckCooldown = POSITION_CHECK_INTERVAL_TICKS;
+			lastPosition = bot.position();
 		}
 		effort++;
 		checkEffortCap(bot);
+	}
+
+	private void turnRoam(ButterBotEntity bot) {
+		roamAngle += (bot.getRandom().nextBoolean() ? 1.0D : -1.0D) * (Math.PI / 2.0D + bot.getRandom().nextDouble() * Math.PI / 4.0D);
 	}
 
 	private boolean digFirstObstacle(ButterBotEntity bot, Level level, BlockPos[] cells) {
@@ -253,5 +284,6 @@ public class ExpandSearchAction implements BotAction {
 	public void stop(ButterBotEntity bot) {
 		bot.getNavigation().stop();
 		bot.getMiner().cancel();
+		collectedAtStop = bot.getCollectedCount();
 	}
 }

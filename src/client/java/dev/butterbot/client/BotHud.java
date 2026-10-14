@@ -8,9 +8,12 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.util.Util;
+import net.minecraft.world.item.ItemStack;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -19,16 +22,19 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Small list of the player's bots in the top-left corner: name, level, health bar, what each bot
- * is doing and how far away it is. Toggled with a key (default ]); the choice is remembered.
+ * A slim list of the player's bots in the top-left corner, one line per bot: a health strip, a small
+ * icon for the job, the name, what it is doing and how far away it is ("Full" when its bag is
+ * nearly full). Toggled with a key (default ]); the choice is remembered.
  */
 public final class BotHud implements HudElement {
 
 	private static final Path SETTINGS = FabricLoader.getInstance().getConfigDir().resolve("butterbot").resolve("hud.txt");
 	private static final long STALE_MILLIS = 5000L;
-	private static final int WIDTH = 150;
-	private static final int ROW_HEIGHT = 25;
+	private static final int WIDTH = 136;
+	private static final int ROW_HEIGHT = 11;
 	private static final int MAX_ROWS = 6;
+	private static final int NAME_WIDTH = 44;
+	private static final float FULL_BAG = 0.9F;
 
 	private static List<Payloads.HudBot> bots = List.of();
 	private static long receivedAt;
@@ -73,34 +79,54 @@ public final class BotHud implements HudElement {
 			return;
 		}
 		Font font = minecraft.font;
-		int x = 4;
-		int y = 4;
+		int x = 3;
+		int y = 3;
 		int rows = Math.min(MAX_ROWS, bots.size());
-		g.fill(x - 3, y - 3, x + WIDTH + 3, y + rows * ROW_HEIGHT - 1, 0x70000000);
+		boolean more = bots.size() > MAX_ROWS;
+		g.fill(x - 2, y - 2, x + WIDTH + 2, y + rows * ROW_HEIGHT + (more ? ROW_HEIGHT : 0), 0x60000000);
 		for (int i = 0; i < rows; i++) {
 			Payloads.HudBot bot = bots.get(i);
 			int rowY = y + i * ROW_HEIGHT;
 
-			String name = font.plainSubstrByWidth(bot.name(), WIDTH - 70);
-			g.text(font, name, x, rowY, 0xFFFFFFFF, true);
-			g.text(font, "Lv" + bot.level(), x + font.width(name) + 4, rowY, 0xFFFFC94A, true);
-			String where = bot.distance() < 0 ? Component.translatable("butterbot.hud.other_dimension").getString() : bot.distance() + "m";
-			g.text(font, where, x + WIDTH - font.width(where), rowY, 0xFFB8B8B8, true);
-
+			// Health as a thin strip on the left, filling up from the bottom.
 			float health = bot.maxHealth() <= 0.0F ? 0.0F : Mth.clamp(bot.health() / bot.maxHealth(), 0.0F, 1.0F);
-			int barY = rowY + 10;
-			g.fill(x, barY, x + WIDTH, barY + 2, 0xFF2A2A2A);
-			g.fill(x, barY, x + Math.round(WIDTH * health), barY + 2, healthColor(health));
+			int filled = Math.max(1, Math.round(8 * health));
+			g.fill(x, rowY, x + 2, rowY + 8, 0xFF2A2A2A);
+			g.fill(x, rowY + 8 - filled, x + 2, rowY + 8, healthColor(health));
 
-			String status = bot.status().getString();
-			String items = bot.items() + "/" + bot.capacity();
-			int statusWidth = WIDTH - font.width(items) - 6;
-			g.text(font, font.plainSubstrByWidth(status, statusWidth), x, rowY + 14, 0xFFD8D8D8, true);
-			g.text(font, items, x + WIDTH - font.width(items), rowY + 14, bot.items() >= bot.capacity() ? 0xFFFF7A6A : 0xFF9AD27A, true);
+			ItemStack icon = iconOf(bot.icon());
+			if (!icon.isEmpty()) {
+				g.pose().pushMatrix();
+				g.pose().translate(x + 4, rowY);
+				g.pose().scale(0.5F);
+				g.item(icon, 0, 0);
+				g.pose().popMatrix();
+			}
+
+			int textX = x + 14;
+			String name = font.plainSubstrByWidth(bot.name(), NAME_WIDTH);
+			g.text(font, name, textX, rowY, 0xFFFFFFFF, true);
+
+			boolean full = bot.capacity() > 0 && bot.items() >= bot.capacity() * FULL_BAG;
+			String where = bot.distance() < 0 ? Component.translatable("butterbot.hud.other_dimension").getString() : bot.distance() + "m";
+			String right = full ? Component.translatable("butterbot.hud.full").getString() + " " + where : where;
+			int rightX = x + WIDTH - font.width(right);
+			g.text(font, right, rightX, rowY, full ? 0xFFFF7A6A : 0xFFA0A0A0, true);
+
+			int statusX = textX + font.width(name) + 4;
+			int statusWidth = rightX - 4 - statusX;
+			if (statusWidth > 8) {
+				g.text(font, font.plainSubstrByWidth(bot.status().getString(), statusWidth), statusX, rowY, 0xFFCFCFCF, true);
+			}
 		}
-		if (bots.size() > MAX_ROWS) {
-			g.text(font, "+" + (bots.size() - MAX_ROWS), x, y + rows * ROW_HEIGHT + 1, 0xFFB8B8B8, true);
+		if (more) {
+			g.text(font, "+" + (bots.size() - MAX_ROWS), x + 14, y + rows * ROW_HEIGHT, 0xFFA0A0A0, true);
 		}
+	}
+
+	private static ItemStack iconOf(String id) {
+		Identifier identifier = id.isEmpty() ? null : Identifier.tryParse(id);
+		return identifier == null ? ItemStack.EMPTY : new ItemStack(BuiltInRegistries.ITEM.getValue(identifier));
 	}
 
 	private static int healthColor(float fraction) {

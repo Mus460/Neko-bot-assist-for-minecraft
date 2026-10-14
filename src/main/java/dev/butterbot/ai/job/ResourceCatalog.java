@@ -163,7 +163,7 @@ public final class ResourceCatalog {
 	}
 
 	/** A log that belongs to a real tree (natural leaves at the top), so houses made of logs are left alone. */
-	private static boolean isNaturalTree(BlockGetter level, BlockPos pos, BlockState state) {
+	public static boolean isNaturalTree(BlockGetter level, BlockPos pos, BlockState state) {
 		BlockPos.MutableBlockPos cursor = pos.mutable();
 		int climbed = 0;
 		while (climbed < 40 && level.getBlockState(cursor.above()).is(state.getBlock())) {

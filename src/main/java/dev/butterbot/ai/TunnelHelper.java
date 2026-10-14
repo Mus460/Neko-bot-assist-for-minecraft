@@ -142,7 +142,8 @@ public final class TunnelHelper {
 		return level.getBlockState(pos).getCollisionShape(level, pos).isEmpty();
 	}
 
-	private static boolean canClear(ButterBotEntity bot, BlockPos pos, BlockState state) {
+	/** True if the bot may dig through this block to get somewhere (natural ground it is allowed to dig). */
+	public static boolean canClear(ButterBotEntity bot, BlockPos pos, BlockState state) {
 		return isNaturalTerrain(state) && bot.canDig(pos, state);
 	}
 
