@@ -17,5 +17,183 @@
         "volume": 0.7
       }
     ]
+  },
+  "voice.hello": {
+    "subtitle": "subtitles.butterbot.voice.hello",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_hello1",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_hello2",
+        "stream": false
+      }
+    ]
+  },
+  "voice.ok": {
+    "subtitle": "subtitles.butterbot.voice.ok",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_ok1",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_ok2",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_ok3",
+        "stream": false
+      }
+    ]
+  },
+  "voice.done": {
+    "subtitle": "subtitles.butterbot.voice.done",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_done1",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_done2",
+        "stream": false
+      }
+    ]
+  },
+  "voice.give": {
+    "subtitle": "subtitles.butterbot.voice.give",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_give1",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_give2",
+        "stream": false
+      }
+    ]
+  },
+  "voice.hurt": {
+    "subtitle": "subtitles.butterbot.voice.hurt",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_hurt1",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_hurt2",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_hurt3",
+        "stream": false
+      }
+    ]
+  },
+  "voice.death": {
+    "subtitle": "subtitles.butterbot.voice.death",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_death1",
+        "stream": false
+      }
+    ]
+  },
+  "voice.attack": {
+    "subtitle": "subtitles.butterbot.voice.attack",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_attack1",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_attack2",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_attack3",
+        "stream": false
+      }
+    ]
+  },
+  "voice.level_up": {
+    "subtitle": "subtitles.butterbot.voice.level_up",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_levelup1",
+        "stream": false
+      }
+    ]
+  },
+  "voice.ambient": {
+    "subtitle": "subtitles.butterbot.voice.ambient",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_ambient1",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_ambient2",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_ambient3",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_ambient4",
+        "stream": false
+      }
+    ]
+  },
+  "voice.rescue": {
+    "subtitle": "subtitles.butterbot.voice.rescue",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_rescue1",
+        "stream": false
+      },
+      {
+        "name": "butterbot:voice/voice_rescue2",
+        "stream": false
+      }
+    ]
+  },
+  "voice.bye": {
+    "subtitle": "subtitles.butterbot.voice.bye",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_bye1",
+        "stream": false
+      }
+    ]
+  },
+  "voice.feed": {
+    "subtitle": "subtitles.butterbot.voice.feed",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_feed1",
+        "stream": false
+      }
+    ]
+  },
+  "voice.danger": {
+    "subtitle": "subtitles.butterbot.voice.danger",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_danger1",
+        "stream": false
+      }
+    ]
+  },
+  "voice.stuck": {
+    "subtitle": "subtitles.butterbot.voice.stuck",
+    "sounds": [
+      {
+        "name": "butterbot:voice/voice_stuck1",
+        "stream": false
+      }
+    ]
   }
 }

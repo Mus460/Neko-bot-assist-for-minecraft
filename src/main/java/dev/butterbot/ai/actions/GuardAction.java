@@ -5,6 +5,7 @@ import dev.butterbot.entity.BotLevels;
 import dev.butterbot.entity.BotState;
 import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
+import dev.butterbot.registry.ModSounds;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.LivingEntity;
@@ -86,6 +87,7 @@ public class GuardAction implements BotAction {
 	public void start(ButterBotEntity bot) {
 		bot.setBotState(BotState.MOVING_TO_TARGET);
 		bot.getMiner().cancel();
+		bot.speak(ModSounds.VOICE_ATTACK);
 		chaseTicks = 0;
 		fleeTicks = 0;
 		repathCooldown = 0;

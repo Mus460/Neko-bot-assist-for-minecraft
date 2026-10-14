@@ -45,6 +45,7 @@ import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
@@ -152,6 +153,8 @@ public class ButterBotEntity extends PathfinderMob {
 	/** How long the bot keeps holding its tool after the last block it dug. */
 	private static final int TOOL_HOLD_TICKS = 60;
 	private static final int SWING_INTERVAL_TICKS = 5;
+	/** Shortest pause between two voice lines. */
+	private static final int VOICE_GAP_TICKS = 25;
 	private static final String[] DEFAULT_NAMES = {
 			"Mochi", "Kuro", "Shiro", "Momo", "Yuki", "Hana", "Sora", "Neko", "Miko", "Tama",
 			"Kiki", "Luna", "Coco", "Nana", "Rin", "Mimi", "Suzu", "Haru", "Nori", "Kinako"
@@ -224,6 +227,7 @@ public class ButterBotEntity extends PathfinderMob {
 	private int eatCooldown;
 	private int feedCooldown;
 	private int torchCooldown;
+	private int lastVoiceTick = -1000;
 
 	// Keeping the owner's things safe after they die.
 	@Nullable
@@ -315,7 +319,7 @@ public class ButterBotEntity extends PathfinderMob {
 	@Nullable
 	public SpawnGroupData finalizeSpawn(ServerLevelAccessor level, DifficultyInstance difficulty,
 										EntitySpawnReason spawnReason, @Nullable SpawnGroupData spawnData) {
-		this.playSound(ModSounds.BOT_SPAWN, 1.5F, 1.0F);
+		speak(ModSounds.VOICE_HELLO, ModSounds.BOT_SPAWN, 1.5F, true);
 		return super.finalizeSpawn(level, difficulty, spawnReason, spawnData);
 	}
 
@@ -339,11 +343,7 @@ public class ButterBotEntity extends PathfinderMob {
 
 		if (working && --ambientSoundTimer <= 0) {
 			ambientSoundTimer = 500 + this.random.nextInt(400);
-			if (isNeko()) {
-				this.playSound(SoundEvents.CAT_AMBIENT_BABY.value(), 0.6F, 1.0F + this.random.nextFloat() * 0.2F);
-			} else {
-				this.playSound(ModSounds.BOT_AMBIENT, 0.8F, 1.0F);
-			}
+			speak(ModSounds.VOICE_AMBIENT, ModSounds.BOT_AMBIENT, 0.8F, false);
 		}
 
 		if (speechTicks > 0 && --speechTicks == 0) {
@@ -549,7 +549,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (this.level() instanceof ServerLevel serverLevel) {
 			serverLevel.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 16, 0.3D, 0.5D, 0.3D, 0.02D);
 		}
-		this.playSound(SoundEvents.CAT_PURREOW_BABY.value(), 0.8F, 1.0F);
+		speak(ModSounds.VOICE_BYE, null, 0.0F, true);
 		brain.reset(this);
 		this.discard();
 	}
@@ -697,6 +697,7 @@ public class ButterBotEntity extends PathfinderMob {
 		applyLevelStats();
 		this.setHealth(this.getMaxHealth());
 		this.playSound(SoundEvents.PLAYER_LEVELUP, 0.8F, 1.2F);
+		speak(ModSounds.VOICE_LEVEL_UP, null, 0.0F, true);
 		if (this.level() instanceof ServerLevel serverLevel) {
 			serverLevel.sendParticles(ParticleTypes.HAPPY_VILLAGER, getX(), getY() + 1.0D, getZ(), 20, 0.4D, 0.6D, 0.4D, 0.1D);
 		}
@@ -820,6 +821,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (now - lastLavaWarning > 200L) {
 			lastLavaWarning = now;
 			say(Component.translatable("butterbot.msg.lava_ahead"));
+			speak(ModSounds.VOICE_DANGER);
 		}
 	}
 
@@ -866,6 +868,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.state = BotState.SEARCHING;
 		requestRescan();
 		say(Component.translatable("butterbot.msg.start_mining", count, resource.displayName()));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	public void assignTunnelTask(BlockPos origin, Direction direction, int length, int width, int height, boolean torches) {
@@ -881,6 +884,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.state = BotState.MOVING_TO_TARGET;
 		say(Component.translatable("butterbot.msg.start_tunnel", width, height, origin.toShortString(), length,
 				Component.translatable("butterbot.direction." + direction.getName())));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	public void assignGoToBaseTask() {
@@ -892,6 +896,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.task = BotTask.GO_TO_BASE;
 		this.state = BotState.RETURNING;
 		say(Component.translatable("butterbot.msg.going_base"));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	public void assignFollowTask() {
@@ -899,12 +904,14 @@ public class ButterBotEntity extends PathfinderMob {
 		this.task = BotTask.FOLLOW;
 		this.state = BotState.MOVING_TO_TARGET;
 		say(Component.translatable("butterbot.msg.following"));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	public void assignLuaTask() {
 		clearTask();
 		this.task = BotTask.LUA;
 		say(Component.translatable("butterbot.msg.running_program"));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	public void assignCraftTask(Item item, int count) {
@@ -914,6 +921,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.craftCount = count;
 		this.state = BotState.SEARCHING;
 		say(Component.translatable("butterbot.msg.start_crafting"));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	/** Harvests and replants everything around the Bot Base (or around the bot's current spot). */
@@ -924,6 +932,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.farmCenter = getBase() != null ? basePos : this.blockPosition();
 		this.harvestedCount = 0;
 		say(Component.translatable("butterbot.msg.start_farming", FarmTaskAction.RADIUS));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	/** Tidies the chests and barrels around the Bot Base (or around the bot). */
@@ -932,6 +941,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.task = BotTask.SORT;
 		this.state = BotState.SEARCHING;
 		say(Component.translatable("butterbot.msg.start_sorting"));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	/** Farms around a spot the owner pointed at (the Bot Base still wins if the bot has one). */
@@ -949,6 +959,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.lightRadius = Math.clamp(radius, 4, LightAreaAction.MAX_RADIUS);
 		this.torchesPlaced = 0;
 		say(Component.translatable("butterbot.msg.start_lighting", this.lightRadius));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	/** Brings {@code count} of {@code item} from the backpack, the Bot Base and the chests around it. */
@@ -959,6 +970,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.fetchItem = item;
 		this.fetchCount = Math.max(1, count);
 		say(Component.translatable("butterbot.msg.start_fetching", this.fetchCount, new ItemStack(item).getHoverName()));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	/** Walks to {@code pos} and waits there. */
@@ -968,6 +980,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.state = BotState.MOVING_TO_TARGET;
 		this.gotoPos = pos.immutable();
 		say(Component.translatable("butterbot.msg.goto_start"));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	@Nullable
@@ -1029,6 +1042,7 @@ public class ButterBotEntity extends PathfinderMob {
 			giveOrDrop(player, stack);
 		}
 		fetchCarry.clear();
+		speak(ModSounds.VOICE_GIVE, null, 0.0F, true);
 		this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
 		this.level().playSound(null, player.blockPosition(), SoundEvents.ITEM_PICKUP, SoundSource.PLAYERS, 0.6F, 1.0F);
 	}
@@ -1062,6 +1076,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.recoverPos = pos.immutable();
 		this.miner.cancel();
 		say(Component.translatable("butterbot.msg.recover_start"));
+		speak(ModSounds.VOICE_RESCUE, null, 0.0F, true);
 	}
 
 	@Nullable
@@ -1119,6 +1134,7 @@ public class ButterBotEntity extends PathfinderMob {
 			giveOrDrop(player, stack);
 		}
 		recoveredItems.clear();
+		speak(ModSounds.VOICE_GIVE, null, 0.0F, true);
 		this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
 		this.level().playSound(null, player.blockPosition(), SoundEvents.ARMOR_EQUIP_GENERIC.value(), SoundSource.PLAYERS, 0.8F, 1.0F);
 		tellOwner(Component.translatable("butterbot.msg.recover_returned", total));
@@ -1181,6 +1197,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.returnRequested = true;
 		say(Component.translatable(deliveryMode == DeliveryMode.BASE && basePos != null
 				? "butterbot.msg.delivering_base" : "butterbot.msg.delivering_owner"));
+		speak(ModSounds.VOICE_OK);
 	}
 
 	public String getLuaScript() {
@@ -1289,7 +1306,39 @@ public class ButterBotEntity extends PathfinderMob {
 	}
 
 	public void playTaskCompleteSound() {
-		this.playSound(ModSounds.BOT_SPAWN, 0.45F, 1.0F);
+		// Not "important": right after handing something over, the hand-over line is enough.
+		speak(ModSounds.VOICE_DONE, ModSounds.BOT_SPAWN, 0.45F, false);
+	}
+
+	/** One of the neko girl's voice lines, not more often than every {@link #VOICE_GAP_TICKS} (except important ones). */
+	public void speak(SoundEvent line) {
+		speak(line, null, 0.0F, false);
+	}
+
+	/**
+	 * Plays a voice line (VOICEVOX:小夜/SAYO) while neko mode is on, or {@code robotSound} (if any) for the
+	 * classic Butter Bot when it is off. Lines don't talk over each other unless {@code important}.
+	 */
+	private void speak(SoundEvent line, @Nullable SoundEvent robotSound, float robotVolume, boolean important) {
+		if (!important && this.tickCount - lastVoiceTick < VOICE_GAP_TICKS) {
+			return;
+		}
+		lastVoiceTick = this.tickCount;
+		if (isNeko()) {
+			this.playSound(line, 1.0F, 0.97F + this.random.nextFloat() * 0.06F);
+		} else if (robotSound != null) {
+			this.playSound(robotSound, robotVolume, 1.0F);
+		}
+	}
+
+	@Override
+	protected SoundEvent getHurtSound(DamageSource source) {
+		return isNeko() ? ModSounds.VOICE_HURT : super.getHurtSound(source);
+	}
+
+	@Override
+	protected SoundEvent getDeathSound() {
+		return isNeko() ? ModSounds.VOICE_DEATH : super.getDeathSound();
 	}
 
 	public boolean isReturnRequested() {
@@ -1486,6 +1535,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (now - lastUnstuckMessage > 600L) {
 			lastUnstuckMessage = now;
 			say(Component.translatable("butterbot.msg.unstuck"));
+			speak(ModSounds.VOICE_STUCK);
 		}
 		return true;
 	}
@@ -1823,6 +1873,7 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		if (total > 0) {
 			tellOwner(Component.translatable("butterbot.msg.here_you_go", total));
+			speak(ModSounds.VOICE_GIVE, null, 0.0F, true);
 		}
 		giveStoredXp(player);
 	}
@@ -1971,6 +2022,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.getLookControl().setLookAt(owner);
 		this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
 		say(Component.translatable("butterbot.msg.fed_owner", name));
+		speak(ModSounds.VOICE_FEED);
 	}
 
 	/** Once a second: regenerate, eat when hurt, feed a hungry owner and hand over saved-up XP. */
