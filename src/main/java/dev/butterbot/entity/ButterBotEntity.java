@@ -277,6 +277,14 @@ public class ButterBotEntity extends PathfinderMob {
 	private boolean jobSiteSpent;
 	private boolean jobChanged;
 
+	// Surface blocks opened while digging down, to be put back once the bot is underground.
+	private record Seal(BlockPos pos, BlockState state, long expires) {
+	}
+
+	private static final int MAX_PENDING_SEALS = 32;
+	private static final long SEAL_EXPIRY_TICKS = 20L * 60L * 10L;
+	private final List<Seal> pendingSeals = new ArrayList<>();
+
 	public ButterBotEntity(EntityType<? extends PathfinderMob> type, Level level) {
 		super(type, level);
 		brain.register(new MineTargetAction());
@@ -382,6 +390,9 @@ public class ButterBotEntity extends PathfinderMob {
 			placeTorchIfDark();
 		}
 		tickCare();
+		if (this.tickCount % 20 == 0 && this.level() instanceof ServerLevel serverLevel) {
+			sealHoles(serverLevel);
+		}
 		if (this.tickCount % 10 == 0 && this.isInWall()) {
 			escapeWall();
 		}
@@ -1966,12 +1977,64 @@ public class ButterBotEntity extends PathfinderMob {
 			return;
 		}
 		boolean target = task == BotTask.MINE && isTargetBlock(blockState);
+		if (!target && task == BotTask.MINE && shouldSealLater(serverLevel, pos, blockState)) {
+			// Opening the ground on the way down: remember the block and put it back once the bot is below.
+			pendingSeals.add(new Seal(pos.immutable(), blockState, serverLevel.getGameTime() + SEAL_EXPIRY_TICKS));
+			serverLevel.destroyBlock(pos, false, this);
+			return;
+		}
 		harvestBlock(serverLevel, pos, blockState, false);
 		gainWorkXp(1);
 		if (target && resource == BotResource.WOOD) {
 			TreeFeller.fell(this, serverLevel, pos, blockState);
 		} else if (target && resource != null && resource.isUnderground() && resource != BotResource.STONE) {
 			mineVein(serverLevel, pos);
+		}
+	}
+
+	/** Ground open to the sky that the bot digs through on its way down (not the things it is collecting). */
+	private boolean shouldSealLater(ServerLevel level, BlockPos pos, BlockState blockState) {
+		return pendingSeals.size() < MAX_PENDING_SEALS && TunnelHelper.isNaturalTerrain(blockState)
+				&& !blockState.is(BlockTags.LEAVES) && !blockState.is(BlockTags.ICE) && level.canSeeSky(pos.above());
+	}
+
+	/**
+	 * Closes the top of the stairs the bot dug down: once it is a few blocks below them (or has walked
+	 * away), the surface blocks it opened are put back exactly as they were, so no hole is left behind.
+	 */
+	private void sealHoles(ServerLevel level) {
+		if (pendingSeals.isEmpty()) {
+			return;
+		}
+		long now = level.getGameTime();
+		int lowest = Integer.MAX_VALUE;
+		for (Seal seal : pendingSeals) {
+			lowest = Math.min(lowest, seal.pos().getY());
+		}
+		boolean below = this.getBlockY() <= lowest - 3;
+		pendingSeals.sort(java.util.Comparator.comparingInt(seal -> seal.pos().getY()));
+		boolean played = false;
+		for (java.util.Iterator<Seal> it = pendingSeals.iterator(); it.hasNext(); ) {
+			Seal seal = it.next();
+			BlockPos pos = seal.pos();
+			if (now > seal.expires() || !level.isLoaded(pos) || !level.getBlockState(pos).isAir()) {
+				it.remove();
+				continue;
+			}
+			double dx = this.getX() - (pos.getX() + 0.5D);
+			double dz = this.getZ() - (pos.getZ() + 0.5D);
+			if (!below && dx * dx + dz * dz < 6.0D * 6.0D) {
+				continue;
+			}
+			if (!level.getEntities((Entity) null, new AABB(pos), entity -> !(entity instanceof ItemEntity)).isEmpty()) {
+				continue;
+			}
+			level.setBlock(pos, seal.state(), Block.UPDATE_ALL);
+			if (!played) {
+				played = true;
+				level.playSound(null, pos, seal.state().getSoundType().getPlaceSound(), SoundSource.BLOCKS, 0.8F, 1.0F);
+			}
+			it.remove();
 		}
 	}
 

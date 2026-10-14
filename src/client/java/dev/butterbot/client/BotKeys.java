@@ -3,12 +3,14 @@ package dev.butterbot.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.butterbot.ButterBot;
 import dev.butterbot.client.screen.BotControlScreen;
+import dev.butterbot.client.screen.CommandWheelScreen;
 import dev.butterbot.network.Payloads;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -69,6 +71,44 @@ public final class BotKeys {
 		return pickBot != null && System.currentTimeMillis() < pickUntil;
 	}
 
+	/** Holding the panel key this long opens the command wheel instead of the panel. */
+	private static final int WHEEL_DELAY_TICKS = 5;
+	/** Ticks the panel key has been held, or -1 when it is up. */
+	private static int panelHeld = -1;
+
+	/** Tap: the panel. Hold: the command wheel (let go over an order to give it). */
+	private static void tickPanelKey(Minecraft minecraft, boolean connected) {
+		int taps = 0;
+		while (PANEL.consumeClick()) {
+			taps++;
+		}
+		boolean free = connected && minecraft.gui.screen() == null;
+		if (PANEL.isDown()) {
+			panelHeld++;
+			if (panelHeld == WHEEL_DELAY_TICKS && free) {
+				pickBot = null;
+				minecraft.gui.setScreen(new CommandWheelScreen());
+			}
+			return;
+		}
+		// A tap so short it began and ended between two ticks only shows up as a click.
+		boolean tapped = panelHeld >= 0 ? panelHeld < WHEEL_DELAY_TICKS : taps > 0;
+		panelHeld = -1;
+		if (tapped && free) {
+			pickBot = null;
+			minecraft.gui.setScreen(new BotControlScreen(Optional.empty(), null));
+		}
+	}
+
+	/** True if {@code event} is the panel key (screens use this to close themselves or end the wheel). */
+	public static boolean isPanelKey(KeyEvent event) {
+		return PANEL.matches(event);
+	}
+
+	public static Component panelKeyName() {
+		return PANEL.getTranslatedKeyMessage();
+	}
+
 	private static KeyMapping key(String name, int defaultKey) {
 		return KeyMappingHelper.registerKeyMapping(new KeyMapping("key.butterbot." + name, InputConstants.Type.KEYBOARD, defaultKey, CATEGORY));
 	}
@@ -81,12 +121,7 @@ public final class BotKeys {
 		LocalPlayer player = minecraft.player;
 		boolean connected = player != null && minecraft.getConnection() != null
 				&& ClientPlayNetworking.canSend(Payloads.Hotkey.TYPE);
-		while (PANEL.consumeClick()) {
-			pickBot = null;
-			if (connected) {
-				minecraft.gui.setScreen(new BotControlScreen(Optional.empty(), null));
-			}
-		}
+		tickPanelKey(minecraft, connected);
 		while (HUD.consumeClick()) {
 			BotHud.toggle();
 		}

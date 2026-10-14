@@ -5,8 +5,10 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.ItemTags;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
@@ -158,6 +160,15 @@ public final class TreeFeller {
 			}
 			if (preferred != null && bot.countItem(preferred) > 0 && bot.placeBlockFromInventory(root, preferred)) {
 				continue;
+			}
+			// Leaves rarely drop a sapling, so the bot brings its own (like its torches): the forest always grows back.
+			if (preferred instanceof BlockItem blockItem) {
+				BlockState sapling = blockItem.getBlock().defaultBlockState();
+				if (sapling.canSurvive(level, root)) {
+					level.setBlock(root, sapling, Block.UPDATE_ALL);
+					level.playSound(null, root, sapling.getSoundType().getPlaceSound(), SoundSource.BLOCKS, 1.0F, 1.0F);
+					continue;
+				}
 			}
 			for (int i = 0; i < bot.getInventory().getContainerSize(); i++) {
 				ItemStack stack = bot.getInventory().getItem(i);
