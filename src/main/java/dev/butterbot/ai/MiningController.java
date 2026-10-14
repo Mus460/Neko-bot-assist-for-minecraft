@@ -1,6 +1,5 @@
 package dev.butterbot.ai;
 
-import dev.butterbot.entity.BotLevels;
 import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
@@ -58,7 +57,7 @@ public final class MiningController {
 		ItemStack tool = bot.diggingTool(state);
 		float toolSpeed = Math.max(1.0F, tool.getDestroySpeed(state));
 		boolean proper = !state.requiresCorrectToolForDrops() || tool.isCorrectToolForDrops(state);
-		return hardness * (proper ? 30.0F : 100.0F) / toolSpeed / BotLevels.digSpeed(bot.getBotLevel());
+		return hardness * (proper ? 30.0F : 100.0F) / toolSpeed / bot.stats().digSpeed();
 	}
 
 	/** Advances the current dig. Returns true on the tick the block breaks. */

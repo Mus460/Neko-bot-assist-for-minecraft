@@ -241,7 +241,7 @@ public class GuardAction implements BotAction {
 	}
 
 	/** Monsters only. Neutral mobs and named mobs count only once they go after the bot or its owner. */
-	static boolean isHostile(ButterBotEntity bot, Mob mob) {
+	public static boolean isHostile(ButterBotEntity bot, Mob mob) {
 		if (!mob.isAlive() || mob instanceof ButterBotEntity || mob.isInvulnerable() || !(mob instanceof Enemy)) {
 			return false;
 		}

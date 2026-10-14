@@ -11,7 +11,10 @@ import dev.butterbot.ai.StorageFinder;
 import dev.butterbot.ai.actions.LightAreaAction;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
+import dev.butterbot.entity.BotProgress;
 import dev.butterbot.entity.BotResource;
+import dev.butterbot.entity.BotSkill;
+import dev.butterbot.entity.BotStats;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
@@ -29,7 +32,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntitySpawnReason;
@@ -90,6 +95,12 @@ public final class BotCommand {
 		root.then(Commands.literal("farm").executes(ctx -> simple(ctx.getSource(), ButterBotEntity::assignFarmTask)));
 		root.then(Commands.literal("sort").executes(ctx -> simple(ctx.getSource(), ButterBotEntity::assignSortTask)));
 		root.then(Commands.literal("level").executes(ctx -> level(ctx.getSource())));
+		LiteralArgumentBuilder<CommandSourceStack> skill = Commands.literal("skill").executes(ctx -> skills(ctx.getSource()));
+		for (BotSkill each : BotSkill.values()) {
+			skill.then(Commands.literal(each.id()).executes(ctx -> learnSkill(ctx.getSource(), each)));
+		}
+		skill.then(Commands.literal("reset").executes(ctx -> simple(ctx.getSource(), ButterBotEntity::resetSkills)));
+		root.then(skill);
 		root.then(toggle("refill", ButterBotEntity::setAutoRefill, "butterbot.msg.refill_on", "butterbot.msg.refill_off"));
 		root.then(Commands.literal("light")
 				.executes(ctx -> light(ctx.getSource(), LightAreaAction.DEFAULT_RADIUS))
@@ -332,13 +343,61 @@ public final class BotCommand {
 			return 0;
 		}
 		int level = bot.getBotLevel();
+		BotStats stats = bot.stats();
 		Component progress = level >= BotLevels.MAX_LEVEL
 				? Component.translatable("butterbot.msg.level_max")
 				: Component.translatable("butterbot.msg.level_progress", bot.getWorkXp(), BotLevels.xpToNext(level));
 		source.sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.level_info", bot.getName(), level,
-				progress, BotLevels.digSpeedPercent(level), bot.getInventory().getContainerSize(), (int) bot.getMaxHealth(),
-				BotLevels.fortune(level), BotLevels.veinSize(level), bot.getStoredXp())), false);
+				progress, stats.digSpeedPercent(), bot.getInventory().getContainerSize(), (int) bot.getMaxHealth(),
+				stats.fortune(), stats.veinSize(), bot.getStoredXp())), false);
+		BotProgress learned = bot.getProgress();
+		source.sendSuccess(() -> Component.translatable("butterbot.msg.level_mastery", bot.getSkillPoints(),
+				masteryName(learned, BotJob.MINER), masteryName(learned, BotJob.GATHERER),
+				masteryName(learned, BotJob.GUARD), masteryName(learned, BotJob.FARMER)), false);
 		return level;
+	}
+
+	private static Component masteryName(BotProgress progress, BotJob job) {
+		return Component.translatable("butterbot.mastery.rank." + progress.masteryRank(job));
+	}
+
+	/** Lists the skill tree with the bot's ranks and how many points are left. */
+	private static int skills(CommandSourceStack source) throws CommandSyntaxException {
+		ButterBotEntity bot = nearest(source);
+		if (bot == null) {
+			return 0;
+		}
+		BotProgress progress = bot.getProgress();
+		source.sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.skills_header", bot.getName(),
+				bot.getSkillPoints())), false);
+		for (BotSkill.Branch branch : BotSkill.Branch.values()) {
+			MutableComponent line = Component.empty().append(branch.displayName().copy().withStyle(ChatFormatting.GOLD)).append(": ");
+			for (int row = 0; row < BotSkill.ROW_LEVEL.length; row++) {
+				BotSkill each = BotSkill.at(branch, row);
+				int rank = progress.rank(each);
+				if (row > 0) {
+					line.append(", ");
+				}
+				line.append(each.displayName().copy().withStyle(rank > 0 ? ChatFormatting.GREEN : ChatFormatting.GRAY))
+						.append(Component.literal(" " + rank + "/" + each.maxRank() + " [" + each.id() + "]").withStyle(ChatFormatting.DARK_GRAY));
+			}
+			source.sendSuccess(() -> line, false);
+		}
+		source.sendSuccess(() -> Component.translatable("butterbot.msg.skills_hint").withStyle(ChatFormatting.GRAY), false);
+		return 1;
+	}
+
+	private static int learnSkill(CommandSourceStack source, BotSkill skill) throws CommandSyntaxException {
+		ButterBotEntity bot = nearest(source);
+		if (bot == null) {
+			return 0;
+		}
+		Component problem = bot.raiseSkill(skill);
+		if (problem != null) {
+			source.sendFailure(problem);
+			return 0;
+		}
+		return 1;
 	}
 
 	private static int light(CommandSourceStack source, int radius) throws CommandSyntaxException {

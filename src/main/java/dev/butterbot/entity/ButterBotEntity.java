@@ -35,6 +35,15 @@ import dev.butterbot.skin.SkinLimits;
 import dev.butterbot.util.Msg;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
+import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
+import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.core.Holder;
 import net.minecraft.core.Direction;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponents;
@@ -157,10 +166,10 @@ public class ButterBotEntity extends PathfinderMob {
 
 	private static final long BLACKLIST_DURATION_TICKS = 20L * 60L;
 	private static final int SCAN_INTERVAL_TICKS = 40;
-	private static final int SCAN_HORIZONTAL_RADIUS = 20;
 	private static final int SCAN_VERTICAL_RADIUS = 12;
 	/** A buried block counts as this much farther (squared) than one with an open side. */
 	private static final double BURIED_PENALTY = 20.0D;
+	private static final long SECOND_WIND_COOLDOWN = 20L * 60L * 10L;
 	private static final float MAX_DIGGABLE_HARDNESS = 10.0F;
 	/** How long the bot keeps holding its tool after the last block it dug. */
 	private static final int TOOL_HOLD_TICKS = 60;
@@ -217,6 +226,12 @@ public class ButterBotEntity extends PathfinderMob {
 
 	// Progress and settings.
 	private int workXp;
+	/** Skills, job mastery and lifetime counters. */
+	private final BotProgress progress = new BotProgress();
+	@Nullable
+	private BotStats cachedStats;
+	/** Game time from which Second Wind can save the bot again. */
+	private long secondWindReadyAt;
 	/** Experience points (from ores, smelting and monsters) waiting to be handed to the owner. */
 	private int storedXp;
 	private boolean guard = true;
@@ -395,6 +410,7 @@ public class ButterBotEntity extends PathfinderMob {
 			placeTorchIfDark();
 		}
 		tickCare();
+		tickAbilities();
 		if (this.tickCount % 20 == 0 && this.level() instanceof ServerLevel serverLevel) {
 			sealHoles(serverLevel);
 		}
@@ -458,7 +474,13 @@ public class ButterBotEntity extends PathfinderMob {
 		if (this.level() instanceof ServerLevel serverLevel) {
 			storedXp += Math.max(1, victim.getExperienceReward(serverLevel, this));
 		}
-		gainWorkXp(5);
+		int xp = BotLevels.killXp(victim);
+		progress.addStat(BotProgress.Stat.KILLS, 1);
+		if (jobs.job() == BotJob.GUARD && jobs.isActive()) {
+			// Guards learn their job from fights.
+			gainMastery(BotJob.GUARD, xp);
+		}
+		gainWorkXp(xp);
 		collectNearbyDrops(victim.position(), 3.0D);
 		if (jobs.job() == BotJob.GUARD) {
 			jobs.addStat(1);
@@ -486,7 +508,7 @@ public class ButterBotEntity extends PathfinderMob {
 	/** The bot's tool for {@code blockState}, carrying Fortune from its level. */
 	private ItemStack miningTool(ServerLevel level, BlockState blockState) {
 		ItemStack tool = toolFor(blockState, BotLevels.toolTier(getBotLevel()));
-		int fortune = BotLevels.fortune(getBotLevel());
+		int fortune = stats().fortune();
 		if (fortune > 0) {
 			tool.enchant(level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(Enchantments.FORTUNE), fortune);
 		}
@@ -648,8 +670,9 @@ public class ButterBotEntity extends PathfinderMob {
 
 	public void openBackpack(ServerPlayer player) {
 		Component title = Component.translatable("butterbot.gui.backpack_title", this.getName());
-		int rows = inventory.getContainerSize() / 9;
-		MenuType<ChestMenu> menuType = rows >= 4 ? MenuType.GENERIC_9x4 : rows == 3 ? MenuType.GENERIC_9x3 : MenuType.GENERIC_9x2;
+		int rows = Math.min(6, Math.max(2, inventory.getContainerSize() / 9));
+		MenuType<ChestMenu> menuType = rows == 6 ? MenuType.GENERIC_9x6 : rows == 5 ? MenuType.GENERIC_9x5
+				: rows == 4 ? MenuType.GENERIC_9x4 : rows == 3 ? MenuType.GENERIC_9x3 : MenuType.GENERIC_9x2;
 		player.openMenu(new SimpleMenuProvider((id, playerInventory, p) ->
 				new ChestMenu(menuType, id, playerInventory, new BotBackpack(this), rows), title));
 	}
@@ -865,27 +888,67 @@ public class ButterBotEntity extends PathfinderMob {
 		storedXp = Math.max(0, storedXp + amount);
 	}
 
-	/** Restores progress saved in an item or in the world. */
+	/** Restores progress saved in an item or in the world (load {@link #getProgress()} first). */
 	public void restoreProgress(int level, int xp) {
 		this.entityData.set(DATA_LEVEL, Math.max(1, Math.min(BotLevels.MAX_LEVEL, level)));
 		this.workXp = Math.max(0, xp);
 		applyLevelStats();
 	}
 
-	/** Work experience: mined blocks, harvested crops, crafted batches, smelted items, defeated monsters. */
-	public void gainWorkXp(int amount) {
+	public BotProgress getProgress() {
+		return progress;
+	}
+
+	/** What the bot can do now (level + skills + job mastery). */
+	public BotStats stats() {
 		int level = getBotLevel();
-		if (amount <= 0 || level >= BotLevels.MAX_LEVEL) {
+		BotStats stats = cachedStats;
+		if (stats == null || stats.level() != level) {
+			stats = BotStats.of(level, progress);
+			cachedStats = stats;
+		}
+		return stats;
+	}
+
+	public int getSkillPoints() {
+		return progress.availablePoints(getBotLevel());
+	}
+
+	public long getSecondWindReadyAt() {
+		return secondWindReadyAt;
+	}
+
+	public void setSecondWindReadyAt(long gameTime) {
+		this.secondWindReadyAt = gameTime;
+	}
+
+	public void addLifetimeStat(BotProgress.Stat stat, int amount) {
+		progress.addStat(stat, amount);
+	}
+
+	/**
+	 * Work experience: mined blocks, harvested crops, crafted batches, smelted items, defeated monsters.
+	 * Work done for the bot's job also counts towards mastering that job (even at the top level).
+	 */
+	public void gainWorkXp(int amount) {
+		if (amount <= 0) {
+			return;
+		}
+		BotJob duty = dutyJob();
+		if (duty != null) {
+			gainMastery(duty, amount);
+		}
+		int level = getBotLevel();
+		if (level >= BotLevels.MAX_LEVEL) {
 			return;
 		}
 		workXp += amount;
-		int gained = 0;
+		int start = level;
 		while (level < BotLevels.MAX_LEVEL && workXp >= BotLevels.xpToNext(level)) {
 			workXp -= BotLevels.xpToNext(level);
 			level++;
-			gained++;
 		}
-		if (gained == 0) {
+		if (level == start) {
 			return;
 		}
 		if (level >= BotLevels.MAX_LEVEL) {
@@ -894,34 +957,256 @@ public class ButterBotEntity extends PathfinderMob {
 		this.entityData.set(DATA_LEVEL, level);
 		applyLevelStats();
 		this.setHealth(this.getMaxHealth());
-		this.playSound(SoundEvents.PLAYER_LEVELUP, 0.8F, 1.2F);
-		speak(ModSounds.VOICE_LEVEL_UP, null, 0.0F, true);
-		if (this.level() instanceof ServerLevel serverLevel) {
-			serverLevel.sendParticles(ParticleTypes.HAPPY_VILLAGER, getX(), getY() + 1.0D, getZ(), 20, 0.4D, 0.6D, 0.4D, 0.1D);
-		}
-		Component message = Component.translatable("butterbot.msg.level_up", level);
-		Component perk = Component.translatable("butterbot.levelup.perk." + level);
-		tellOwner(Component.empty().append(message).append(" ").append(perk));
+		celebrateLevelUp(start, level);
 	}
 
-	/** Health, attack and backpack size for the current level. */
-	private void applyLevelStats() {
-		int level = getBotLevel();
-		AttributeInstance health = this.getAttribute(Attributes.MAX_HEALTH);
-		if (health != null) {
-			health.setBaseValue(BotLevels.maxHealth(level));
+	/** The job the current work is for, if it is job work (guards get theirs from fights instead). */
+	@Nullable
+	private BotJob dutyJob() {
+		if (!jobs.hasJob() || jobs.isPaused()) {
+			return null;
 		}
-		AttributeInstance attack = this.getAttribute(Attributes.ATTACK_DAMAGE);
-		if (attack != null) {
-			attack.setBaseValue(BotLevels.attackDamage(level));
+		return switch (jobs.job()) {
+			case MINER, GATHERER -> isJobDriven() ? jobs.job() : null;
+			case FARMER -> task == BotTask.FARM ? BotJob.FARMER : null;
+			case GUARD, NONE -> null;
+		};
+	}
+
+	private void gainMastery(BotJob job, int amount) {
+		int rank = progress.addMasteryXp(job, amount);
+		if (rank > 0) {
+			onMasteryRankUp(job, rank);
 		}
-		int size = BotLevels.backpackSize(level);
-		if (inventory.getContainerSize() < size) {
-			SimpleContainer bigger = new SimpleContainer(size);
-			for (int i = 0; i < inventory.getContainerSize(); i++) {
-				bigger.setItem(i, inventory.getItem(i));
+	}
+
+	/** Fireworks, a title on the owner's screen for big levels, and a chat line telling what is new. */
+	private void celebrateLevelUp(int from, int to) {
+		this.playSound(SoundEvents.PLAYER_LEVELUP, 0.8F, 1.2F);
+		this.playSound(SoundEvents.FIREWORK_ROCKET_LARGE_BLAST, 0.7F, 1.0F);
+		speak(ModSounds.VOICE_LEVEL_UP, null, 0.0F, true);
+		if (this.level() instanceof ServerLevel serverLevel) {
+			serverLevel.sendParticles(ParticleTypes.FIREWORK, getX(), getY() + 1.2D, getZ(), 40, 0.5D, 0.8D, 0.5D, 0.12D);
+			serverLevel.sendParticles(ParticleTypes.TOTEM_OF_UNDYING, getX(), getY() + 1.0D, getZ(), 25, 0.4D, 0.6D, 0.4D, 0.25D);
+			serverLevel.sendParticles(ParticleTypes.HAPPY_VILLAGER, getX(), getY() + 1.0D, getZ(), 15, 0.4D, 0.6D, 0.4D, 0.1D);
+		}
+		boolean milestone = false;
+		Component highlight = null;
+		for (int level = from + 1; level <= to; level++) {
+			tellOwner(Component.translatable("butterbot.msg.level_up_named", getName(), level).append(" ").append(perkText(level))
+					.append(" ").append(Component.translatable("butterbot.msg.skill_point_gained")));
+			BotStats.Ability ability = BotStats.Ability.at(level);
+			if (ability != null || level % 5 == 0 || isSkillRowLevel(level)) {
+				milestone = true;
+				highlight = ability != null ? ability.displayName()
+						: isSkillRowLevel(level) ? Component.translatable("butterbot.levelup.new_skills_short") : null;
 			}
-			inventory = bigger;
+		}
+		if (getOwner() instanceof ServerPlayer owner) {
+			if (milestone) {
+				MutableComponent subtitle = getName().copy();
+				if (highlight != null) {
+					subtitle.append(" - ").append(highlight);
+				}
+				showTitle(owner, Component.translatable("butterbot.title.level", to).withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), subtitle);
+			} else {
+				owner.sendSystemMessage(Component.translatable("butterbot.msg.level_up_bar", getName(), to)
+						.withStyle(ChatFormatting.GOLD), true);
+			}
+		}
+	}
+
+	private static boolean isSkillRowLevel(int level) {
+		for (int rowLevel : BotSkill.ROW_LEVEL) {
+			if (rowLevel > 1 && rowLevel == level) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** What reaching {@code level} brings. */
+	private static Component perkText(int level) {
+		BotStats.Ability ability = BotStats.Ability.at(level);
+		MutableComponent text = ability != null
+				? Component.translatable("butterbot.levelup.ability", ability.displayName(), ability.description())
+				: level <= 10 ? Component.translatable("butterbot.levelup.perk." + level)
+				: Component.translatable("butterbot.levelup.perk.late");
+		if (isSkillRowLevel(level)) {
+			text.append(" ").append(Component.translatable("butterbot.levelup.new_skills"));
+		}
+		return text;
+	}
+
+	private void onMasteryRankUp(BotJob job, int rank) {
+		applyLevelStats();
+		Component rankName = Component.translatable("butterbot.mastery.rank." + rank);
+		MutableComponent message = Component.translatable("butterbot.msg.mastery_up", getName(), job.displayName(), rankName);
+		if (BotProgress.masteryPoints(rank) > BotProgress.masteryPoints(rank - 1)) {
+			message.append(" ").append(Component.translatable("butterbot.msg.skill_point_gained"));
+		}
+		tellOwner(message.withStyle(ChatFormatting.AQUA));
+		this.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 0.6F, 1.0F);
+		if (this.level() instanceof ServerLevel serverLevel) {
+			serverLevel.sendParticles(ParticleTypes.FIREWORK, getX(), getY() + 1.2D, getZ(), 25, 0.4D, 0.7D, 0.4D, 0.1D);
+		}
+		if (getOwner() instanceof ServerPlayer owner) {
+			showTitle(owner, Component.translatable("butterbot.title.mastery", job.displayName(), rankName)
+					.withStyle(ChatFormatting.AQUA, ChatFormatting.BOLD), getName());
+		}
+	}
+
+	private static void showTitle(ServerPlayer player, Component title, Component subtitle) {
+		player.connection.send(new ClientboundSetTitlesAnimationPacket(5, 40, 10));
+		player.connection.send(new ClientboundSetSubtitleTextPacket(subtitle));
+		player.connection.send(new ClientboundSetTitleTextPacket(title));
+	}
+
+	/** Spends a skill point on {@code skill}. Returns null when learned, otherwise the reason it can't be. */
+	@Nullable
+	public Component raiseSkill(BotSkill skill) {
+		BotProgress.Refusal refusal = progress.raise(skill, getBotLevel());
+		if (refusal != null) {
+			BotSkill previous = skill.previous();
+			return switch (refusal) {
+				case NO_POINTS -> Component.translatable("butterbot.msg.skill_no_points");
+				case MAXED -> Component.translatable("butterbot.msg.skill_maxed", skill.displayName());
+				case LEVEL -> Component.translatable("butterbot.msg.skill_level", skill.displayName(), skill.requiredLevel());
+				case PREVIOUS -> Component.translatable("butterbot.msg.skill_previous",
+						previous == null ? Component.empty() : previous.displayName());
+			};
+		}
+		applyLevelStats();
+		int rank = progress.rank(skill);
+		say(Component.translatable("butterbot.msg.skill_learned", skill.displayName(), rank, skill.maxRank(), skill.effect(rank)));
+		this.playSound(SoundEvents.ENCHANTMENT_TABLE_USE, 0.8F, 1.2F);
+		if (this.level() instanceof ServerLevel serverLevel) {
+			serverLevel.sendParticles(ParticleTypes.ENCHANT, getX(), getY() + 1.2D, getZ(), 30, 0.4D, 0.6D, 0.4D, 0.5D);
+		}
+		return null;
+	}
+
+	/** Forgets all skills and gives the points back. */
+	public void resetSkills() {
+		int refunded = progress.resetSkills();
+		applyLevelStats();
+		say(Component.translatable("butterbot.msg.skills_reset", refunded));
+	}
+
+	/** Applies the level, skills and mastery to the bot's attributes and backpack. */
+	private void applyLevelStats() {
+		progress.fixOverspent(getBotLevel());
+		cachedStats = null;
+		BotStats stats = stats();
+		setBaseAttribute(Attributes.MAX_HEALTH, stats.maxHealth());
+		if (this.getHealth() > this.getMaxHealth()) {
+			this.setHealth(this.getMaxHealth());
+		}
+		setBaseAttribute(Attributes.ATTACK_DAMAGE, stats.attackDamage());
+		setBaseAttribute(Attributes.ARMOR, stats.armor());
+		setBaseAttribute(Attributes.MOVEMENT_SPEED, BotStats.BASE_SPEED * stats.speedMultiplier());
+		setBaseAttribute(Attributes.WATER_MOVEMENT_EFFICIENCY, stats.swimmer() ? 1.0D : 0.0D);
+		setBaseAttribute(Attributes.FALL_DAMAGE_MULTIPLIER, stats.feather() ? 0.0D : 1.0D);
+		resizeBackpack(stats.backpackSlots());
+	}
+
+	private void setBaseAttribute(Holder<Attribute> attribute, double value) {
+		AttributeInstance instance = this.getAttribute(attribute);
+		if (instance != null && instance.getBaseValue() != value) {
+			instance.setBaseValue(value);
+		}
+	}
+
+	/**
+	 * Grows the backpack right away. It only shrinks (after forgetting Magic Pockets) once everything
+	 * in it fits in the smaller one, so nothing is ever lost.
+	 */
+	private void resizeBackpack(int size) {
+		int current = inventory.getContainerSize();
+		if (size == current) {
+			return;
+		}
+		SimpleContainer resized = new SimpleContainer(size);
+		if (size > current) {
+			for (int i = 0; i < current; i++) {
+				resized.setItem(i, inventory.getItem(i));
+			}
+		} else {
+			int used = 0;
+			for (int i = 0; i < current; i++) {
+				if (!inventory.getItem(i).isEmpty()) {
+					used++;
+				}
+			}
+			if (used > size) {
+				return;
+			}
+			int slot = 0;
+			for (int i = 0; i < current; i++) {
+				ItemStack stack = inventory.getItem(i);
+				if (!stack.isEmpty()) {
+					resized.setItem(slot++, stack);
+				}
+			}
+		}
+		inventory = resized;
+	}
+
+	/** Abilities that work all the time: the item magnet, breathing under water and the legend's sparkle. */
+	private void tickAbilities() {
+		if (!(this.level() instanceof ServerLevel serverLevel)) {
+			return;
+		}
+		BotStats stats = stats();
+		if (stats.swimmer() && this.isUnderWater() && this.getAirSupply() < this.getMaxAirSupply()) {
+			this.setAirSupply(this.getMaxAirSupply());
+		}
+		if (stats.magnetRadius() > 0 && this.tickCount % 10 == 0) {
+			magnetPickup(serverLevel, stats.magnetRadius());
+		}
+		if (stats.has(BotStats.Ability.LEGEND) && this.tickCount % 40 == 0) {
+			serverLevel.sendParticles(ParticleTypes.WAX_ON, getX(), getY() + 1.0D, getZ(), 3, 0.35D, 0.6D, 0.35D, 0.0D);
+		}
+	}
+
+	/**
+	 * Magnet skill: while mining, farming or guarding, loose drops around the bot fly into its backpack.
+	 * Things someone threw, things right next to the owner and junk a mining run leaves behind are not
+	 * touched, and it is off while the bot is rescuing the owner's things.
+	 */
+	private void magnetPickup(ServerLevel level, int radius) {
+		boolean working = task == BotTask.MINE || task == BotTask.FARM || (jobs.isActive() && jobs.job() == BotJob.GUARD);
+		if (!working || recoverPos != null || !recoveredItems.isEmpty() || isInventoryFull()) {
+			return;
+		}
+		Player owner = getOwner();
+		List<ItemEntity> drops = level.getEntitiesOfClass(ItemEntity.class, this.getBoundingBox().inflate(radius),
+				drop -> drop.isAlive() && !drop.hasPickUpDelay() && drop.getOwner() == null && !drop.getItem().isEmpty()
+						&& (owner == null || drop.distanceToSqr(owner) > 5.0D * 5.0D));
+		boolean picked = false;
+		for (ItemEntity drop : drops) {
+			ItemStack stack = drop.getItem();
+			if (isJunkWhileMining(stack)) {
+				continue;
+			}
+			int before = stack.getCount();
+			ItemStack leftover = inventory.addItem(stack.copy());
+			int taken = before - leftover.getCount();
+			if (taken <= 0) {
+				continue;
+			}
+			picked = true;
+			if (isWantedLoot(stack)) {
+				countCollected(taken);
+			}
+			if (leftover.isEmpty()) {
+				drop.discard();
+			} else {
+				drop.setItem(leftover);
+			}
+		}
+		if (picked) {
+			this.playSound(SoundEvents.ITEM_PICKUP, 0.25F, 1.4F + this.random.nextFloat() * 0.4F);
 		}
 	}
 
@@ -1397,6 +1682,7 @@ public class ButterBotEntity extends PathfinderMob {
 
 	public void countHarvest() {
 		harvestedCount++;
+		progress.addStat(BotProgress.Stat.HARVESTED, 1);
 		if (jobs.job() == BotJob.FARMER) {
 			jobs.addStat(1);
 		}
@@ -1404,7 +1690,10 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/** How far around its centre a farming run reaches (a farmer job can make it bigger or smaller). */
 	public int getFarmRadius() {
-		return jobs.isActive() && jobs.job() == BotJob.FARMER ? jobs.radius() : FarmTaskAction.RADIUS;
+		if (jobs.isActive() && jobs.job() == BotJob.FARMER) {
+			return jobs.radius();
+		}
+		return FarmTaskAction.RADIUS + stats().farmRadiusBonus();
 	}
 
 	/**
@@ -1808,7 +2097,8 @@ public class ButterBotEntity extends PathfinderMob {
 		BlockPos best = null;
 		double bestScore = Double.MAX_VALUE;
 
-		for (int ring = 0; ring <= SCAN_HORIZONTAL_RADIUS; ring++) {
+		int radius = stats().scanRadius();
+		for (int ring = 0; ring <= radius; ring++) {
 			// Every block in this ring is at least `ring` blocks away sideways.
 			if (best != null && bestScore <= (double) ring * ring) {
 				break;
@@ -2150,8 +2440,9 @@ public class ButterBotEntity extends PathfinderMob {
 			serverLevel.destroyBlock(pos, false, this);
 			return;
 		}
-		harvestBlock(serverLevel, pos, blockState, false);
-		gainWorkXp(1);
+		harvestBlock(serverLevel, pos, blockState, false, target && rollBonus(blockState) ? 1 : 0);
+		gainWorkXp(BotLevels.blockXp(blockState));
+		progress.addStat(BotProgress.Stat.MINED, 1);
 		if (target && resource == BotResource.WOOD) {
 			TreeFeller.fell(this, serverLevel, pos, blockState);
 		} else if (target && resource != null && resource.isUnderground() && resource != BotResource.STONE) {
@@ -2210,19 +2501,38 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/** Removes one block and collects its drops. With {@code keepAll} nothing is left on the ground. */
 	public void harvestBlock(ServerLevel level, BlockPos pos, BlockState blockState, boolean keepAll) {
+		harvestBlock(level, pos, blockState, keepAll, 0);
+	}
+
+	/** {@link #harvestBlock(ServerLevel, BlockPos, BlockState, boolean)}, getting every drop {@code extraCopies} more times. */
+	public void harvestBlock(ServerLevel level, BlockPos pos, BlockState blockState, boolean keepAll, int extraCopies) {
 		ItemStack tool = miningTool(level, blockState);
 		List<ItemStack> drops = Block.getDrops(blockState, level, pos, level.getBlockEntity(pos), this, tool);
 		level.destroyBlock(pos, false, this);
 		blockState.spawnAfterBreak(level, pos, tool, true);
 		for (ItemStack drop : drops) {
+			for (int i = 0; i < extraCopies; i++) {
+				collectLoot(drop.copy(), pos, keepAll);
+			}
 			collectLoot(drop, pos, keepAll);
 		}
 		absorbExperience(Vec3.atCenterOf(pos), 2.5D);
 	}
 
-	/** Mines the ore blocks connected to the one just broken, as many as the bot's level allows. */
+	/**
+	 * Golden Hand (ores, from level 18) and gatherer mastery (wood and plants) sometimes double what a
+	 * block gives.
+	 */
+	public boolean rollBonus(BlockState blockState) {
+		BotStats stats = stats();
+		float chance = BotLevels.blockXp(blockState) > 1 ? stats.oreBonusChance()
+				: !isMiningUnderground() && !TunnelHelper.isNaturalTerrain(blockState) ? stats.gatherBonusChance() : 0.0F;
+		return chance > 0.0F && this.random.nextFloat() < chance;
+	}
+
+	/** Mines the ore blocks connected to the one just broken, as many as the bot's level and skills allow. */
 	private void mineVein(ServerLevel level, BlockPos origin) {
-		int limit = BotLevels.veinSize(getBotLevel());
+		int limit = stats().veinSize();
 		if (limit <= 0) {
 			return;
 		}
@@ -2245,8 +2555,9 @@ public class ButterBotEntity extends PathfinderMob {
 				if (!isTargetBlock(nextState) || !canDig(next, nextState) || !makeDigSafe(next)) {
 					continue;
 				}
-				harvestBlock(level, next, nextState, false);
-				gainWorkXp(1);
+				harvestBlock(level, next, nextState, false, rollBonus(nextState) ? 1 : 0);
+				gainWorkXp(BotLevels.blockXp(nextState));
+				progress.addStat(BotProgress.Stat.MINED, 1);
 				mined++;
 				queue.add(next);
 			}
@@ -2323,10 +2634,8 @@ public class ButterBotEntity extends PathfinderMob {
 		if (stack.isEmpty()) {
 			return;
 		}
-		boolean wanted = mineFilter != null ? stack.is(mineFilter.item()) : resource != null && resource.matchesItem(stack);
-		boolean onTheList = mineFilter != null && jobs.isNeeded(stack.getItem());
-		if (task == BotTask.MINE && !keepAll && !wanted && !onTheList && !isUsefulByproduct(stack)
-				&& !(isFiller(stack) && countFiller() < KEEP_FILLER)) {
+		boolean wanted = isWantedLoot(stack);
+		if (!keepAll && isJunkWhileMining(stack)) {
 			Block.popResource(this.level(), pos, stack);
 			return;
 		}
@@ -2339,6 +2648,20 @@ public class ButterBotEntity extends PathfinderMob {
 		if (!leftover.isEmpty()) {
 			Block.popResource(this.level(), pos, leftover);
 		}
+	}
+
+	/** What the current mining run is collecting. */
+	private boolean isWantedLoot(ItemStack stack) {
+		return mineFilter != null ? stack.is(mineFilter.item()) : resource != null && resource.matchesItem(stack);
+	}
+
+	/** Things a mining run leaves on the ground (dirt, gravel...), apart from a little cobblestone for plugging lava. */
+	private boolean isJunkWhileMining(ItemStack stack) {
+		if (task != BotTask.MINE || isWantedLoot(stack) || (mineFilter != null && jobs.isNeeded(stack.getItem()))
+				|| isUsefulByproduct(stack)) {
+			return false;
+		}
+		return !(isFiller(stack) && countFiller() < KEEP_FILLER);
 	}
 
 	private void countCollected(int amount) {
@@ -2582,7 +2905,11 @@ public class ButterBotEntity extends PathfinderMob {
 		feedCooldown = Math.max(0, feedCooldown - 20);
 
 		if (this.getHealth() < this.getMaxHealth() && this.tickCount - lastHurtTick > 100) {
-			this.heal(BotLevels.regenPerSecond(getBotLevel()));
+			this.heal(stats().regenPerSecond());
+		}
+		if (inventory.getContainerSize() > stats().backpackSlots()) {
+			// A smaller backpack waits until its contents fit.
+			resizeBackpack(stats().backpackSlots());
 		}
 		if (this.getHealth() < this.getMaxHealth() * 0.5F && eatCooldown == 0) {
 			eatFromBackpack();
@@ -2641,6 +2968,8 @@ public class ButterBotEntity extends PathfinderMob {
 		output.putString("Delivery", deliveryMode.name());
 		output.putInt("BotLevel", getBotLevel());
 		output.putInt("WorkXp", workXp);
+		output.putIntArray("Progress", progress.save());
+		output.putLong("SecondWind", secondWindReadyAt);
 		output.putInt("StoredXp", storedXp);
 		output.putBoolean("Guard", guard);
 		output.putBoolean("AutoTorch", autoTorch);
@@ -2706,7 +3035,9 @@ public class ButterBotEntity extends PathfinderMob {
 		collectedCount = input.getIntOr("CollectedCount", 0);
 		returnRequested = input.getBooleanOr("ReturnRequested", false);
 		deliveryMode = readEnum(input.getStringOr("Delivery", ""), DeliveryMode.class, DeliveryMode.OWNER);
-		// The level decides the backpack size, so it is restored before the backpack.
+		// Level and skills decide the backpack size, so they are restored before the backpack.
+		input.getIntArray("Progress").ifPresent(progress::load);
+		secondWindReadyAt = input.getLongOr("SecondWind", 0L);
 		restoreProgress(input.getIntOr("BotLevel", 1), input.getIntOr("WorkXp", 0));
 		storedXp = input.getIntOr("StoredXp", 0);
 		guard = input.getBooleanOr("Guard", true);
@@ -2825,11 +3156,70 @@ public class ButterBotEntity extends PathfinderMob {
 		if (source.getEntity() instanceof Player player && isOwnedBy(player) && !player.isShiftKeyDown()) {
 			return false;
 		}
+		if (source.is(DamageTypeTags.IS_EXPLOSION) && stats().has(BotStats.Ability.BLAST_RESISTANT)) {
+			damage *= 0.5F;
+		}
 		boolean hurt = super.hurtServer(level, source, damage);
 		if (hurt) {
 			lastHurtTick = this.tickCount;
 		}
 		return hurt;
+	}
+
+	/** Second Wind (level 25): a blow that would destroy the bot leaves it at half health instead, once every 10 minutes. */
+	@Override
+	protected void actuallyHurt(ServerLevel level, DamageSource source, float damage) {
+		super.actuallyHurt(level, source, damage);
+		if (this.isDeadOrDying() && !source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)
+				&& stats().has(BotStats.Ability.SECOND_WIND) && level.getGameTime() >= secondWindReadyAt) {
+			secondWindReadyAt = level.getGameTime() + SECOND_WIND_COOLDOWN;
+			this.setHealth(this.getMaxHealth() * 0.5F);
+			level.sendParticles(ParticleTypes.TOTEM_OF_UNDYING, getX(), getY() + 1.0D, getZ(), 40, 0.5D, 0.8D, 0.5D, 0.3D);
+			this.playSound(SoundEvents.TOTEM_USE, 0.8F, 1.2F);
+			tellOwner(Component.translatable("butterbot.msg.second_wind", getName()).withStyle(ChatFormatting.GOLD));
+		}
+	}
+
+	/** Fire and lava don't hurt it from level 12 on. */
+	@Override
+	public boolean fireImmune() {
+		return super.fireImmune() || getBotLevel() >= BotStats.Ability.FIRE_IMMUNE.level();
+	}
+
+	/** Poison and wither don't affect it from level 14 on. */
+	@Override
+	public boolean canBeAffected(MobEffectInstance effect) {
+		if ((effect.is(MobEffects.POISON) || effect.is(MobEffects.WITHER)) && getBotLevel() >= BotStats.Ability.POISON_IMMUNE.level()) {
+			return false;
+		}
+		return super.canBeAffected(effect);
+	}
+
+	/**
+	 * Sweeping Blow skill: a hit also catches the monsters right around the target (only ones the bot
+	 * would fight anyway: no Endermen, piglins, Wardens or named mobs that leave it alone).
+	 */
+	@Override
+	public boolean doHurtTarget(ServerLevel level, Entity target) {
+		boolean hit = super.doHurtTarget(level, target);
+		float sweep = stats().sweepFraction();
+		if (!hit || sweep <= 0.0F) {
+			return hit;
+		}
+		List<Mob> near = level.getEntitiesOfClass(Mob.class, target.getBoundingBox().inflate(2.0D, 0.5D, 2.0D),
+				mob -> mob != target && GuardAction.isHostile(this, mob));
+		if (near.isEmpty()) {
+			return true;
+		}
+		float damage = (float) this.getAttributeValue(Attributes.ATTACK_DAMAGE) * sweep;
+		level.sendParticles(ParticleTypes.SWEEP_ATTACK, target.getX(), target.getY(0.5D), target.getZ(), 1, 0.0D, 0.0D, 0.0D, 0.0D);
+		this.playSound(SoundEvents.PLAYER_ATTACK_SWEEP, 0.8F, 1.0F);
+		for (Mob other : near) {
+			if (other.hurtServer(level, this.damageSources().mobAttack(this), damage) && !other.isAlive()) {
+				onDefeated(other);
+			}
+		}
+		return true;
 	}
 
 	/** Bots tiptoe through fields: landing on farmland never tramples it. */

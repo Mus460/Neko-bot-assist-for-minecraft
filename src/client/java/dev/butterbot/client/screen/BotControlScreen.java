@@ -11,7 +11,10 @@ import dev.butterbot.client.BotKeys;
 import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
+import dev.butterbot.entity.BotProgress;
 import dev.butterbot.entity.BotResource;
+import dev.butterbot.entity.BotSkill;
+import dev.butterbot.entity.BotStats;
 import dev.butterbot.entity.DeliveryMode;
 import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
@@ -32,6 +35,7 @@ import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.Item;
@@ -42,6 +46,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -75,7 +80,7 @@ public class BotControlScreen extends Screen {
 		}
 	}
 
-	private enum MorePage {MAIN, CRAFT, TUNNEL, PROGRAM}
+	private enum MorePage {MAIN, CRAFT, TUNNEL, PROGRAM, SKILLS, STATS}
 
 	private static final int PANEL_W = 356;
 	private static final int BODY_H = 210;
@@ -90,6 +95,12 @@ public class BotControlScreen extends Screen {
 	private static final int[][] TUNNEL_SIZES = {{2, 2}, {3, 3}, {1, 2}, {3, 2}, {5, 3}};
 	private static final int[] MINE_AMOUNTS = {16, 32, 64, 128, 256};
 	private static final long RELEASE_CONFIRM_MILLIS = 3000L;
+	private static final int SKILL_W = 56;
+	private static final int SKILL_H = 34;
+	private static final int SKILL_PITCH_X = 61;
+	private static final int SKILL_PITCH_Y = 37;
+	private static final int SKILL_TOP = 32;
+	private static final BotJob[] MASTERY_JOBS = {BotJob.MINER, BotJob.GATHERER, BotJob.GUARD, BotJob.FARMER};
 
 	// Job tab grid.
 	private static final int GRID_Y = 102;
@@ -132,6 +143,10 @@ public class BotControlScreen extends Screen {
 	private int skinPage;
 	private int selectedSkinIndex = -1;
 	private long releaseArmedUntil;
+	private long resetArmedUntil;
+	/** The skill ranks and level the skill page was built for (its tooltips are rebuilt when they change). */
+	private int[] shownSkills = new int[0];
+	private int shownSkillLevel = -1;
 	@Nullable
 	private String scriptDraft;
 	@Nullable
@@ -203,7 +218,9 @@ public class BotControlScreen extends Screen {
 		if (needGone) {
 			selectedNeed = null;
 		}
-		if (firstList || selectionChanged || jobLayoutChanged || needGone || bots.size() != lastBotCount) {
+		boolean skillsChanged = activeTab == Tab.MORE && morePage == MorePage.SKILLS && bot != null
+				&& (bot.level() != shownSkillLevel || !Arrays.equals(bot.skills(), shownSkills));
+		if (firstList || selectionChanged || jobLayoutChanged || needGone || skillsChanged || bots.size() != lastBotCount) {
 			rebuildPreservingInput();
 		}
 	}
@@ -415,7 +432,13 @@ public class BotControlScreen extends Screen {
 		g.text(font, name, middle - font.width(name) / 2, cardY + 6, McStyle.TEXT_LIGHT, true);
 
 		int level = bot.level();
-		g.text(font, Component.translatable("butterbot.ui.level", level), cardX + 5, cardY + 20, McStyle.GOLD_LIGHT, true);
+		Component levelText = Component.translatable("butterbot.ui.level", level);
+		g.text(font, levelText, cardX + 5, cardY + 20, McStyle.GOLD_LIGHT, true);
+		int points = skillPoints(bot);
+		if (points > 0) {
+			Component badge = Component.translatable("butterbot.ui.points_badge", points);
+			g.text(font, badge, cardX + CARD_W - 5 - font.width(badge), cardY + 20, McStyle.GOOD_LIGHT, true);
+		}
 		float xp = level >= BotLevels.MAX_LEVEL ? 1.0F : bot.workXp() / (float) BotLevels.xpToNext(level);
 		McStyle.bar(g, cardX + 5, cardY + 30, CARD_W - 10, 4, xp, McStyle.XP);
 
@@ -428,11 +451,11 @@ public class BotControlScreen extends Screen {
 			g.text(font, preview, middle - font.width(preview) / 2, cardY + 103, McStyle.GOLD_LIGHT, true);
 		}
 
-		int maxHealth = (int) Math.round(BotLevels.maxHealth(level));
+		int maxHealth = Math.round(bot.maxHealth());
 		int health = Math.round(bot.health() * maxHealth);
 		g.text(font, Component.translatable("butterbot.ui.health", health, maxHealth), cardX + 5, cardY + 113, McStyle.TEXT_LIGHT, true);
 		McStyle.bar(g, cardX + 5, cardY + 123, CARD_W - 10, 4, bot.health(), McStyle.HEALTH);
-		int capacity = BotLevels.backpackSize(level) * 64;
+		int capacity = bot.backpackSlots() * 64;
 		g.text(font, Component.translatable("butterbot.ui.bag", bot.itemCount(), capacity), cardX + 5, cardY + 131,
 				bot.itemCount() >= capacity ? McStyle.BAD_LIGHT : McStyle.TEXT_LIGHT, true);
 
@@ -1071,6 +1094,9 @@ public class BotControlScreen extends Screen {
 			case CRAFT -> initCrafting();
 			case TUNNEL -> initTunnel();
 			case PROGRAM -> initProgram();
+			case SKILLS -> initSkills();
+			case STATS -> {
+			}
 		}
 		if (morePage != MorePage.MAIN) {
 			addRenderableWidget(McButton.text(cx, cy, 64, 16, Component.translatable("butterbot.ui.back"), b -> {
@@ -1082,6 +1108,21 @@ public class BotControlScreen extends Screen {
 	}
 
 	private void initMoreMain() {
+		addRenderableWidget(McButton.icon(cx, cy + 34, 118, 20, Component.empty(), new ItemStack(Items.ENCHANTED_BOOK), b -> {
+			saveInput();
+			morePage = MorePage.SKILLS;
+			rebuildWidgets();
+		}).label(() -> {
+			Payloads.BotEntry now = selected();
+			int points = now == null ? 0 : skillPoints(now);
+			return points > 0 ? Component.translatable("butterbot.ui.skills_with_points", points) : Component.translatable("butterbot.ui.skills");
+		}).tip(Component.translatable("butterbot.ui.skills_tip")));
+		addRenderableWidget(McButton.icon(cx + 121, cy + 34, 118, 20, Component.translatable("butterbot.ui.stats"),
+				new ItemStack(Items.SPYGLASS), b -> {
+					saveInput();
+					morePage = MorePage.STATS;
+					rebuildWidgets();
+				}).tip(Component.translatable("butterbot.ui.stats_tip")));
 		String[] keys = {"crafting", "tunnel", "program"};
 		Item[] icons = {Items.CRAFTING_TABLE, Items.RAIL, Items.WRITABLE_BOOK};
 		MorePage[] pages = {MorePage.CRAFT, MorePage.TUNNEL, MorePage.PROGRAM};
@@ -1121,11 +1162,15 @@ public class BotControlScreen extends Screen {
 			case TUNNEL -> renderTunnel(g);
 			case PROGRAM -> {
 			}
+			case SKILLS -> renderSkills(g, bot);
+			case STATS -> renderStats(g, bot, mouseX, mouseY);
 		}
 		if (morePage != MorePage.MAIN) {
 			String key = switch (morePage) {
 				case CRAFT -> "butterbot.ui.crafting";
 				case TUNNEL -> "butterbot.ui.tunnel";
+				case SKILLS -> "butterbot.ui.skills";
+				case STATS -> "butterbot.ui.stats";
 				default -> "butterbot.ui.program";
 			};
 			g.text(font, Component.translatable(key), cx + 70, cy + 4, McStyle.TEXT, false);
@@ -1143,25 +1188,209 @@ public class BotControlScreen extends Screen {
 		Component xpText = max ? Component.translatable("butterbot.gui.level_max")
 				: Component.translatable("butterbot.gui.xp_progress", bot.workXp(), BotLevels.xpToNext(level));
 		g.text(font, xpText, cx, cy + 21, McStyle.TEXT_DIM, false);
+		int points = skillPoints(bot);
+		Component pointsText = Component.translatable("butterbot.ui.skill_points", points);
+		g.text(font, pointsText, cx + CW - font.width(pointsText), cy + 21, points > 0 ? McStyle.GOOD : McStyle.TEXT_DIM, false);
 
-		int tier = BotLevels.toolTier(level);
-		int fortune = BotLevels.fortune(level);
-		int vein = BotLevels.veinSize(level);
-		String attack = String.format(Locale.ROOT, "%.1f", BotLevels.attackDamage(level) + 5 + tier);
-		Component[] perks = {
-				Component.translatable("butterbot.gui.perk_speed", BotLevels.digSpeedPercent(level)),
-				Component.translatable("butterbot.gui.perk_body", BotLevels.backpackSize(level), (int) BotLevels.maxHealth(level)),
-				Component.translatable("butterbot.gui.perk_attack", attack, Component.translatable("butterbot.gui.tier." + tier)),
-				fortune > 0 ? Component.translatable("butterbot.gui.perk_fortune", fortune)
-						: Component.translatable("butterbot.gui.perk_fortune_locked", 5),
-				vein > 0 ? Component.translatable("butterbot.gui.perk_vein", vein)
-						: Component.translatable("butterbot.gui.perk_vein_locked", 3),
-		};
-		int y = cy + 32;
-		for (Component perk : perks) {
-			g.text(font, font.plainSubstrByWidth(perk.getString(), CW), cx, y, McStyle.TEXT, false);
-			y += 10;
+		BotStats stats = statsOf(bot);
+		String attack = String.format(Locale.ROOT, "%.1f", stats.attackDamage() + 5 + BotLevels.toolTier(level));
+		Component first = Component.translatable("butterbot.ui.summary_1", stats.digSpeedPercent(), attack, Math.round(stats.maxHealth()));
+		Component second = Component.translatable("butterbot.ui.summary_2", stats.fortune(), stats.veinSize(), bot.backpackSlots());
+		g.text(font, font.plainSubstrByWidth(first.getString(), CW), cx, cy + 60, McStyle.TEXT, false);
+		g.text(font, font.plainSubstrByWidth(second.getString(), CW), cx, cy + 71, McStyle.TEXT, false);
+	}
+
+	// ---------------------------------------------------------------- More: skills and statistics
+
+	private static int skillPoints(Payloads.BotEntry bot) {
+		int spent = 0;
+		for (int rank : bot.skills()) {
+			spent += Math.max(0, rank);
 		}
+		return BotProgress.earnedPoints(bot.level(), bot.mastery()) - spent;
+	}
+
+	private static BotStats statsOf(Payloads.BotEntry bot) {
+		return BotStats.of(bot.level(), bot.skills(), bot.mastery());
+	}
+
+	/** Four branches side by side, one tile per skill; a click spends a point on it. */
+	private void initSkills() {
+		Payloads.BotEntry bot = selected();
+		if (bot == null) {
+			return;
+		}
+		shownSkills = bot.skills().clone();
+		shownSkillLevel = bot.level();
+		BotSkill.Branch[] branches = BotSkill.Branch.values();
+		for (int b = 0; b < branches.length; b++) {
+			for (int row = 0; row < BotSkill.ROW_LEVEL.length; row++) {
+				BotSkill skill = BotSkill.at(branches[b], row);
+				addRenderableWidget(McButton.tile(cx + b * SKILL_PITCH_X, cy + SKILL_TOP + row * SKILL_PITCH_Y, SKILL_W, SKILL_H,
+								Component.empty(), new ItemStack(skill.icon()), button -> command(Payloads.BotCommand.SKILL_UP, "", skill.ordinal()))
+						.label(() -> skillLabel(skill))
+						.selected(() -> {
+							Payloads.BotEntry now = selected();
+							return now != null && BotProgress.rankIn(now.skills(), skill) >= skill.maxRank();
+						})
+						.activeWhen(() -> skillOpen(skill))
+						.tip(skillTooltip(bot, skill)));
+			}
+		}
+		addRenderableWidget(McButton.text(cx + CW - 72, cy + 181, 72, 16, Component.empty(), b -> {
+			long now = System.currentTimeMillis();
+			if (now < resetArmedUntil) {
+				command(Payloads.BotCommand.SKILL_RESET);
+				resetArmedUntil = 0L;
+			} else {
+				resetArmedUntil = now + RELEASE_CONFIRM_MILLIS;
+			}
+		}).label(() -> Component.translatable(System.currentTimeMillis() < resetArmedUntil
+				? "butterbot.ui.skill_reset_confirm" : "butterbot.ui.skill_reset")).danger()
+				.tip(Component.translatable("butterbot.ui.skill_reset_tip")));
+	}
+
+	private Component skillLabel(BotSkill skill) {
+		Payloads.BotEntry bot = selected();
+		if (bot == null) {
+			return Component.empty();
+		}
+		int rank = BotProgress.rankIn(bot.skills(), skill);
+		if (rank >= skill.maxRank()) {
+			return Component.translatable("butterbot.ui.skill_max");
+		}
+		if (bot.level() < skill.requiredLevel()) {
+			return Component.translatable("butterbot.ui.skill_locked", skill.requiredLevel());
+		}
+		return Component.literal(rank + "/" + skill.maxRank());
+	}
+
+	/** Open for learning (the level is high enough and the skill above it is learned); points are checked by the server. */
+	private boolean skillOpen(BotSkill skill) {
+		Payloads.BotEntry bot = selected();
+		if (bot == null) {
+			return false;
+		}
+		BotProgress.Refusal refusal = BotProgress.whyNot(skill, bot.level(), bot.skills(), skillPoints(bot));
+		return refusal != BotProgress.Refusal.LEVEL && refusal != BotProgress.Refusal.PREVIOUS;
+	}
+
+	private static Component skillTooltip(Payloads.BotEntry bot, BotSkill skill) {
+		int rank = BotProgress.rankIn(bot.skills(), skill);
+		MutableComponent tip = Component.empty().append(skill.displayName().copy().withStyle(ChatFormatting.GOLD))
+				.append(Component.literal(" " + rank + "/" + skill.maxRank()).withStyle(ChatFormatting.GRAY));
+		tip.append("\n").append(Component.translatable("butterbot.skill." + skill.id() + ".desc").withStyle(ChatFormatting.GRAY));
+		if (rank > 0) {
+			tip.append("\n").append(Component.translatable("butterbot.ui.skill_now", skill.effect(rank)));
+		}
+		if (rank < skill.maxRank()) {
+			tip.append("\n").append(Component.translatable("butterbot.ui.skill_next", skill.effect(rank + 1)).withStyle(ChatFormatting.GREEN));
+		}
+		if (bot.level() < skill.requiredLevel()) {
+			tip.append("\n").append(Component.translatable("butterbot.ui.skill_needs_level", skill.requiredLevel()).withStyle(ChatFormatting.RED));
+		}
+		BotSkill previous = skill.previous();
+		if (previous != null && BotProgress.rankIn(bot.skills(), previous) <= 0) {
+			tip.append("\n").append(Component.translatable("butterbot.ui.skill_needs_previous", previous.displayName()).withStyle(ChatFormatting.RED));
+		}
+		return tip;
+	}
+
+	private void renderSkills(GuiGraphicsExtractor g, Payloads.BotEntry bot) {
+		int points = skillPoints(bot);
+		Component pointsText = Component.translatable("butterbot.ui.skill_points", points);
+		g.text(font, pointsText, cx + CW - font.width(pointsText), cy + 4, points > 0 ? McStyle.GOOD : McStyle.TEXT_DIM, false);
+		BotSkill.Branch[] branches = BotSkill.Branch.values();
+		for (int b = 0; b < branches.length; b++) {
+			String name = font.plainSubstrByWidth(branches[b].displayName().getString(), SKILL_W);
+			g.text(font, name, cx + b * SKILL_PITCH_X + (SKILL_W - font.width(name)) / 2, cy + 21, McStyle.TEXT, false);
+		}
+		String hint = font.plainSubstrByWidth(Component.translatable("butterbot.ui.skill_hint").getString(), CW - 78);
+		g.text(font, hint, cx, cy + 185, McStyle.TEXT_DIM, false);
+	}
+
+	/** Everything the bot can do, its job mastery, the level abilities and lifetime counters. */
+	private void renderStats(GuiGraphicsExtractor g, Payloads.BotEntry bot, int mouseX, int mouseY) {
+		BotStats stats = statsOf(bot);
+		String attack = String.format(Locale.ROOT, "%.1f", stats.attackDamage() + 5 + BotLevels.toolTier(bot.level()));
+		Component[] left = {
+				Component.translatable("butterbot.ui.stat_dig", stats.digSpeedPercent()),
+				Component.translatable("butterbot.ui.stat_attack", attack),
+				Component.translatable("butterbot.ui.stat_health", Math.round(stats.maxHealth())),
+				Component.translatable("butterbot.ui.stat_armor", Math.round(stats.armor())),
+				Component.translatable("butterbot.ui.stat_speed", Math.round((stats.speedMultiplier() - 1.0D) * 100.0D)),
+		};
+		Component[] right = {
+				Component.translatable("butterbot.ui.stat_bag", bot.backpackSlots()),
+				Component.translatable("butterbot.ui.stat_fortune", stats.fortune()),
+				Component.translatable("butterbot.ui.stat_vein", stats.veinSize()),
+				Component.translatable("butterbot.ui.stat_radar", stats.scanRadius()),
+				stats.magnetRadius() > 0 ? Component.translatable("butterbot.ui.stat_magnet", stats.magnetRadius())
+						: Component.translatable("butterbot.ui.stat_magnet_off"),
+		};
+		for (int i = 0; i < left.length; i++) {
+			g.text(font, font.plainSubstrByWidth(left[i].getString(), 116), cx, cy + 20 + i * 10, McStyle.TEXT, false);
+			g.text(font, font.plainSubstrByWidth(right[i].getString(), 116), cx + 122, cy + 20 + i * 10, McStyle.TEXT, false);
+		}
+
+		g.text(font, Component.translatable("butterbot.ui.mastery_title").withStyle(ChatFormatting.BOLD), cx, cy + 74, McStyle.TEXT, false);
+		int[] mastery = bot.mastery();
+		for (int i = 0; i < MASTERY_JOBS.length; i++) {
+			BotJob job = MASTERY_JOBS[i];
+			int index = BotProgress.jobIndex(job);
+			int xp = index >= 0 && index < mastery.length ? mastery[index] : 0;
+			int rank = BotProgress.masteryRank(xp);
+			int y = cy + 85 + i * 11;
+			g.text(font, font.plainSubstrByWidth(job.displayName().getString(), 58), cx, y, McStyle.TEXT, false);
+			String rankName = font.plainSubstrByWidth(Component.translatable("butterbot.mastery.rank." + rank).getString(), 62);
+			g.text(font, rankName, cx + 60, y, rank >= BotProgress.MAX_MASTERY ? McStyle.GOOD : McStyle.TEXT, false);
+			float progress;
+			String amount;
+			if (rank >= BotProgress.MAX_MASTERY) {
+				progress = 1.0F;
+				amount = Component.translatable("butterbot.ui.skill_max").getString();
+			} else {
+				int from = rank == 0 ? 0 : BotProgress.MASTERY_XP[rank - 1];
+				int to = BotProgress.MASTERY_XP[rank];
+				progress = Math.max(0.0F, Math.min(1.0F, (xp - from) / (float) (to - from)));
+				amount = compact(xp) + "/" + compact(to);
+			}
+			McStyle.bar(g, cx + 124, y + 2, 60, 4, progress, McStyle.XP);
+			g.text(font, amount, cx + CW - font.width(amount), y, McStyle.TEXT_DIM, false);
+			if (inside(mouseX, mouseY, cx, y - 1, CW, 11)) {
+				g.setComponentTooltipForNextFrame(font, List.of(
+						job.displayName().copy().append(" - ").append(Component.translatable("butterbot.mastery.rank." + rank)).withStyle(ChatFormatting.AQUA),
+						Component.translatable("butterbot.mastery.bonus." + job.name().toLowerCase(Locale.ROOT)).withStyle(ChatFormatting.GRAY),
+						Component.translatable("butterbot.ui.mastery_points").withStyle(ChatFormatting.DARK_GRAY)), mouseX, mouseY);
+			}
+		}
+
+		g.text(font, Component.translatable("butterbot.ui.abilities_title").withStyle(ChatFormatting.BOLD), cx, cy + 131, McStyle.TEXT, false);
+		BotStats.Ability[] abilities = BotStats.Ability.values();
+		for (int i = 0; i < abilities.length; i++) {
+			BotStats.Ability ability = abilities[i];
+			int x = cx + (i % 2) * 122;
+			int y = cy + 141 + (i / 2) * 10;
+			boolean unlocked = stats.has(ability);
+			Component line = unlocked ? Component.translatable("butterbot.ui.ability_on", ability.displayName())
+					: Component.translatable("butterbot.ui.ability_off", ability.level(), ability.displayName());
+			g.text(font, font.plainSubstrByWidth(line.getString(), 118), x, y, unlocked ? McStyle.GOOD : McStyle.TEXT_DIM, false);
+			if (inside(mouseX, mouseY, x, y - 1, 118, 10)) {
+				g.setComponentTooltipForNextFrame(font, List.of(ability.displayName().copy().withStyle(ChatFormatting.GOLD),
+						ability.description().copy().withStyle(ChatFormatting.GRAY),
+						Component.translatable("butterbot.ui.ability_level", ability.level()).withStyle(ChatFormatting.DARK_GRAY)), mouseX, mouseY);
+			}
+		}
+
+		int[] lifetime = bot.lifetime();
+		Component life = Component.translatable("butterbot.ui.lifetime", compact(lifetimeAt(lifetime, BotProgress.Stat.MINED)),
+				compact(lifetimeAt(lifetime, BotProgress.Stat.KILLS)), compact(lifetimeAt(lifetime, BotProgress.Stat.HARVESTED)),
+				compact(lifetimeAt(lifetime, BotProgress.Stat.CRAFTED)));
+		g.text(font, font.plainSubstrByWidth(life.getString(), CW), cx, cy + 186, McStyle.TEXT_DIM, false);
+	}
+
+	private static int lifetimeAt(int[] lifetime, BotProgress.Stat stat) {
+		return stat.ordinal() < lifetime.length ? lifetime[stat.ordinal()] : 0;
 	}
 
 	// ---------------------------------------------------------------- More: crafting
