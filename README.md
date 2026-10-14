@@ -218,6 +218,7 @@ Bot memakai **skin pemain Minecraft biasa**, file PNG yang sama dengan skin untu
 
 - Tanpa skin kustom, setiap bot memakai skin bawaan mod ini: **Neko Girl Uniform** (lengan ramping, rambut cokelat, pita pink, seragam hitam). Tombol **Bawaan** di tab Skin mengembalikan bot ke skin ini.
 - **Mode neko** (aktif sejak awal): telinga kucing dan ekor yang bergoyang dipasang di atas skin apa pun. Warnanya diambil otomatis dari warna rambut skin. Telinga sesekali berkedut dan ekor bergoyang lebih cepat saat bot berjalan atau bekerja.
+- **Suara cewek Jepang** (selama mode neko aktif): bot bicara dengan suara VOICEVOX:小夜/SAYO. Ia menyapa saat dipanggil ("はじめまして、ご主人様！"), menjawab perintah ("了解にゃ！"), melapor saat tugas selesai, mengucap "どうぞ！" saat menyerahkan barang, berteriak saat bertarung dan terluka, merayakan naik level, berlari menyelamatkan barangmu ("ご主人様！今行くにゃ！"), memperingatkan lava, dan sesekali bersenandung saat bekerja. Kalimatnya tidak saling menimpa. Saat mode neko dimatikan, bot kembali memakai suara robot Butter Bot asli.
 
 Cara memasang skin:
 
@@ -307,5 +308,6 @@ Butuh JDK 25. Runtime Java bawaan TLauncher (`java-runtime-epsilon`) sudah cukup
 
 - Mod asli, model Bot Base, tekstur dan suara: **creatoreskim** ([GitHub](https://github.com/Eskimek/Rick-And-Morty-butter-bot-mod), [Modrinth](https://modrinth.com/mod/butter-bot-ai-rick-and-morty)). Halaman Modrinth menyebut lisensi CC-BY-4.0, tetapi file `LICENSE` di repo GitHub-nya berbunyi *All Rights Reserved*.
 - Skin bawaan bot: "Neko Girl Uniform" karya **brandongrahn** ([mc-skins.net](https://mc-skins.net/skin/neko-girl-uniform-045c7e)).
+- Suara bot neko: **VOICEVOX:小夜/SAYO** (dibuat dengan [VOICEVOX Core](https://github.com/VOICEVOX/voicevox_core); [pedoman pemakaian SAYO](https://316soramegu.wixsite.com/sayo-official/guideline)).
 - Port ini dibuat untuk **pemakaian pribadi**. Jangan unggah atau sebarkan ulang tanpa izin penulis asli.
 - Mod penggemar tidak resmi. Tidak berafiliasi dengan Adult Swim atau pembuat Rick and Morty.
