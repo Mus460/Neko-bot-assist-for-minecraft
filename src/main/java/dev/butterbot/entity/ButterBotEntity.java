@@ -26,6 +26,7 @@ import dev.butterbot.item.ButterBotItem;
 import dev.butterbot.lua.LuaProgram;
 import dev.butterbot.network.ModNetworking;
 import dev.butterbot.registry.ModBlocks;
+import dev.butterbot.registry.ModEntities;
 import dev.butterbot.registry.ModSounds;
 import dev.butterbot.skin.SkinLimits;
 import dev.butterbot.util.Msg;
@@ -132,12 +133,16 @@ public class ButterBotEntity extends PathfinderMob {
 			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.BOOLEAN);
 	private static final EntityDataAccessor<Boolean> DATA_NEKO =
 			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.BOOLEAN);
+	private static final EntityDataAccessor<Integer> DATA_SKIN_VARIANT =
+			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.INT);
 	private static final EntityDataAccessor<Integer> DATA_LEVEL =
 			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.INT);
 
 	/** Backpack size at level 1; it grows to {@link BotLevels#MAX_BACKPACK} with levels. */
 	public static final int INVENTORY_SIZE = BotLevels.BASE_BACKPACK;
 	public static final int MAX_NAME_LENGTH = 32;
+	/** How many built-in skins there are; every bot of a player gets a different one while it can. */
+	public static final int SKIN_VARIANTS = 5;
 	/** Plantable items (seeds, saplings...) the bot keeps when it unloads at its base. */
 	public static final int KEEP_PLANTABLES = 32;
 	/** Cobblestone-like blocks the bot keeps while mining so it can plug lava. */
@@ -228,6 +233,8 @@ public class ButterBotEntity extends PathfinderMob {
 	private int feedCooldown;
 	private int torchCooldown;
 	private int lastVoiceTick = -1000;
+	/** False until the bot has been given its own built-in skin (bots from older versions get one on their first tick). */
+	private boolean skinVariantChosen;
 
 	// Keeping the owner's things safe after they die.
 	@Nullable
@@ -304,6 +311,7 @@ public class ButterBotEntity extends PathfinderMob {
 		builder.define(DATA_SKIN, "");
 		builder.define(DATA_WORKING, false);
 		builder.define(DATA_NEKO, true);
+		builder.define(DATA_SKIN_VARIANT, 0);
 		builder.define(DATA_LEVEL, 1);
 	}
 
@@ -333,6 +341,9 @@ public class ButterBotEntity extends PathfinderMob {
 			return;
 		}
 
+		if (!skinVariantChosen && ownerUuid != null) {
+			chooseFreeSkinVariant();
+		}
 		handlePassiveScan();
 		brain.tick(this);
 
@@ -496,7 +507,33 @@ public class ButterBotEntity extends PathfinderMob {
 		if (!this.hasCustomName()) {
 			this.setCustomName(Component.literal(defaultName()));
 		}
+		if (!skinVariantChosen) {
+			chooseFreeSkinVariant();
+		}
 		linkToNearbyBase();
+	}
+
+	/** Picks the built-in skin the fewest of the owner's other bots wear, so five bots get five different skins. */
+	private void chooseFreeSkinVariant() {
+		if (!(this.level() instanceof ServerLevel serverLevel) || ownerUuid == null) {
+			return;
+		}
+		int[] used = new int[SKIN_VARIANTS];
+		for (ServerLevel level : serverLevel.getServer().getAllLevels()) {
+			for (ButterBotEntity other : level.getEntities(ModEntities.BUTTER_BOT,
+					bot -> bot != this && bot.isAlive() && ownerUuid.equals(bot.getOwnerUuid()))) {
+				if (other.skinVariantChosen) {
+					used[other.getSkinVariant()]++;
+				}
+			}
+		}
+		int best = 0;
+		for (int i = 1; i < SKIN_VARIANTS; i++) {
+			if (used[i] < used[best]) {
+				best = i;
+			}
+		}
+		setSkinVariant(best);
 	}
 
 	/** A cute name picked from the bot's UUID, so it stays the same if the name is reset. */
@@ -634,6 +671,16 @@ public class ButterBotEntity extends PathfinderMob {
 
 	public void setSkinId(String skinId) {
 		this.entityData.set(DATA_SKIN, SkinLimits.isValidSkinId(skinId) ? skinId : "");
+	}
+
+	/** Which built-in skin the bot wears when it has no custom one (0 to {@link #SKIN_VARIANTS} - 1). */
+	public int getSkinVariant() {
+		return Math.floorMod(this.entityData.get(DATA_SKIN_VARIANT), SKIN_VARIANTS);
+	}
+
+	public void setSkinVariant(int variant) {
+		this.entityData.set(DATA_SKIN_VARIANT, Math.floorMod(variant, SKIN_VARIANTS));
+		this.skinVariantChosen = true;
 	}
 
 	/** Cat ears and a tail drawn on top of the skin. */
@@ -2119,6 +2166,9 @@ public class ButterBotEntity extends PathfinderMob {
 		output.storeNullable("BasePos", BlockPos.CODEC, basePos);
 		output.putString("LuaScript", luaScript);
 		output.putString("Skin", getSkinId());
+		if (skinVariantChosen) {
+			output.putInt("SkinVariant", getSkinVariant());
+		}
 		output.putBoolean("Neko", isNeko());
 		output.storeNullable("Owner", UUIDUtil.CODEC, ownerUuid);
 		if (ownerName != null) {
@@ -2188,6 +2238,7 @@ public class ButterBotEntity extends PathfinderMob {
 
 		luaScript = input.getStringOr("LuaScript", "");
 		setSkinId(input.getStringOr("Skin", ""));
+		input.getInt("SkinVariant").ifPresent(this::setSkinVariant);
 		setNeko(input.getBooleanOr("Neko", true));
 
 		autoRefill = input.getBooleanOr("AutoRefill", true);

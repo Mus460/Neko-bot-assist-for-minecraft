@@ -824,8 +824,15 @@ public class BotControlScreen extends Screen {
 		});
 		apply.active = selectedSkinIndex >= 0;
 		addRenderableWidget(apply);
-		addRenderableWidget(ParchmentButton.parchment(contentX + 107, by, 103, 20, Component.translatable("butterbot.gui.default_skin"),
-				b -> command(Payloads.BotCommand.SET_SKIN, "")));
+		// Built-in skins: shows the one the bot wears and switches to the next one on every click.
+		int variant = bot == null ? 0 : bot.skinVariant();
+		boolean wearsDefault = bot != null && bot.skinId().isEmpty();
+		int nextVariant = wearsDefault ? (variant + 1) % ClientSkinManager.defaultSkinCount() : variant;
+		ParchmentButton builtIn = ParchmentButton.parchment(contentX + 107, by, 103, 20,
+				Component.translatable("butterbot.gui.default_skin_next", Component.translatable("butterbot.skin.default." + nextVariant)),
+				b -> command(Payloads.BotCommand.DEFAULT_SKIN, "", nextVariant));
+		builtIn.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.default_skin_tooltip", ClientSkinManager.defaultSkinCount())));
+		addRenderableWidget(builtIn);
 		addRenderableWidget(ParchmentButton.parchment(contentX, by + 23, 103, 18, Component.translatable("butterbot.gui.open_folder"), b -> {
 			ClientSkinManager.ensureSetup();
 			Blaze3D.openPath(ClientSkinManager.SKIN_DIR);
@@ -1065,8 +1072,9 @@ public class BotControlScreen extends Screen {
 			skin = ClientSkinManager.skinFor(bot.skinId());
 			caption = Component.translatable("butterbot.gui.current_skin").getString();
 		} else {
-			skin = bot == null ? null : ClientSkinManager.defaultSkinFor(bot.id());
-			caption = Component.translatable("butterbot.gui.default_skin_caption").getString();
+			skin = bot == null ? null : ClientSkinManager.defaultSkinFor(bot.skinVariant());
+			caption = bot == null ? Component.translatable("butterbot.gui.default_skin_caption").getString()
+					: Component.translatable("butterbot.skin.default." + bot.skinVariant()).getString();
 		}
 		if (skin != null) {
 			drawPaperDoll(g, skin, tx + 20, ty + 4, 2);
@@ -1082,7 +1090,8 @@ public class BotControlScreen extends Screen {
 				case LOADING -> COLOR_TEXT_DIM;
 				case FAILED -> COLOR_BAD;
 			};
-			String text = Component.translatable("butterbot.gui.skin_status." + status.name().toLowerCase(Locale.ROOT)).getString();
+			String text = Component.translatable("butterbot.gui.skin_status." + status.name().toLowerCase(Locale.ROOT),
+					Component.translatable("butterbot.skin.default." + bot.skinVariant())).getString();
 			g.text(font, font.plainSubstrByWidth(text, size + 4), tx, ty + size + 14, color, false);
 		}
 

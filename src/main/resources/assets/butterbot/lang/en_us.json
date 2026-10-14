@@ -305,7 +305,7 @@
   "butterbot.gui.refill": "Refill: %s",
   "butterbot.gui.refill_tooltip": "When blocks, torches, food, arrows, rockets or pearls in your hotbar run low, the bot tops them up from your inventory, its backpack or the Bot Base (bot within 8 blocks of you).",
   "butterbot.gui.skin_same_as_default": "Applied! This skin is the same as the built-in neko skin, so the bot looks the same.",
-  "butterbot.gui.skin_status.default": "Built-in neko skin",
+  "butterbot.gui.skin_status.default": "Built-in: %s",
   "butterbot.gui.skin_status.ready": "Skin is showing",
   "butterbot.gui.skin_status.loading": "Loading skin...",
   "butterbot.gui.skin_status.failed": "Skin failed to load",
@@ -337,5 +337,13 @@
   "subtitles.butterbot.voice.bye": "Neko bot: \"See you!\"",
   "subtitles.butterbot.voice.feed": "Neko bot offers food",
   "subtitles.butterbot.voice.danger": "Neko bot: \"Watch out!\"",
-  "subtitles.butterbot.voice.stuck": "Neko bot: \"Upsy-daisy!\""
+  "subtitles.butterbot.voice.stuck": "Neko bot: \"Upsy-daisy!\"",
+  "butterbot.skin.default.0": "Brown neko",
+  "butterbot.skin.default.1": "White neko",
+  "butterbot.skin.default.2": "Pink neko",
+  "butterbot.skin.default.3": "Pastel neko",
+  "butterbot.skin.default.4": "Blue neko",
+  "butterbot.msg.skin_default_set": "Now wearing the %s skin!",
+  "butterbot.gui.default_skin_next": "Built-in ▶ %s",
+  "butterbot.gui.default_skin_tooltip": "Switches to the next of the %s built-in neko skins (a custom skin is taken off). New bots automatically get a skin none of your other bots wear."
 }

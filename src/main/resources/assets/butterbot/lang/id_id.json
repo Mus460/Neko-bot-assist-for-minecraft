@@ -305,7 +305,7 @@
   "butterbot.gui.refill": "Isi ulang: %s",
   "butterbot.gui.refill_tooltip": "Kalau block, obor, makanan, panah, roket atau ender pearl di hotbar kamu tinggal sedikit, bot mengisinya dari inventory-mu, tasnya, atau Bot Base (bot dalam 8 blok darimu).",
   "butterbot.gui.skin_same_as_default": "Terpasang! Skin ini sama dengan skin neko bawaan, jadi tampilannya tidak berubah.",
-  "butterbot.gui.skin_status.default": "Skin neko bawaan",
+  "butterbot.gui.skin_status.default": "Bawaan: %s",
   "butterbot.gui.skin_status.ready": "Skin sudah tampil",
   "butterbot.gui.skin_status.loading": "Memuat skin...",
   "butterbot.gui.skin_status.failed": "Skin gagal dimuat",
@@ -337,5 +337,13 @@
   "subtitles.butterbot.voice.bye": "Bot neko: \"Dadah!\"",
   "subtitles.butterbot.voice.feed": "Bot neko menawarkan makanan",
   "subtitles.butterbot.voice.danger": "Bot neko: \"Awas!\"",
-  "subtitles.butterbot.voice.stuck": "Bot neko: \"Hup!\""
+  "subtitles.butterbot.voice.stuck": "Bot neko: \"Hup!\"",
+  "butterbot.skin.default.0": "Neko cokelat",
+  "butterbot.skin.default.1": "Neko putih",
+  "butterbot.skin.default.2": "Neko pink",
+  "butterbot.skin.default.3": "Neko pastel",
+  "butterbot.skin.default.4": "Neko biru",
+  "butterbot.msg.skin_default_set": "Sekarang pakai skin %s!",
+  "butterbot.gui.default_skin_next": "Bawaan ▶ %s",
+  "butterbot.gui.default_skin_tooltip": "Ganti ke skin neko bawaan berikutnya (ada %s; skin kustom dilepas). Bot baru otomatis memakai skin yang belum dipakai bot lain milikmu."
 }

@@ -79,7 +79,7 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 
 		ClientSkinManager.SkinInfo skin = ClientSkinManager.skinFor(entity.getSkinId());
 		if (skin == null) {
-			skin = ClientSkinManager.defaultSkinFor(entity.getUUID());
+			skin = ClientSkinManager.defaultSkinFor(entity.getSkinVariant());
 		}
 		state.texture = skin.texture();
 		state.slim = skin.slim();
