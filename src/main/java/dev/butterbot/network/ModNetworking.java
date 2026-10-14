@@ -93,7 +93,8 @@ public final class ModNetworking {
 					bot.placesTorchesWhileMining(),
 					bot.feedsOwner(),
 					bot.getSmeltMode().ordinal(),
-					bot.refillsHotbar()));
+					bot.refillsHotbar(),
+					bot.getSkinVariant()));
 		}
 		Optional<BlockPos> validBase = BotAccess.isValidBase(player, base) ? base : Optional.empty();
 		ServerPlayNetworking.send(player, new Payloads.BotList(validBase, entries));
@@ -193,6 +194,12 @@ public final class ModNetworking {
 					player.sendSystemMessage(Msg.prefixed(Component.translatable("butterbot.msg.skin_missing")
 							.withStyle(ChatFormatting.RED)));
 				}
+			}
+			case Payloads.BotCommand.DEFAULT_SKIN -> {
+				bot.setSkinId("");
+				bot.setSkinVariant(payload.arg(0, 0));
+				bot.say(Component.translatable("butterbot.msg.skin_default_set", Component.translatable(
+						"butterbot.skin.default." + bot.getSkinVariant())));
 			}
 			case Payloads.BotCommand.GUARD -> {
 				bot.setGuarding(payload.arg(0, 1) != 0);

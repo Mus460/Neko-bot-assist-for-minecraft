@@ -102,6 +102,17 @@ public final class BotCommand {
 				.then(Commands.argument("item", ItemArgument.item(buildContext))
 						.executes(ctx -> where(ctx.getSource(), ItemArgument.getItem(ctx, "item").item().value()))));
 		root.then(Commands.literal("death").executes(ctx -> death(ctx.getSource())));
+		root.then(Commands.literal("skin")
+				.then(Commands.argument("number", IntegerArgumentType.integer(1, ButterBotEntity.SKIN_VARIANTS))
+						.executes(ctx -> {
+							int variant = IntegerArgumentType.getInteger(ctx, "number") - 1;
+							return simple(ctx.getSource(), bot -> {
+								bot.setSkinId("");
+								bot.setSkinVariant(variant);
+								bot.say(Component.translatable("butterbot.msg.skin_default_set",
+										Component.translatable("butterbot.skin.default." + variant)));
+							});
+						})));
 		LiteralArgumentBuilder<CommandSourceStack> find = Commands.literal("find");
 		for (BotResource resource : BotResource.values()) {
 			find.then(Commands.literal(resource.id()).executes(ctx -> simple(ctx.getSource(), bot ->

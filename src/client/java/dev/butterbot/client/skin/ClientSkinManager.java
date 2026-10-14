@@ -50,6 +50,18 @@ public final class ClientSkinManager {
 	private static final Identifier TEMPLATE_SOURCE = Identifier.withDefaultNamespace("textures/entity/player/wide/steve.png");
 	/** "Neko Girl Uniform" by brandongrahn (mc-skins.net), slim arms. */
 	public static final Identifier DEFAULT_SKIN = ButterBot.id("textures/entity/neko_default.png");
+	/**
+	 * The built-in skins, one per bot (all slim arms, from mc-skins.net): Neko Girl Uniform by brandongrahn,
+	 * White Cat Girl by queenofcraft9, Cute Cat Girl by Tasselisk2011, Pastel Cat Girl by aikoandcho and
+	 * Blue Cat Girl by SleepyBlanket.
+	 */
+	private static final Identifier[] DEFAULT_SKINS = {
+			DEFAULT_SKIN,
+			ButterBot.id("textures/entity/neko_white.png"),
+			ButterBot.id("textures/entity/neko_pink.png"),
+			ButterBot.id("textures/entity/neko_pastel.png"),
+			ButterBot.id("textures/entity/neko_blue.png"),
+	};
 	/** SHA-1 of the original neko_girl_slim.png that {@link #DEFAULT_SKIN} was made from. */
 	private static final String DEFAULT_SOURCE_SKIN_ID = "c0f14f2947062f4d3d69ae264eaf4175008cd5d1";
 	private static final long REFETCH_DELAY_MS = 30_000L;
@@ -244,9 +256,14 @@ public final class ClientSkinManager {
 		return DEFAULT_SOURCE_SKIN_ID.equals(skinId);
 	}
 
-	/** The skin every bot wears until it gets a custom one: the neko girl that ships with the mod. */
-	public static SkinInfo defaultSkinFor(UUID botId) {
-		return defaults.computeIfAbsent(DEFAULT_SKIN, id -> new SkinInfo(id, true, readResourceHairColor(id)));
+	/** The built-in skin a bot wears until it gets a custom one. */
+	public static SkinInfo defaultSkinFor(int variant) {
+		Identifier texture = DEFAULT_SKINS[Math.floorMod(variant, DEFAULT_SKINS.length)];
+		return defaults.computeIfAbsent(texture, id -> new SkinInfo(id, true, readResourceHairColor(id)));
+	}
+
+	public static int defaultSkinCount() {
+		return DEFAULT_SKINS.length;
 	}
 
 	private static int readResourceHairColor(Identifier texture) {

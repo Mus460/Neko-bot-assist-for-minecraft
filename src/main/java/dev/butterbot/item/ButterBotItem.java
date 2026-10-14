@@ -80,6 +80,7 @@ public class ButterBotItem extends Item {
 		}
 		bot.setNeko(tag.getBooleanOr("Neko", true));
 		bot.setSkinId(tag.getStringOr("Skin", ""));
+		tag.getInt("SkinVariant").ifPresent(bot::setSkinVariant);
 		bot.setLuaScript(tag.getStringOr("Script", ""));
 		bot.setDeliveryMode(DeliveryMode.byOrdinal(tag.getIntOr("Delivery", 0)));
 		bot.restoreProgress(tag.getIntOr("Level", 1), tag.getIntOr("WorkXp", 0));
@@ -102,6 +103,7 @@ public class ButterBotItem extends Item {
 		CompoundTag tag = new CompoundTag();
 		tag.putBoolean("Neko", bot.isNeko());
 		tag.putString("Skin", bot.getSkinId());
+		tag.putInt("SkinVariant", bot.getSkinVariant());
 		tag.putString("Script", bot.getLuaScript());
 		tag.putInt("Delivery", bot.getDeliveryMode().ordinal());
 		tag.putInt("Level", bot.getBotLevel());
