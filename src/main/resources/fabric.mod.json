@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "butterbot",
+  "version": "${version}",
+  "name": "Butter Bot",
+  "description": "A helper you summon with /butterbot summon: mines whole ore veins, digs tunnels, farms, sorts chests, smelts, guards you from monsters, crafts from your chests, delivers loot to you or its Bot Base, runs Lua programs and levels up as it works. Looks like a player with any Minecraft skin, with optional cat ears and tail. Based on 'Butter Bot AI - Rick and Morty' by creatoreskim. Unofficial fan mod.",
+  "authors": ["creatoreskim (original mod)", "Fabric port"],
+  "contact": {
+    "sources": "https://github.com/Eskimek/Rick-And-Morty-butter-bot-mod"
+  },
+  "license": "CC-BY-4.0",
+  "icon": "assets/butterbot/textures/item/butter_bot.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["dev.butterbot.ButterBot"],
+    "client": ["dev.butterbot.client.ButterBotClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.3",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

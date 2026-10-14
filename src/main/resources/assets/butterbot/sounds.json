@@ -1,0 +1,21 @@
+{
+  "butter_bot_spawn": {
+    "subtitle": "subtitles.butterbot.spawn",
+    "sounds": [
+      {
+        "name": "butterbot:whatismypurpose",
+        "stream": false
+      }
+    ]
+  },
+  "butter_bot_ambient": {
+    "subtitle": "subtitles.butterbot.ambient",
+    "sounds": [
+      {
+        "name": "butterbot:robotsounds",
+        "stream": false,
+        "volume": 0.7
+      }
+    ]
+  }
+}

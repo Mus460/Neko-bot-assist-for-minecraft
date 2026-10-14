@@ -1,0 +1,28 @@
+# gradle
+.gradle/
+build/
+out/
+classes/
+
+# idea / eclipse / vscode
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+bin/
+
+# fabric
+run/
+
+# local reference material (not part of the mod)
+reference/
+
+# java
+hs_err_*.log
+replay_*.log
+*.hprof
+*.jfr

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    ".": "minecraft:redstone",
+    "#": "minecraft:iron_ingot",
+    "C": "minecraft:chest"
+  },
+  "pattern": [
+    ".#.",
+    "#C#",
+    ".#."
+  ],
+  "result": {
+    "id": "butterbot:bot_base"
+  }
+}
