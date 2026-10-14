@@ -5,10 +5,14 @@ import dev.butterbot.ai.OreFinder;
 import dev.butterbot.ai.actions.LightAreaAction;
 import dev.butterbot.ai.actions.FarmTaskAction;
 import dev.butterbot.ai.actions.SortTaskAction;
+import dev.butterbot.ai.job.ResourceCatalog;
+import dev.butterbot.client.BotKeys;
 import dev.butterbot.client.skin.ClientSkinManager;
+import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
 import dev.butterbot.entity.BotResource;
 import dev.butterbot.entity.DeliveryMode;
+import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
 import dev.butterbot.lua.LuaProgram;
 import dev.butterbot.network.Payloads;
@@ -47,7 +51,7 @@ import java.util.UUID;
 public class BotControlScreen extends Screen {
 
 	private enum Tab {
-		BOTS("bots"), CONTROL("control"), MINING("mining"), FARM("farm"), CRAFTING("crafting"), TUNNEL("tunnel"),
+		BOTS("bots"), CONTROL("control"), JOB("job"), MINING("mining"), FARM("farm"), CRAFTING("crafting"), TUNNEL("tunnel"),
 		PROGRAM("program"), SKIN("skin"), LEVEL("level");
 
 		final String key;
@@ -94,6 +98,11 @@ public class BotControlScreen extends Screen {
 	private static String toZText = "";
 	private static int tunnelSizeIndex;
 	private static boolean tunnelTorches = true;
+	/** Job tab: the item picker is open instead of the list. */
+	private static boolean jobPicker;
+	/** Job tab: the list item whose amount the buttons change (an item id). */
+	@Nullable
+	private static String selectedNeed;
 
 	private Optional<BlockPos> basePos;
 	@Nullable
@@ -171,7 +180,7 @@ public class BotControlScreen extends Screen {
 		}
 		boolean selectionChanged = previousSelection == null ? selectedBotId != null : !previousSelection.equals(selectedBotId);
 
-		if (firstList || selectionChanged || activeTab == Tab.BOTS || activeTab == Tab.LEVEL) {
+		if (firstList || selectionChanged || activeTab == Tab.BOTS || activeTab == Tab.LEVEL || activeTab == Tab.JOB) {
 			rebuildPreservingInput();
 		} else if (deliveryButton != null) {
 			deliveryButton.setMessage(deliveryLabel());
@@ -231,7 +240,7 @@ public class BotControlScreen extends Screen {
 		Tab[] tabs = Tab.values();
 		for (int i = 0; i < tabs.length; i++) {
 			Tab tab = tabs[i];
-			ParchmentButton button = ParchmentButton.ribbon(left + 10, top + 28 + i * 20, 80, 18, tab.label(), b -> switchTab(tab));
+			ParchmentButton button = ParchmentButton.ribbon(left + 10, top + 26 + i * 19, 80, 18, tab.label(), b -> switchTab(tab));
 			button.selected(tab == activeTab);
 			button.active = receivedList && (tab == Tab.BOTS || selected() != null);
 			addRenderableWidget(button);
@@ -246,6 +255,7 @@ public class BotControlScreen extends Screen {
 		switch (activeTab) {
 			case BOTS -> initBotsTab();
 			case CONTROL -> initControlTab();
+			case JOB -> initJobTab();
 			case MINING -> initMiningTab();
 			case FARM -> initFarmTab();
 			case CRAFTING -> initCraftingTab();
@@ -506,6 +516,305 @@ public class BotControlScreen extends Screen {
 				}).selected(mode != SmeltMode.OFF);
 		smelt.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.smelt_tooltip")));
 		addRenderableWidget(smelt);
+	}
+
+	// ---------------------------------------------------------------- Job tab
+
+	private static final int JOB_GRID_Y = 86;
+	private static final int NEED_CELL_W = 68;
+	private static final int NEED_CELL_H = 18;
+	private static final int NEED_PITCH_X = 71;
+	private static final int NEED_PITCH_Y = 20;
+	private static final int PICK_CELL = 18;
+	private static final int PICK_PITCH = 21;
+	private static final int PICK_COLUMNS = 10;
+
+	private void initJobTab() {
+		Payloads.BotEntry bot = selected();
+		if (bot == null) {
+			return;
+		}
+		Payloads.JobView view = bot.jobView();
+		BotJob current = BotJob.byOrdinal(view.job());
+		BotJob[] values = BotJob.values();
+		for (int i = 0; i < values.length; i++) {
+			BotJob value = values[i];
+			ParchmentButton button = ParchmentButton.parchment(contentX + Math.round(i * 42.5F), contentY + 12, 40, 18,
+					Component.translatable(value.key() + ".short"), b -> {
+						if (value != current) {
+							jobPicker = false;
+							selectedNeed = null;
+							command(Payloads.BotCommand.JOB_SET, "", value.ordinal());
+						}
+					}).selected(value == current);
+			addRenderableWidget(withTooltip(button, value.key() + ".tooltip"));
+		}
+		if (current == BotJob.NONE) {
+			jobPicker = false;
+			return;
+		}
+
+		int bx = contentX + 130;
+		addRenderableWidget(withTooltip(ParchmentButton.parchment(contentX + 172, contentY + 64, 38, 16,
+				Component.translatable(view.paused() ? "butterbot.gui.job_resume" : "butterbot.gui.job_pause"),
+				b -> command(Payloads.BotCommand.JOB_PAUSE, "", view.paused() ? 0 : 1)).selected(view.paused()),
+				"butterbot.gui.job_pause_tooltip"));
+
+		if (current.usesList()) {
+			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx, contentY + 46, 80, 16,
+					Component.translatable("butterbot.gui.job_pick_chest"), b -> startPick(bot, BotKeys.PickKind.CHEST)),
+					"butterbot.gui.job_pick_chest_tooltip"));
+			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx, contentY + 64, 18, 16, Component.literal("-"),
+					b -> command(Payloads.BotCommand.JOB_ZONE, "", Math.max(0, view.zone() - JobConfig.ZONE_STEP))),
+					"butterbot.gui.job_zone_tooltip"));
+			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx + 20, contentY + 64, 18, 16, Component.literal("+"),
+					b -> command(Payloads.BotCommand.JOB_ZONE, "", Math.min(JobConfig.MAX_ZONE, view.zone() + JobConfig.ZONE_STEP))),
+					"butterbot.gui.job_zone_tooltip"));
+			int buttonsY = contentY + 157;
+			if (jobPicker) {
+				addRenderableWidget(ParchmentButton.parchment(contentX, buttonsY, 60, 16, Component.translatable("butterbot.gui.job_picker_close"),
+						b -> {
+							jobPicker = false;
+							rebuildPreservingInput();
+						}));
+				return;
+			}
+			Payloads.NeedView need = selectedNeedView(view);
+			if (need == null) {
+				return;
+			}
+			int[] deltas = {-64, -16, 16, 64};
+			for (int i = 0; i < deltas.length; i++) {
+				int delta = deltas[i];
+				addRenderableWidget(ParchmentButton.parchment(contentX + Math.round(i * 42.5F), buttonsY, 40, 16,
+						Component.literal(delta > 0 ? "+" + delta : String.valueOf(delta)),
+						b -> command(Payloads.BotCommand.JOB_NEED, need.item(), Math.max(0, need.target() + delta))));
+			}
+			addRenderableWidget(ParchmentButton.danger(contentX + 170, buttonsY, 40, 16, Component.translatable("butterbot.gui.job_remove"),
+					b -> {
+						selectedNeed = null;
+						command(Payloads.BotCommand.JOB_NEED, need.item(), 0);
+					}));
+		} else {
+			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx, contentY + 46, 38, 16,
+					Component.translatable("butterbot.gui.job_here"), b -> command(Payloads.BotCommand.JOB_CENTER)),
+					"butterbot.gui.job_here_tooltip"));
+			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx + 40, contentY + 46, 40, 16,
+					Component.translatable("butterbot.gui.job_pick_spot"), b -> startPick(bot, BotKeys.PickKind.CENTER)),
+					"butterbot.gui.job_pick_spot_tooltip"));
+			int max = current == BotJob.FARMER ? JobConfig.MAX_FARM_RADIUS : JobConfig.MAX_PATROL_RADIUS;
+			addRenderableWidget(ParchmentButton.parchment(bx, contentY + 64, 18, 16, Component.literal("-"),
+					b -> command(Payloads.BotCommand.JOB_RADIUS, "", Math.max(JobConfig.MIN_RADIUS, view.radius() - 2))));
+			addRenderableWidget(ParchmentButton.parchment(bx + 20, contentY + 64, 18, 16, Component.literal("+"),
+					b -> command(Payloads.BotCommand.JOB_RADIUS, "", Math.min(max, view.radius() + 2))));
+			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx, contentY + 82, 50, 16,
+					Component.translatable("butterbot.gui.job_pick_chest_short"), b -> startPick(bot, BotKeys.PickKind.CHEST)),
+					"butterbot.gui.job_area_chest_tooltip"));
+			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx + 52, contentY + 82, 28, 16,
+					Component.translatable("butterbot.gui.job_auto"), b -> command(Payloads.BotCommand.JOB_CHEST)),
+					"butterbot.gui.job_auto_tooltip"));
+		}
+	}
+
+	private static ParchmentButton withTooltip(ParchmentButton button, String key) {
+		button.setTooltip(Tooltip.create(Component.translatable(key)));
+		return button;
+	}
+
+	/** Closes the panel so the player can look at a chest or spot and press the context key. */
+	private void startPick(Payloads.BotEntry bot, BotKeys.PickKind kind) {
+		BotKeys.beginPick(bot.id(), basePos, kind);
+		onClose();
+	}
+
+	@Nullable
+	private static Payloads.NeedView selectedNeedView(Payloads.JobView view) {
+		if (selectedNeed == null) {
+			return null;
+		}
+		for (Payloads.NeedView need : view.needs()) {
+			if (need.item().equals(selectedNeed)) {
+				return need;
+			}
+		}
+		return null;
+	}
+
+	private static ItemStack stackOf(String id) {
+		Identifier identifier = Identifier.tryParse(id);
+		return identifier == null ? ItemStack.EMPTY : new ItemStack(BuiltInRegistries.ITEM.getValue(identifier));
+	}
+
+	private static String itemId(Item item) {
+		return BuiltInRegistries.ITEM.getKey(item).toString();
+	}
+
+	private static boolean isOnList(Payloads.JobView view, String id) {
+		for (Payloads.NeedView need : view.needs()) {
+			if (need.item().equals(id)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static String compact(int value) {
+		return value < 1000 ? String.valueOf(value) : String.format(Locale.ROOT, "%.1fk", value / 1000.0F);
+	}
+
+	private static boolean inside(double mouseX, double mouseY, int x, int y, int w, int h) {
+		return mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
+	}
+
+	private void renderJobTab(GuiGraphicsExtractor g, @Nullable Payloads.BotEntry bot, int mouseX, int mouseY) {
+		if (bot == null) {
+			return;
+		}
+		Payloads.JobView view = bot.jobView();
+		BotJob job = BotJob.byOrdinal(view.job());
+		if (job == BotJob.NONE) {
+			g.textWithWordWrap(font, Component.translatable("butterbot.gui.job_none_help"), contentX, contentY + 36, CONTENT_W, COLOR_TEXT_DIM, false);
+			return;
+		}
+		String status = font.plainSubstrByWidth(Component.empty().append(bot.status()).getString(), CONTENT_W);
+		g.text(font, status, contentX, contentY + 34, view.paused() ? COLOR_BAD : COLOR_TEXT_DIM, false);
+		Component chest = view.chest().isEmpty()
+				? Component.translatable(job.usesList() ? "butterbot.gui.job_chest_none" : "butterbot.gui.job_area_chest_auto")
+				: Component.translatable(view.chestOk() ? "butterbot.gui.job_chest_ok" : "butterbot.gui.job_chest_bad",
+				view.chest().get().toShortString());
+		int chestColor = view.chest().isPresent() ? (view.chestOk() ? COLOR_TEXT : COLOR_BAD) : (job.usesList() ? COLOR_BAD : COLOR_TEXT);
+		if (job.usesList()) {
+			g.text(font, font.plainSubstrByWidth(chest.getString(), 126), contentX, contentY + 50, chestColor, false);
+			g.text(font, Component.translatable("butterbot.gui.job_zone", view.zone()), contentX, contentY + 68, COLOR_TEXT, false);
+			if (jobPicker) {
+				renderJobPicker(g, job, view, mouseX, mouseY);
+			} else {
+				renderNeeds(g, view, mouseX, mouseY);
+			}
+			return;
+		}
+		Component spot = view.center().isEmpty() ? Component.translatable("butterbot.gui.job_spot_none")
+				: Component.translatable("butterbot.gui.job_spot", view.center().get().toShortString());
+		g.text(font, font.plainSubstrByWidth(spot.getString(), 126), contentX, contentY + 50,
+				view.center().isPresent() ? COLOR_TEXT : COLOR_BAD, false);
+		g.text(font, Component.translatable("butterbot.gui.job_radius", view.radius()), contentX, contentY + 68, COLOR_TEXT, false);
+		g.text(font, font.plainSubstrByWidth(chest.getString(), 126), contentX, contentY + 86, chestColor, false);
+		String info = job == BotJob.GUARD ? "butterbot.gui.job_guard_info" : "butterbot.gui.job_farmer_info";
+		g.textWithWordWrap(font, Component.translatable(info, view.stat(), view.radius()), contentX, contentY + 106, CONTENT_W,
+				COLOR_TEXT_DIM, false);
+	}
+
+	/** The list as a 3x3 grid: icon, "in chest / wanted" and a progress bar; the last cell adds an item. */
+	private void renderNeeds(GuiGraphicsExtractor g, Payloads.JobView view, int mouseX, int mouseY) {
+		List<Payloads.NeedView> needs = view.needs();
+		Component label = null;
+		int cells = Math.min(JobConfig.MAX_NEEDS, needs.size() + 1);
+		for (int i = 0; i < cells; i++) {
+			int x = contentX + (i % 3) * NEED_PITCH_X;
+			int y = contentY + JOB_GRID_Y + (i / 3) * NEED_PITCH_Y;
+			boolean hovered = inside(mouseX, mouseY, x, y, NEED_CELL_W, NEED_CELL_H);
+			if (i >= needs.size()) {
+				g.fill(x, y, x + NEED_CELL_W, y + NEED_CELL_H, hovered ? COLOR_PARCHMENT_DARK : COLOR_PARCHMENT);
+				g.outline(x, y, NEED_CELL_W, NEED_CELL_H, COLOR_FRAME);
+				g.centeredText(font, Component.translatable("butterbot.gui.job_add"), x + NEED_CELL_W / 2, y + 5, COLOR_GOOD);
+				if (hovered) {
+					label = Component.translatable("butterbot.gui.job_add_hint");
+				}
+				continue;
+			}
+			Payloads.NeedView need = needs.get(i);
+			ItemStack stack = stackOf(need.item());
+			boolean done = need.have() >= need.target();
+			boolean isSelected = need.item().equals(selectedNeed);
+			g.fill(x, y, x + NEED_CELL_W, y + NEED_CELL_H, isSelected || hovered ? COLOR_PARCHMENT_DARK : COLOR_PARCHMENT);
+			g.outline(x, y, NEED_CELL_W, NEED_CELL_H, isSelected ? 0xFF6E36B4 : COLOR_FRAME);
+			if (need.have() > 0 && need.target() > 0) {
+				int barWidth = Math.round((NEED_CELL_W - 2) * Math.min(1.0F, need.have() / (float) need.target()));
+				g.fill(x + 1, y + NEED_CELL_H - 3, x + 1 + barWidth, y + NEED_CELL_H - 1, done ? COLOR_GOOD : COLOR_XP);
+			}
+			g.item(stack, x + 1, y + 1);
+			String count = (need.have() < 0 ? "?" : compact(need.have())) + "/" + compact(need.target());
+			g.text(font, font.plainSubstrByWidth(count, NEED_CELL_W - 20), x + 19, y + 5, done ? COLOR_GOOD : COLOR_TEXT, false);
+			if (hovered || (isSelected && label == null)) {
+				label = Component.translatable("butterbot.gui.job_need_label", stack.getHoverName(),
+						need.have() < 0 ? "?" : String.valueOf(need.have()), need.target());
+			}
+		}
+		if (label == null) {
+			label = Component.translatable(needs.isEmpty() ? "butterbot.gui.job_list_empty" : "butterbot.gui.job_list_hint");
+		}
+		g.text(font, font.plainSubstrByWidth(label.getString(), CONTENT_W), contentX, contentY + JOB_GRID_Y + 3 * NEED_PITCH_Y + 2,
+				COLOR_TEXT_DIM, false);
+	}
+
+	/** Every item the job can collect; a green frame means it is already on the list. */
+	private void renderJobPicker(GuiGraphicsExtractor g, BotJob job, Payloads.JobView view, int mouseX, int mouseY) {
+		List<ResourceCatalog.Entry> entries = ResourceCatalog.forJob(job);
+		Component label = Component.translatable("butterbot.gui.job_picker_hint");
+		for (int i = 0; i < entries.size(); i++) {
+			int x = contentX + (i % PICK_COLUMNS) * PICK_PITCH;
+			int y = contentY + JOB_GRID_Y + (i / PICK_COLUMNS) * NEED_PITCH_Y;
+			ItemStack stack = new ItemStack(entries.get(i).item());
+			boolean hovered = inside(mouseX, mouseY, x, y, PICK_CELL, PICK_CELL);
+			g.fill(x, y, x + PICK_CELL, y + PICK_CELL, hovered ? COLOR_PARCHMENT_DARK : COLOR_PARCHMENT);
+			g.outline(x, y, PICK_CELL, PICK_CELL, isOnList(view, itemId(stack.getItem())) ? COLOR_GOOD : COLOR_FRAME);
+			g.item(stack, x + 1, y + 1);
+			if (hovered) {
+				label = stack.getHoverName();
+			}
+		}
+		g.text(font, font.plainSubstrByWidth(label.getString(), CONTENT_W), contentX, contentY + JOB_GRID_Y + 3 * NEED_PITCH_Y + 2,
+				COLOR_TEXT_DIM, false);
+	}
+
+	/** Clicks on the list grid or the item picker (they are drawn, not widgets). */
+	private boolean jobTabClicked(double mouseX, double mouseY) {
+		Payloads.BotEntry bot = selected();
+		if (bot == null) {
+			return false;
+		}
+		Payloads.JobView view = bot.jobView();
+		BotJob job = BotJob.byOrdinal(view.job());
+		if (!job.usesList()) {
+			return false;
+		}
+		if (jobPicker) {
+			List<ResourceCatalog.Entry> entries = ResourceCatalog.forJob(job);
+			for (int i = 0; i < entries.size(); i++) {
+				int x = contentX + (i % PICK_COLUMNS) * PICK_PITCH;
+				int y = contentY + JOB_GRID_Y + (i / PICK_COLUMNS) * NEED_PITCH_Y;
+				if (inside(mouseX, mouseY, x, y, PICK_CELL, PICK_CELL)) {
+					String id = itemId(entries.get(i).item());
+					if (!isOnList(view, id)) {
+						command(Payloads.BotCommand.JOB_NEED, id, 64);
+					}
+					selectedNeed = id;
+					jobPicker = false;
+					rebuildPreservingInput();
+					return true;
+				}
+			}
+			return false;
+		}
+		List<Payloads.NeedView> needs = view.needs();
+		int cells = Math.min(JobConfig.MAX_NEEDS, needs.size() + 1);
+		for (int i = 0; i < cells; i++) {
+			int x = contentX + (i % 3) * NEED_PITCH_X;
+			int y = contentY + JOB_GRID_Y + (i / 3) * NEED_PITCH_Y;
+			if (!inside(mouseX, mouseY, x, y, NEED_CELL_W, NEED_CELL_H)) {
+				continue;
+			}
+			if (i >= needs.size()) {
+				jobPicker = true;
+				selectedNeed = null;
+			} else {
+				String id = needs.get(i).item();
+				selectedNeed = id.equals(selectedNeed) ? null : id;
+			}
+			rebuildPreservingInput();
+			return true;
+		}
+		return false;
 	}
 
 	private void toggleButton(int x, int y, int width, boolean on, String key, int action, String tooltipKey) {
@@ -881,6 +1190,9 @@ public class BotControlScreen extends Screen {
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+		if (activeTab == Tab.JOB && event.button() == 0 && jobTabClicked(event.x(), event.y())) {
+			return true;
+		}
 		if (activeTab == Tab.CRAFTING && !suggestions.isEmpty() && event.button() == 0) {
 			int sx = contentX;
 			int sy = contentY + 41;
@@ -963,6 +1275,7 @@ public class BotControlScreen extends Screen {
 		switch (activeTab) {
 			case BOTS -> renderBotsTab(g, bot);
 			case CONTROL -> renderControlTab(g, bot);
+			case JOB -> renderJobTab(g, bot, mouseX, mouseY);
 			case MINING -> g.text(font, Component.translatable("butterbot.gui.amount_label"), contentX, contentY + 16 + 4 * 21 + 14, COLOR_TEXT, false);
 			case FARM -> renderFarmTab(g);
 			case LEVEL -> renderLevelTab(g, bot);

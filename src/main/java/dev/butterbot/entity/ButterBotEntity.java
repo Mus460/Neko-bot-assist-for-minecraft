@@ -21,6 +21,9 @@ import dev.butterbot.ai.actions.MineTargetAction;
 import dev.butterbot.ai.actions.RecoverItemsAction;
 import dev.butterbot.ai.actions.SortTaskAction;
 import dev.butterbot.ai.actions.TunnelTaskAction;
+import dev.butterbot.ai.job.JobAction;
+import dev.butterbot.ai.job.JobStorage;
+import dev.butterbot.ai.job.ResourceCatalog;
 import dev.butterbot.block.BotBaseBlockEntity;
 import dev.butterbot.item.ButterBotItem;
 import dev.butterbot.lua.LuaProgram;
@@ -52,6 +55,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.tags.ItemTags;
+import net.minecraft.world.Container;
 import net.minecraft.world.Containers;
 import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.InteractionHand;
@@ -265,6 +269,14 @@ public class ButterBotEntity extends PathfinderMob {
 	private UUID orderedTarget;
 	private long orderedUntil;
 
+	// The standing job (miner, gatherer, guard, farmer) and the item a job's mining run is after.
+	private final JobConfig jobs = new JobConfig();
+	@Nullable
+	private ResourceCatalog.Entry mineFilter;
+	/** The current dig site came up empty, so the bot shouldn't come back to this exact spot. */
+	private boolean jobSiteSpent;
+	private boolean jobChanged;
+
 	public ButterBotEntity(EntityType<? extends PathfinderMob> type, Level level) {
 		super(type, level);
 		brain.register(new MineTargetAction());
@@ -282,6 +294,7 @@ public class ButterBotEntity extends PathfinderMob {
 		brain.register(new LightAreaAction());
 		brain.register(new FetchTaskAction());
 		brain.register(new GoToPosAction());
+		brain.register(new JobAction());
 	}
 
 	public static AttributeSupplier.Builder createAttributes() {
@@ -431,6 +444,9 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		gainWorkXp(5);
 		collectNearbyDrops(victim.position(), 3.0D);
+		if (jobs.job() == BotJob.GUARD) {
+			jobs.addStat(1);
+		}
 	}
 
 	private static ItemStack toolFor(BlockState blockState, int tier) {
@@ -627,7 +643,34 @@ public class ButterBotEntity extends PathfinderMob {
 				inventory.getContainerSize() * 64);
 	}
 
+	/** The status line; bots with a job say which job and what part of it they are doing. */
 	public Component describeShortStatus() {
+		Component taskStatus = describeTaskStatus();
+		if (!jobs.hasJob()) {
+			return taskStatus;
+		}
+		Component jobName = jobs.job().displayName();
+		if (jobs.isPaused()) {
+			return Component.translatable("butterbot.status.job_paused", jobName);
+		}
+		if (task != BotTask.NONE || returnRequested || combatTicks > 0 || recoverPos != null || !recoveredItems.isEmpty()) {
+			return Component.translatable("butterbot.status.job_busy", jobName, taskStatus);
+		}
+		return switch (jobs.phase()) {
+			case SETUP -> Component.translatable("butterbot.status.job_setup", jobName);
+			case CHECKING -> Component.translatable("butterbot.status.job_checking", jobName);
+			case TRAVEL, WORKING -> Component.translatable("butterbot.status.job_travel", jobName);
+			case DEPOSIT -> Component.translatable("butterbot.status.job_deposit", jobName);
+			case STANDBY -> Component.translatable("butterbot.status.job_standby", jobName);
+			case NOT_FOUND -> Component.translatable("butterbot.status.job_not_found", jobName);
+			case CHEST_PROBLEM -> Component.translatable("butterbot.status.job_chest_problem", jobName);
+			case PATROL -> Component.translatable("butterbot.status.job_patrol", jobName, jobs.radius(), jobs.stat());
+			case LOOT -> Component.translatable("butterbot.status.job_loot", jobName);
+			case FARMING -> Component.translatable("butterbot.status.job_farming", jobName);
+		};
+	}
+
+	private Component describeTaskStatus() {
 		if (combatTicks > 0) {
 			return Component.translatable("butterbot.status.fighting");
 		}
@@ -640,7 +683,10 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		return switch (task) {
 			case NONE -> Component.translatable("butterbot.status.idle");
-			case MINE -> resource == null
+			case MINE -> mineFilter != null
+					? Component.translatable("butterbot.status.job_mining", new ItemStack(mineFilter.item()).getHoverName(),
+					collectedCount, targetCount)
+					: resource == null
 					? Component.translatable("butterbot.status.idle")
 					: Component.translatable("butterbot.status.mining", resource.displayName(), collectedCount, targetCount);
 			case TUNNEL -> Component.translatable("butterbot.status.tunnel", tunnelProgress, tunnelLength);
@@ -775,6 +821,11 @@ public class ButterBotEntity extends PathfinderMob {
 	}
 
 	public boolean isGuarding() {
+		return guard || (jobs.isActive() && jobs.job() == BotJob.GUARD);
+	}
+
+	/** The guard setting itself (a guard job fights even when it is off). */
+	public boolean guardSetting() {
 		return guard;
 	}
 
@@ -837,6 +888,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.ownerName = null;
 		this.basePos = null;
 		this.setCustomName(null);
+		this.jobs.setJob(BotJob.NONE, item -> false);
 		clearTask();
 		say(Component.translatable("butterbot.msg.free"));
 	}
@@ -1224,6 +1276,9 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/** Where farming happens: the Bot Base if the bot has one, otherwise the spot it was given the job. */
 	public BlockPos getFarmCenter() {
+		if (jobs.isActive() && jobs.job() == BotJob.FARMER && jobs.center() != null) {
+			return jobs.center();
+		}
 		if (basePos != null && getBase() != null) {
 			return basePos;
 		}
@@ -1232,6 +1287,28 @@ public class ButterBotEntity extends PathfinderMob {
 
 	public void countHarvest() {
 		harvestedCount++;
+		if (jobs.job() == BotJob.FARMER) {
+			jobs.addStat(1);
+		}
+	}
+
+	/** How far around its centre a farming run reaches (a farmer job can make it bigger or smaller). */
+	public int getFarmRadius() {
+		return jobs.isActive() && jobs.job() == BotJob.FARMER ? jobs.radius() : FarmTaskAction.RADIUS;
+	}
+
+	/**
+	 * Where a farming run unloads: a farmer's job chest, otherwise the Bot Base. Null if there is
+	 * neither (or it isn't loaded), in which case the harvest goes to the owner.
+	 */
+	@Nullable
+	public BlockPos getFarmStorage() {
+		if (jobs.isActive() && jobs.job() == BotJob.FARMER && jobs.chest() != null
+				&& this.level() instanceof ServerLevel serverLevel && serverLevel.dimension().equals(jobs.dimension())
+				&& JobStorage.isStorage(serverLevel, jobs.chest())) {
+			return jobs.chest();
+		}
+		return getBase() != null ? basePos : null;
 	}
 
 	/** Asks the bot to bring everything it carries to its owner or base right now. */
@@ -1275,6 +1352,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.fetchItem = null;
 		this.fetchCount = 0;
 		this.gotoPos = null;
+		this.mineFilter = null;
 		if (!fetchCarry.isEmpty()) {
 			stashFetchCarry();
 		}
@@ -1290,6 +1368,169 @@ public class ButterBotEntity extends PathfinderMob {
 		if (hadTask) {
 			playTaskCompleteSound();
 		}
+	}
+
+	// ------------------------------------------------------------------ jobs
+
+	public JobConfig getJobs() {
+		return jobs;
+	}
+
+	public BotJob getJob() {
+		return jobs.job();
+	}
+
+	public boolean hasJob() {
+		return jobs.hasJob();
+	}
+
+	/** Has a job and it isn't paused. */
+	public boolean isJobActive() {
+		return jobs.isActive() && ownerUuid != null;
+	}
+
+	/** Gives the bot a new job (or none). The current order is dropped so it starts right away. */
+	public void setJob(BotJob job) {
+		jobs.setJob(job, item -> ResourceCatalog.canGet(job, item));
+		if (task != BotTask.LUA) {
+			clearTask();
+		}
+		jobChanged = true;
+		if (job == BotJob.NONE) {
+			say(Component.translatable("butterbot.msg.job_none"));
+		} else {
+			say(Component.translatable("butterbot.msg.job_set", job.displayName()));
+			speak(ModSounds.VOICE_OK);
+		}
+	}
+
+	/** The job's settings changed: drop the job's current run so it plans again with the new ones. */
+	public void clearTaskForJob() {
+		if (mineFilter != null || (task == BotTask.FARM && jobs.job() == BotJob.FARMER)) {
+			clearTask();
+		}
+		jobChanged = true;
+	}
+
+	/** True once after the job's settings changed (read by the job action). */
+	public boolean takeJobChange() {
+		boolean changed = jobChanged;
+		jobChanged = false;
+		return changed;
+	}
+
+	public void pauseJob() {
+		if (jobs.hasJob() && !jobs.isPaused()) {
+			jobs.setPaused(true);
+			if (mineFilter != null || task == BotTask.FARM) {
+				clearTask();
+			}
+		}
+	}
+
+	/** Back to work: also drops "follow me" and "wait there" orders, which would otherwise never end. */
+	public void resumeJob() {
+		if (!jobs.hasJob()) {
+			return;
+		}
+		jobs.setPaused(false);
+		if (task == BotTask.FOLLOW || task == BotTask.GOTO || task == BotTask.GO_TO_BASE) {
+			clearTask();
+		}
+	}
+
+	/** True while the bot is on a mining run for its job (so the no-dig zone applies and the haul goes to the job chest). */
+	public boolean isJobDriven() {
+		return mineFilter != null && task == BotTask.MINE;
+	}
+
+	@Nullable
+	public ResourceCatalog.Entry getMineFilter() {
+		return mineFilter;
+	}
+
+	/** A mining run for the job: collect {@code count} of the entry's item around the current spot. */
+	public void assignJobMineTask(ResourceCatalog.Entry entry, int count) {
+		clearTask();
+		this.task = BotTask.MINE;
+		this.resource = entry.behavior();
+		this.mineFilter = entry;
+		this.targetCount = Math.max(1, count);
+		this.state = BotState.SEARCHING;
+		this.jobSiteSpent = false;
+		requestRescan();
+	}
+
+	/** A farming run for the farmer job, without the usual chatter. */
+	public void assignJobFarmTask(BlockPos center) {
+		clearTask();
+		this.task = BotTask.FARM;
+		this.state = BotState.SEARCHING;
+		this.farmCenter = center.immutable();
+		this.harvestedCount = 0;
+	}
+
+	/** The search around the dig site found nothing more: try somewhere else. */
+	public void onJobSiteExhausted() {
+		Item item = mineFilter == null ? null : mineFilter.item();
+		jobSiteSpent = true;
+		if (item != null) {
+			onJobSiteFailed(item);
+		}
+		if (hasLoot()) {
+			returnRequested = true;
+		} else {
+			clearTask();
+		}
+	}
+
+	/** A dig site was empty or couldn't be reached. After several in a row the item is left alone for a while. */
+	public void onJobSiteFailed(Item item) {
+		jobs.failSite();
+		if (jobs.failStreak(item) >= 6) {
+			jobs.coolDown(item, this.level().getGameTime() + 20L * 60L * 10L);
+			tellOwner(Component.translatable("butterbot.msg.job_not_found", new ItemStack(item).getHoverName()));
+		} else {
+			say(Component.translatable("butterbot.msg.job_new_site"));
+		}
+	}
+
+	public boolean isJobSiteSpent() {
+		return jobSiteSpent;
+	}
+
+	/** Job mining never digs within the no-dig zone around the base (orders given by hand may). */
+	public boolean isJobZoneBlocked(BlockPos pos) {
+		return mineFilter != null && jobs.isInsideZone(this.level(), basePos, pos);
+	}
+
+	/** The Y level a mining run digs down to. */
+	public int getMiningY() {
+		if (mineFilter != null && mineFilter.optimalY() != null) {
+			return mineFilter.optimalY();
+		}
+		return resource == null ? 0 : resource.optimalY();
+	}
+
+	public boolean isMiningUnderground() {
+		if (mineFilter != null) {
+			return mineFilter.underground();
+		}
+		return resource != null && resource.isUnderground();
+	}
+
+	/** The middle of a guard's patrol area, or null when the bot isn't patrolling here. */
+	@Nullable
+	public BlockPos getPatrolCenter() {
+		if (!jobs.isActive() || jobs.job() != BotJob.GUARD || jobs.center() == null
+				|| !this.level().dimension().equals(jobs.dimension())) {
+			return null;
+		}
+		return jobs.center();
+	}
+
+	public int getPatrolRadius() {
+		return jobs.radius();
 	}
 
 	@Nullable
@@ -1408,7 +1649,18 @@ public class ButterBotEntity extends PathfinderMob {
 	// ------------------------------------------------------------------ world helpers
 
 	public boolean isTargetBlock(BlockState blockState) {
+		if (mineFilter != null) {
+			return mineFilter.matchesState(blockState);
+		}
 		return resource != null && resource.matchesBlock(blockState);
+	}
+
+	/** Like {@link #isTargetBlock} but also checks the surroundings and the no-dig zone (used when choosing targets). */
+	private boolean isTargetAt(BlockPos pos, BlockState blockState) {
+		if (mineFilter != null) {
+			return mineFilter.matches(this.level(), pos, blockState) && !isJobZoneBlocked(pos);
+		}
+		return isTargetBlock(blockState);
 	}
 
 	public void requestRescan() {
@@ -1441,7 +1693,7 @@ public class ButterBotEntity extends PathfinderMob {
 						continue;
 					}
 					BlockState blockState = this.level().getBlockState(cursor);
-					if (!isTargetBlock(blockState) || isBlacklisted(cursor)) {
+					if (!isTargetAt(cursor, blockState) || isBlacklisted(cursor)) {
 						continue;
 					}
 					double distance = origin.distSqr(cursor);
@@ -1477,7 +1729,7 @@ public class ButterBotEntity extends PathfinderMob {
 
 	public boolean canDig(BlockPos pos, BlockState blockState) {
 		if (blockState.isAir() || blockState.hasBlockEntity() || !blockState.getFluidState().isEmpty()
-				|| blockState.is(ModBlocks.BOT_BASE)) {
+				|| blockState.is(ModBlocks.BOT_BASE) || isJobZoneBlocked(pos)) {
 			return false;
 		}
 		float hardness = blockState.getDestroySpeed(this.level(), pos);
@@ -1565,6 +1817,11 @@ public class ButterBotEntity extends PathfinderMob {
 	 * dimension. Returns false if there is no such spot (or it is not loaded).
 	 */
 	public boolean teleportNear(BlockPos target) {
+		return teleportNear(target, true);
+	}
+
+	/** {@link #teleportNear(BlockPos)}; without {@code announce} the bot doesn't say it got stuck (planned trips). */
+	public boolean teleportNear(BlockPos target, boolean announce) {
 		if (!(this.level() instanceof ServerLevel serverLevel)) {
 			return false;
 		}
@@ -1579,7 +1836,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.playSound(SoundEvents.CHORUS_FRUIT_TELEPORT, 0.6F, 1.2F);
 		serverLevel.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
 		long now = serverLevel.getGameTime();
-		if (now - lastUnstuckMessage > 600L) {
+		if (announce && now - lastUnstuckMessage > 600L) {
 			lastUnstuckMessage = now;
 			say(Component.translatable("butterbot.msg.unstuck"));
 			speak(ModSounds.VOICE_STUCK);
@@ -1833,8 +2090,9 @@ public class ButterBotEntity extends PathfinderMob {
 		if (stack.isEmpty()) {
 			return;
 		}
-		boolean wanted = resource != null && resource.matchesItem(stack);
-		if (task == BotTask.MINE && !keepAll && !wanted && !isUsefulByproduct(stack)
+		boolean wanted = mineFilter != null ? stack.is(mineFilter.item()) : resource != null && resource.matchesItem(stack);
+		boolean onTheList = mineFilter != null && jobs.isNeeded(stack.getItem());
+		if (task == BotTask.MINE && !keepAll && !wanted && !onTheList && !isUsefulByproduct(stack)
 				&& !(isFiller(stack) && countFiller() < KEEP_FILLER)) {
 			Block.popResource(this.level(), pos, stack);
 			return;
@@ -1855,9 +2113,13 @@ public class ButterBotEntity extends PathfinderMob {
 			return;
 		}
 		collectedCount += amount;
+		if (mineFilter != null) {
+			jobs.siteWorked();
+		}
 		if (targetCount > 0 && collectedCount >= targetCount && !returnRequested) {
 			returnRequested = true;
-			say(Component.translatable("butterbot.msg.collected_enough", collectedCount, resource.displayName()));
+			say(Component.translatable("butterbot.msg.collected_enough", collectedCount,
+					mineFilter != null ? new ItemStack(mineFilter.item()).getHoverName() : resource.displayName()));
 		}
 	}
 
@@ -1935,6 +2197,11 @@ public class ButterBotEntity extends PathfinderMob {
 	 * sapling for replanting. Returns true if nothing (except those) is left.
 	 */
 	public boolean depositInto(BotBaseBlockEntity base, int keepPlantables) {
+		return depositInto(base, base.getBlockPos(), keepPlantables);
+	}
+
+	/** {@link #depositInto(BotBaseBlockEntity, int)} for any storage (a farmer's job chest, for example). */
+	public boolean depositInto(Container base, BlockPos storagePos, int keepPlantables) {
 		int moved = 0;
 		Map<Item, Integer> kept = new HashMap<>();
 		boolean leftBehind = false;
@@ -1952,7 +2219,7 @@ public class ButterBotEntity extends PathfinderMob {
 						continue;
 					}
 					ItemStack toStore = stack.split(stack.getCount() - keep);
-					ItemStack leftover = base.insert(toStore);
+					ItemStack leftover = JobStorage.insert(base, toStore);
 					moved += toStore.getCount() - leftover.getCount();
 					stack.grow(leftover.getCount());
 					leftBehind |= !leftover.isEmpty();
@@ -1961,14 +2228,14 @@ public class ButterBotEntity extends PathfinderMob {
 				}
 			}
 			int before = stack.getCount();
-			ItemStack leftover = base.insert(stack);
+			ItemStack leftover = JobStorage.insert(base, stack);
 			moved += before - leftover.getCount();
 			leftBehind |= !leftover.isEmpty();
 			inventory.setItem(i, leftover);
 		}
 		if (moved > 0) {
 			say(Component.translatable("butterbot.msg.deposited", moved));
-			this.level().playSound(null, base.getBlockPos(), SoundEvents.BARREL_CLOSE, SoundSource.BLOCKS, 0.6F, 1.2F);
+			this.level().playSound(null, storagePos, SoundEvents.BARREL_CLOSE, SoundSource.BLOCKS, 0.6F, 1.2F);
 		}
 		return !leftBehind;
 	}
@@ -2191,6 +2458,8 @@ public class ButterBotEntity extends PathfinderMob {
 			output.putInt("FetchCount", fetchCount);
 		}
 		output.storeNullable("GotoPos", BlockPos.CODEC, gotoPos);
+		output.store("Job", JobConfig.Data.CODEC, jobs.save());
+		output.putBoolean("JobMining", mineFilter != null);
 	}
 
 	@Override
@@ -2256,6 +2525,14 @@ public class ButterBotEntity extends PathfinderMob {
 			fetchCount = input.getIntOr("FetchCount", 1);
 		});
 		gotoPos = input.read("GotoPos", BlockPos.CODEC).orElse(null);
+		input.read("Job", JobConfig.Data.CODEC).ifPresent(jobs::load);
+		if (input.getBooleanOr("JobMining", false) && task == BotTask.MINE) {
+			// The job picks its mining run up again by itself (back at its saved dig site).
+			task = BotTask.NONE;
+			state = BotState.IDLE;
+			resource = null;
+			returnRequested = false;
+		}
 
 		// Programs never resume automatically after a reload; half-configured tasks are dropped.
 		if (task == BotTask.LUA

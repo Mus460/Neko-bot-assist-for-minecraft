@@ -3,7 +3,7 @@ package dev.butterbot.ai.actions;
 import dev.butterbot.ai.BotAction;
 import dev.butterbot.ai.TreeFeller;
 import dev.butterbot.ai.Walker;
-import dev.butterbot.block.BotBaseBlockEntity;
+import dev.butterbot.ai.job.JobStorage;
 import dev.butterbot.entity.BotState;
 import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
@@ -11,6 +11,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.Container;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.item.BlockItem;
@@ -93,13 +94,13 @@ public class FarmTaskAction implements BotAction {
 			return;
 		}
 
-		BotBaseBlockEntity base = bot.getBase();
-		boolean canUnload = base != null && level.getGameTime() >= baseFullUntil;
+		BlockPos storage = bot.getFarmStorage();
+		boolean canUnload = storage != null && level.getGameTime() >= baseFullUntil;
 		if (canUnload && bot.freeSlots() <= 2) {
 			unloading = true;
 		}
 		if (unloading) {
-			unload(bot, base);
+			unload(bot, level, storage);
 			return;
 		}
 
@@ -152,12 +153,11 @@ public class FarmTaskAction implements BotAction {
 		}
 	}
 
-	private void unload(ButterBotEntity bot, @Nullable BotBaseBlockEntity base) {
-		if (base == null) {
+	private void unload(ButterBotEntity bot, ServerLevel level, @Nullable BlockPos pos) {
+		if (pos == null) {
 			unloading = false;
 			return;
 		}
-		BlockPos pos = base.getBlockPos();
 		bot.setBotState(BotState.RETURNING);
 		if (bot.distanceToSqr(Vec3.atCenterOf(pos)) > BASE_REACH_SQ) {
 			if (!walker.walk(bot, Vec3.atBottomCenterOf(pos), 1.1D, true, MAX_STUCK_TICKS)) {
@@ -171,7 +171,12 @@ public class FarmTaskAction implements BotAction {
 		}
 		bot.getNavigation().stop();
 		bot.getLookControl().setLookAt(Vec3.atCenterOf(pos));
-		if (!bot.depositInto(base, ButterBotEntity.KEEP_PLANTABLES)) {
+		Container storage = JobStorage.open(level, pos);
+		if (storage == null) {
+			unloading = false;
+			return;
+		}
+		if (!bot.depositInto(storage, pos, ButterBotEntity.KEEP_PLANTABLES)) {
 			bot.tellOwner(Component.translatable("butterbot.msg.base_full"));
 			baseFullUntil = bot.level().getGameTime() + BASE_FULL_RETRY_TICKS;
 		}
@@ -195,12 +200,13 @@ public class FarmTaskAction implements BotAction {
 
 	private void findWork(ButterBotEntity bot, ServerLevel level) {
 		BlockPos center = bot.getFarmCenter();
+		int radius = bot.getFarmRadius();
 		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 		double best = Double.MAX_VALUE;
 		target = null;
 		work = null;
-		for (int x = -RADIUS; x <= RADIUS; x++) {
-			for (int z = -RADIUS; z <= RADIUS; z++) {
+		for (int x = -radius; x <= radius; x++) {
+			for (int z = -radius; z <= radius; z++) {
 				for (int y = -VERTICAL; y <= VERTICAL; y++) {
 					cursor.setWithOffset(center, x, y, z);
 					if (!level.isLoaded(cursor)) {

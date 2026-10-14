@@ -1,6 +1,7 @@
 package dev.butterbot;
 
 import dev.butterbot.ai.actions.RecoverItemsAction;
+import dev.butterbot.ai.job.JobChunks;
 import dev.butterbot.command.BotCommand;
 import dev.butterbot.network.HudSync;
 import dev.butterbot.network.ModNetworking;
@@ -46,6 +47,7 @@ public class ButterBot implements ModInitializer {
 			}
 		});
 		ServerTickEvents.END_SERVER_TICK.register(HudSync::tick);
+		ServerTickEvents.END_SERVER_TICK.register(JobChunks::tick);
 
 		ServerLifecycleEvents.SERVER_STARTED.register(ServerSkinStore::init);
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> ServerSkinStore.clear());

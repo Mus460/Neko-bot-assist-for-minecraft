@@ -9,11 +9,14 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.butterbot.ai.StorageFinder;
 import dev.butterbot.ai.actions.LightAreaAction;
+import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
 import dev.butterbot.entity.BotResource;
 import dev.butterbot.entity.ButterBotEntity;
+import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
 import dev.butterbot.network.BotAccess;
+import dev.butterbot.network.JobControl;
 import dev.butterbot.network.ModNetworking;
 import dev.butterbot.registry.ModEntities;
 import dev.butterbot.registry.ModItems;
@@ -156,14 +159,109 @@ public final class BotCommand {
 		root.then(Commands.literal("come").executes(ctx -> simple(ctx.getSource(), ButterBotEntity::assignFollowTask)));
 		root.then(Commands.literal("deliver").executes(ctx -> simple(ctx.getSource(), ButterBotEntity::requestDelivery)));
 		root.then(Commands.literal("stop").executes(ctx -> simple(ctx.getSource(), bot -> {
+			bot.pauseJob();
 			bot.clearTask();
 			bot.clearOrderedTarget();
 			bot.say(Component.translatable("butterbot.msg.stopping"));
 		})));
+		root.then(job(buildContext));
 		root.then(Commands.literal("status").executes(ctx -> status(ctx.getSource())));
 		root.then(Commands.literal("list").executes(ctx -> list(ctx.getSource())));
 
 		dispatcher.register(root);
+	}
+
+	/**
+	 * {@code /butterbot job ...}: give the nearest bot a job (miner, gatherer, guard, farmer) and set its
+	 * chest, list, area and no-dig zone.
+	 */
+	private static LiteralArgumentBuilder<CommandSourceStack> job(CommandBuildContext buildContext) {
+		LiteralArgumentBuilder<CommandSourceStack> job = Commands.literal("job")
+				.executes(ctx -> jobInfo(ctx.getSource()));
+		job.then(Commands.literal("info").executes(ctx -> jobInfo(ctx.getSource())));
+
+		LiteralArgumentBuilder<CommandSourceStack> set = Commands.literal("set");
+		String[][] names = {{"none", "NONE"}, {"miner", "MINER"}, {"gatherer", "GATHERER"}, {"guard", "GUARD"}, {"farmer", "FARMER"},
+				{"penambang", "MINER"}, {"pengumpul", "GATHERER"}, {"penjaga", "GUARD"}, {"petani", "FARMER"}, {"asisten", "NONE"}};
+		for (String[] name : names) {
+			BotJob value = BotJob.valueOf(name[1]);
+			set.then(Commands.literal(name[0]).executes(ctx -> simple(ctx.getSource(), bot ->
+					JobControl.setJob(ctx.getSource().getPlayerOrException(), bot, value))));
+		}
+		job.then(set);
+
+		job.then(Commands.literal("chest")
+				.executes(ctx -> simple(ctx.getSource(), bot -> {
+					ServerPlayer player = ctx.getSource().getPlayerOrException();
+					BlockPos looked = JobControl.lookedAtStorage(player);
+					if (looked == null) {
+						ctx.getSource().sendFailure(Component.translatable("butterbot.msg.job_look_at_chest"));
+					} else {
+						JobControl.setChest(player, bot, looked);
+					}
+				}))
+				.then(Commands.literal("clear").executes(ctx -> simple(ctx.getSource(), bot ->
+						JobControl.setChest(ctx.getSource().getPlayerOrException(), bot, null)))));
+
+		job.then(Commands.literal("need")
+				.then(Commands.argument("item", ItemArgument.item(buildContext))
+						.executes(ctx -> jobNeed(ctx.getSource(), ItemArgument.getItem(ctx, "item").item().value(), 64))
+						.then(Commands.argument("count", IntegerArgumentType.integer(0, JobConfig.MAX_NEED_COUNT))
+								.executes(ctx -> jobNeed(ctx.getSource(), ItemArgument.getItem(ctx, "item").item().value(),
+										IntegerArgumentType.getInteger(ctx, "count"))))));
+		job.then(Commands.literal("remove")
+				.then(Commands.argument("item", ItemArgument.item(buildContext))
+						.executes(ctx -> jobNeed(ctx.getSource(), ItemArgument.getItem(ctx, "item").item().value(), 0))));
+		job.then(Commands.literal("clear").executes(ctx -> simple(ctx.getSource(), bot -> {
+			bot.getJobs().clearNeeds();
+			bot.clearTaskForJob();
+			ctx.getSource().sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.job_list_cleared", bot.getName())), false);
+		})));
+		job.then(Commands.literal("zone")
+				.then(Commands.argument("blocks", IntegerArgumentType.integer(0, JobConfig.MAX_ZONE))
+						.executes(ctx -> {
+							int zone = IntegerArgumentType.getInteger(ctx, "blocks");
+							return simple(ctx.getSource(), bot -> {
+								bot.getJobs().setZone(zone);
+								bot.clearTaskForJob();
+								ctx.getSource().sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.job_zone_set",
+										bot.getName(), zone)), false);
+							});
+						})));
+		job.then(Commands.literal("center").executes(ctx -> simple(ctx.getSource(), bot -> {
+			ServerPlayer player = ctx.getSource().getPlayerOrException();
+			JobControl.setCenter(player, bot, player.blockPosition());
+		})));
+		job.then(Commands.literal("radius")
+				.then(Commands.argument("blocks", IntegerArgumentType.integer(JobConfig.MIN_RADIUS, JobConfig.MAX_PATROL_RADIUS))
+						.executes(ctx -> {
+							int radius = IntegerArgumentType.getInteger(ctx, "blocks");
+							return simple(ctx.getSource(), bot -> {
+								bot.getJobs().setRadius(radius);
+								bot.clearTaskForJob();
+								ctx.getSource().sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.job_radius_set",
+										bot.getName(), bot.getJobs().radius())), false);
+							});
+						})));
+		job.then(Commands.literal("pause").executes(ctx -> simple(ctx.getSource(), bot -> JobControl.setPaused(bot, true))));
+		job.then(Commands.literal("resume").executes(ctx -> simple(ctx.getSource(), bot -> JobControl.setPaused(bot, false))));
+		return job;
+	}
+
+	private static int jobInfo(CommandSourceStack source) throws CommandSyntaxException {
+		return simple(source, bot -> JobControl.sendInfo(source.getPlayerOrException(), bot));
+	}
+
+	private static int jobNeed(CommandSourceStack source, Item item, int count) throws CommandSyntaxException {
+		return simple(source, bot -> {
+			ServerPlayer player = source.getPlayerOrException();
+			if (JobControl.setNeed(player, bot, item, count)) {
+				source.sendSuccess(() -> Msg.prefixed(count > 0
+						? Component.translatable("butterbot.msg.job_need_set", bot.getName(), count, new ItemStack(item).getHoverName())
+						: Component.translatable("butterbot.msg.job_need_removed", bot.getName(), new ItemStack(item).getHoverName())), false);
+				JobControl.explainMissing(player, bot);
+			}
+		});
 	}
 
 	@Nullable

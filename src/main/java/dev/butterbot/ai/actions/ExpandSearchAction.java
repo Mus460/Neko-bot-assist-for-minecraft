@@ -101,8 +101,8 @@ public class ExpandSearchAction implements BotAction {
 		}
 
 		Level level = bot.level();
-		if (resource.isUnderground()) {
-			if (bot.getBlockY() > resource.optimalY() + 2 && bot.getBlockY() > level.getMinY() + 6) {
+		if (bot.isMiningUnderground()) {
+			if (bot.getBlockY() > bot.getMiningY() + 2 && bot.getBlockY() > level.getMinY() + 6) {
 				descendStep(bot, level);
 			} else {
 				tunnelStep(bot, level);
@@ -156,6 +156,17 @@ public class ExpandSearchAction implements BotAction {
 			return;
 		}
 		Vec3 destination = DefaultRandomPos.getPos(bot, 20, 7);
+		if (bot.isJobDriven()) {
+			// Job runs roam away from the base's no-dig zone rather than back into it.
+			BlockPos middle = bot.getJobs().zoneCenter(bot.getBasePos());
+			int zone = bot.getJobs().zone();
+			if (middle != null && zone > 0 && bot.blockPosition().distSqr(middle.atY(bot.getBlockY())) < (zone + 32.0D) * (zone + 32.0D)) {
+				Vec3 away = DefaultRandomPos.getPosAway(bot, 20, 7, Vec3.atCenterOf(middle));
+				if (away != null) {
+					destination = away;
+				}
+			}
+		}
 		if (destination != null) {
 			bot.getNavigation().moveTo(destination.x, destination.y, destination.z, 1.0D);
 		}
@@ -214,11 +225,16 @@ public class ExpandSearchAction implements BotAction {
 		if (resource == null || gaveUp) {
 			return;
 		}
-		int cap = resource.isUnderground() ? UNDERGROUND_EFFORT_CAP : SURFACE_EFFORT_CAP;
+		int cap = bot.isMiningUnderground() ? UNDERGROUND_EFFORT_CAP : SURFACE_EFFORT_CAP;
 		if (effort < cap) {
 			return;
 		}
 		gaveUp = true;
+		if (bot.isJobDriven()) {
+			// A job doesn't give up: it moves on to another site.
+			bot.onJobSiteExhausted();
+			return;
+		}
 		if (bot.hasLoot()) {
 			bot.setReturnRequested(true);
 			bot.tellOwner(Component.translatable("butterbot.msg.cant_find_more", resource.displayName()));

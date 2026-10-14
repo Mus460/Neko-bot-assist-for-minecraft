@@ -2,10 +2,13 @@ package dev.butterbot.network;
 
 import dev.butterbot.ai.OreFinder;
 import dev.butterbot.ai.actions.LightAreaAction;
+import dev.butterbot.ai.job.JobStorage;
+import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
 import dev.butterbot.entity.BotResource;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.entity.DeliveryMode;
+import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
 import dev.butterbot.skin.ServerSkinStore;
 import dev.butterbot.skin.SkinLimits;
@@ -18,6 +21,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.Item;
@@ -25,8 +29,10 @@ import net.minecraft.world.item.Items;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 public final class ModNetworking {
@@ -89,15 +95,46 @@ public final class ModNetworking {
 					bot.getBotLevel(),
 					bot.getWorkXp(),
 					bot.getStoredXp(),
-					bot.isGuarding(),
+					bot.guardSetting(),
 					bot.placesTorchesWhileMining(),
 					bot.feedsOwner(),
 					bot.getSmeltMode().ordinal(),
 					bot.refillsHotbar(),
-					bot.getSkinVariant()));
+					bot.getSkinVariant(),
+					jobView(bot)));
 		}
 		Optional<BlockPos> validBase = BotAccess.isValidBase(player, base) ? base : Optional.empty();
 		ServerPlayNetworking.send(player, new Payloads.BotList(validBase, entries));
+	}
+
+	/** The job part of the panel data. Looks into the job chest when it is loaded, so the list shows live counts. */
+	private static Payloads.JobView jobView(ButterBotEntity bot) {
+		JobConfig jobs = bot.getJobs();
+		if (!jobs.hasJob()) {
+			return new Payloads.JobView(0, false, Optional.empty(), false, Optional.empty(), jobs.zone(), jobs.radius(), 0, List.of());
+		}
+		ServerLevel home = jobs.level(((ServerLevel) bot.level()).getServer());
+		BlockPos chest = jobs.chest();
+		boolean chestOk = false;
+		if (home != null && chest != null && home.isLoaded(chest)) {
+			Map<Item, Integer> counts = new HashMap<>();
+			List<Item> items = new ArrayList<>();
+			jobs.needs().forEach(need -> items.add(need.item()));
+			chestOk = JobStorage.countInto(home, chest, items, counts);
+			if (chestOk) {
+				jobs.rememberChestCounts(counts, home.getGameTime());
+			}
+		} else if (chest != null) {
+			// Far away and not loaded: it was fine the last time the bot looked.
+			chestOk = jobs.chestCountsTime() != Long.MIN_VALUE;
+		}
+		List<Payloads.NeedView> needs = new ArrayList<>();
+		for (JobConfig.Need need : jobs.needs()) {
+			needs.add(new Payloads.NeedView(BuiltInRegistries.ITEM.getKey(need.item()).toString(), need.count(),
+					jobs.knownChestCount(need.item())));
+		}
+		return new Payloads.JobView(jobs.job().ordinal(), jobs.isPaused(), Optional.ofNullable(chest), chestOk,
+				Optional.ofNullable(jobs.center()), jobs.zone(), jobs.radius(), jobs.stat(), needs);
 	}
 
 	private static void handleCommand(ServerPlayer player, Payloads.BotCommand payload) {
@@ -118,6 +155,7 @@ public final class ModNetworking {
 				bot.assignGoToBaseTask();
 			}
 			case Payloads.BotCommand.STOP -> {
+				bot.pauseJob();
 				bot.clearTask();
 				bot.say(Component.translatable("butterbot.msg.stopping"));
 			}
@@ -231,6 +269,33 @@ public final class ModNetworking {
 					reportFind(player, bot, resource);
 				}
 			}
+			case Payloads.BotCommand.JOB_SET -> JobControl.setJob(player, bot, BotJob.byOrdinal(payload.arg(0, 0)));
+			case Payloads.BotCommand.JOB_PAUSE -> JobControl.setPaused(bot, payload.arg(0, 1) != 0);
+			case Payloads.BotCommand.JOB_NEED -> {
+				Item item = parseItem(payload.text());
+				if (item == null || item == Items.AIR) {
+					player.sendSystemMessage(Component.translatable("butterbot.msg.unknown_item", payload.text())
+							.withStyle(ChatFormatting.RED));
+				} else {
+					JobControl.setNeed(player, bot, item, Mth.clamp(payload.arg(0, 64), 0, JobConfig.MAX_NEED_COUNT));
+				}
+			}
+			case Payloads.BotCommand.JOB_CLEAR_LIST -> {
+				bot.getJobs().clearNeeds();
+				bot.clearTaskForJob();
+			}
+			case Payloads.BotCommand.JOB_ZONE -> {
+				bot.getJobs().setZone(payload.arg(0, JobConfig.DEFAULT_ZONE));
+				bot.clearTaskForJob();
+			}
+			case Payloads.BotCommand.JOB_RADIUS -> {
+				bot.getJobs().setRadius(payload.arg(0, JobConfig.DEFAULT_PATROL_RADIUS));
+				bot.clearTaskForJob();
+			}
+			case Payloads.BotCommand.JOB_CENTER -> JobControl.setCenter(player, bot, payload.args().length >= 3
+					? new BlockPos(payload.arg(0, 0), payload.arg(1, 0), payload.arg(2, 0)) : player.blockPosition());
+			case Payloads.BotCommand.JOB_CHEST -> JobControl.setChest(player, bot, payload.args().length >= 3
+					? new BlockPos(payload.arg(0, 0), payload.arg(1, 0), payload.arg(2, 0)) : null);
 			case Payloads.BotCommand.LINK_BASE -> {
 				if (validBase) {
 					bot.setBasePos(payload.base().get());

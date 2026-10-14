@@ -2,13 +2,17 @@ package dev.butterbot.ai.actions;
 
 import dev.butterbot.ai.BotAction;
 import dev.butterbot.ai.Walker;
+import dev.butterbot.ai.job.JobAction;
+import dev.butterbot.ai.job.JobTravel;
 import dev.butterbot.block.BotBaseBlockEntity;
 import dev.butterbot.entity.BotState;
 import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.entity.DeliveryMode;
+import dev.butterbot.entity.JobConfig;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -21,12 +25,14 @@ import org.jetbrains.annotations.Nullable;
 public class DeliverAction implements BotAction {
 
 	private static final double OWNER_DISTANCE_SQ = 2.5D * 2.5D;
-	private static final double BASE_DISTANCE_SQ = 2.8D * 2.8D;
+	private static final double BASE_DISTANCE_SQ_ROOT = 2.8D;
+	private static final double BASE_DISTANCE_SQ = BASE_DISTANCE_SQ_ROOT * BASE_DISTANCE_SQ_ROOT;
 	private static final int MAX_STUCK_TICKS = 20 * 45;
 	/** Farther than this the bot takes a shortcut instead of walking (it could leave the loaded area). */
 	private static final double SHORTCUT_DISTANCE_SQ = 64.0D * 64.0D;
 
 	private final Walker walker = new Walker();
+	private final JobTravel jobTravel = new JobTravel();
 	private boolean done;
 	private int waitTicks;
 
@@ -43,7 +49,7 @@ public class DeliverAction implements BotAction {
 		// Farming bots with a base unload there themselves.
 		boolean fullMidJob = bot.isInventoryFull()
 				&& (bot.getTask() == BotTask.MINE || bot.getTask() == BotTask.TUNNEL
-				|| (bot.getTask() == BotTask.FARM && bot.getBase() == null));
+				|| (bot.getTask() == BotTask.FARM && bot.getFarmStorage() == null));
 		return bot.isReturnRequested() || fullMidJob;
 	}
 
@@ -51,12 +57,21 @@ public class DeliverAction implements BotAction {
 	public void start(ButterBotEntity bot) {
 		bot.setBotState(BotState.RETURNING);
 		walker.reset(bot);
+		jobTravel.reset(bot);
 		done = false;
 		waitTicks = 0;
+		if (bot.isJobDriven() && !bot.isJobSiteSpent() && bot.getMineFilter() != null) {
+			// Come back to exactly this spot (down in the tunnel) after unloading.
+			bot.getJobs().setSite(bot.blockPosition(), bot.getMineFilter().item(), true);
+		}
 	}
 
 	@Override
 	public void tick(ButterBotEntity bot) {
+		if (bot.isJobDriven()) {
+			deliverToJobChest(bot);
+			return;
+		}
 		BotBaseBlockEntity base = bot.getDeliveryMode() == DeliveryMode.BASE ? bot.getBase() : null;
 		if (base != null && !base.isFull()) {
 			deliverToBase(bot, base);
@@ -66,6 +81,29 @@ public class DeliverAction implements BotAction {
 			bot.say(Component.translatable("butterbot.msg.base_missing_fallback"));
 		}
 		deliverToOwner(bot);
+	}
+
+	/** A job's haul goes to the job chest, however far it is; then the job plans the next trip. */
+	private void deliverToJobChest(ButterBotEntity bot) {
+		JobConfig jobs = bot.getJobs();
+		ServerLevel home = bot.level() instanceof ServerLevel level ? jobs.level(level.getServer()) : null;
+		BlockPos chest = jobs.chest();
+		if (home == null || chest == null) {
+			deliverToOwner(bot);
+			return;
+		}
+		JobTravel.Result result = jobTravel.moveTo(bot, home, chest, BASE_DISTANCE_SQ_ROOT, false);
+		if (result == JobTravel.Result.MOVING) {
+			return;
+		}
+		if (result == JobTravel.Result.ARRIVED) {
+			bot.getLookControl().setLookAt(Vec3.atCenterOf(chest));
+			JobAction.depositAtChest(bot, home, chest);
+		} else {
+			bot.tellOwner(Component.translatable("butterbot.msg.job_chest_unreachable", chest.toShortString()));
+		}
+		done = true;
+		bot.clearTask();
 	}
 
 	private void deliverToBase(ButterBotEntity bot, BotBaseBlockEntity base) {
