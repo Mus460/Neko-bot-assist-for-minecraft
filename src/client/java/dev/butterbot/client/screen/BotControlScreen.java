@@ -1,9 +1,10 @@
 package dev.butterbot.client.screen;
 
 import com.mojang.blaze3d.Blaze3D;
+import com.mojang.blaze3d.platform.InputConstants;
 import dev.butterbot.ai.OreFinder;
-import dev.butterbot.ai.actions.LightAreaAction;
 import dev.butterbot.ai.actions.FarmTaskAction;
+import dev.butterbot.ai.actions.LightAreaAction;
 import dev.butterbot.ai.actions.SortTaskAction;
 import dev.butterbot.ai.job.ResourceCatalog;
 import dev.butterbot.client.BotKeys;
@@ -16,13 +17,14 @@ import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
 import dev.butterbot.lua.LuaProgram;
 import dev.butterbot.network.Payloads;
+import dev.butterbot.registry.ModItems;
 import dev.butterbot.skin.SkinLimits;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.MultiLineEditBox;
-import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
@@ -31,8 +33,10 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Items;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,53 +45,66 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 
 /**
- * The Bot control panel, opened from a Bot Base (manages every bot nearby) or by right-clicking a
- * bot (focused on that bot). Everything is validated again on the server.
+ * The bot panel, styled like a vanilla inventory. On the left a card shows the selected bot (skin,
+ * level, health, backpack, what it is doing; arrows switch bots). On top five tabs: Main (orders and
+ * settings), Mining, Job, Style and More (level, crafting, tunnels, Lua). Opened with B, by
+ * right-clicking a bot, or from a Bot Base. Everything is checked again on the server.
  */
 public class BotControlScreen extends Screen {
 
 	private enum Tab {
-		BOTS("bots"), CONTROL("control"), JOB("job"), MINING("mining"), FARM("farm"), CRAFTING("crafting"), TUNNEL("tunnel"),
-		PROGRAM("program"), SKIN("skin"), LEVEL("level");
+		HOME("home", Items.COMPASS), MINE("mine", Items.DIAMOND_PICKAXE), JOB("job", Items.BELL),
+		STYLE("style", Items.ARMOR_STAND), MORE("more", Items.BOOK);
 
 		final String key;
+		final Item icon;
 
-		Tab(String key) {
+		Tab(String key, Item icon) {
 			this.key = key;
+			this.icon = icon;
 		}
 
 		Component label() {
-			return Component.translatable("butterbot.gui.tab." + key);
+			return Component.translatable("butterbot.ui.tab." + key);
 		}
 	}
 
-	private static final int PANEL_W = 320;
-	private static final int PANEL_H = 224;
-	private static final int CONTENT_W = 210;
-	private static final int ROWS_PER_PAGE = 5;
-	private static final int SKIN_ROWS = 4;
-	private static final int REFRESH_TICKS = 40;
-	private static final int[][] TUNNEL_SIZES = {{2, 2}, {3, 3}, {1, 2}, {3, 2}, {5, 3}};
+	private enum MorePage {MAIN, CRAFT, TUNNEL, PROGRAM}
 
-	private static final int COLOR_COVER = 0xFF3B2417;
-	private static final int COLOR_COVER_EDGE = 0xFF1F120A;
-	private static final int COLOR_PARCHMENT = 0xFFF1E5C4;
-	private static final int COLOR_PARCHMENT_DARK = 0xFFDCCB9F;
-	private static final int COLOR_FRAME = 0xFF7C5B39;
-	private static final int COLOR_TEXT = 0xFF3F2A18;
-	private static final int COLOR_TEXT_DIM = 0xFF6E5A3E;
-	private static final int COLOR_GOOD = 0xFF2E6B1F;
-	private static final int COLOR_BAD = 0xFF8A2B1C;
-	private static final int COLOR_XP = 0xFF7FB838;
+	private static final int PANEL_W = 356;
+	private static final int BODY_H = 210;
+	private static final int TAB_H = 22;
+	private static final int FOOTER_H = 14;
+	private static final int CARD_W = 96;
+	private static final int CARD_H = BODY_H - 14;
+	private static final int CW = 239;
+	private static final int REFRESH_TICKS = 40;
+	private static final int LIST_ROWS = 5;
+	private static final int SKIN_ROWS = 5;
+	private static final int[][] TUNNEL_SIZES = {{2, 2}, {3, 3}, {1, 2}, {3, 2}, {5, 3}};
+	private static final int[] MINE_AMOUNTS = {16, 32, 64, 128, 256};
+	private static final long RELEASE_CONFIRM_MILLIS = 3000L;
+
+	// Job tab grid.
+	private static final int GRID_Y = 102;
+	private static final int CELL_W = 77;
+	private static final int CELL_H = 22;
+	private static final int CELL_PITCH_X = 81;
+	private static final int CELL_PITCH_Y = 24;
+	private static final int PICK_PITCH = 20;
+	private static final int PICK_COLUMNS = 11;
 
 	// Remembered between openings so the panel feels persistent.
 	@Nullable
 	private static UUID selectedBotId;
-	private static Tab activeTab = Tab.BOTS;
+	private static Tab activeTab = Tab.HOME;
+	private static MorePage morePage = MorePage.MAIN;
 	private static int resourceIndex;
 	private static String mineCountText = "64";
 	private static String craftItemText = "";
@@ -98,9 +115,7 @@ public class BotControlScreen extends Screen {
 	private static String toZText = "";
 	private static int tunnelSizeIndex;
 	private static boolean tunnelTorches = true;
-	/** Job tab: the item picker is open instead of the list. */
 	private static boolean jobPicker;
-	/** Job tab: the list item whose amount the buttons change (an item id). */
 	@Nullable
 	private static String selectedNeed;
 
@@ -110,9 +125,13 @@ public class BotControlScreen extends Screen {
 	private final List<Payloads.BotEntry> bots = new ArrayList<>();
 	private boolean receivedList;
 	private int refreshTimer;
-	private int botsPage;
+	private boolean listOpen;
+	private int listPage;
+	private int lastBotCount = -1;
+	private int lastJobType = -1;
 	private int skinPage;
 	private int selectedSkinIndex = -1;
+	private long releaseArmedUntil;
 	@Nullable
 	private String scriptDraft;
 	@Nullable
@@ -124,8 +143,10 @@ public class BotControlScreen extends Screen {
 
 	private int left;
 	private int top;
-	private int contentX;
-	private int contentY;
+	private int cardX;
+	private int cardY;
+	private int cx;
+	private int cy;
 
 	@Nullable
 	private NumberBox mineCountBox;
@@ -145,8 +166,6 @@ public class BotControlScreen extends Screen {
 	private EditBox renameBox;
 	@Nullable
 	private MultiLineEditBox scriptEditor;
-	@Nullable
-	private ParchmentButton deliveryButton;
 	private final List<Identifier> suggestions = new ArrayList<>();
 	private boolean suppressSuggestions;
 
@@ -156,9 +175,6 @@ public class BotControlScreen extends Screen {
 		this.focusBot = focusBot;
 		if (focusBot != null) {
 			selectedBotId = focusBot;
-			if (activeTab == Tab.BOTS) {
-				activeTab = Tab.CONTROL;
-			}
 		}
 	}
 
@@ -178,12 +194,17 @@ public class BotControlScreen extends Screen {
 		if (selectedBotId == null && !bots.isEmpty()) {
 			selectedBotId = focusBot != null && bots.stream().anyMatch(b -> b.id().equals(focusBot)) ? focusBot : bots.getFirst().id();
 		}
-		boolean selectionChanged = previousSelection == null ? selectedBotId != null : !previousSelection.equals(selectedBotId);
+		boolean selectionChanged = !Objects.equals(previousSelection, selectedBotId);
 
-		if (firstList || selectionChanged || activeTab == Tab.BOTS || activeTab == Tab.LEVEL || activeTab == Tab.JOB) {
+		// Most of the panel reads the bot live; only rebuild when its layout has to change.
+		Payloads.BotEntry bot = selected();
+		boolean jobLayoutChanged = activeTab == Tab.JOB && bot != null && bot.jobView().job() != lastJobType;
+		boolean needGone = activeTab == Tab.JOB && selectedNeed != null && (bot == null || selectedNeedView(bot.jobView()) == null);
+		if (needGone) {
+			selectedNeed = null;
+		}
+		if (firstList || selectionChanged || jobLayoutChanged || needGone || bots.size() != lastBotCount) {
 			rebuildPreservingInput();
-		} else if (deliveryButton != null) {
-			deliveryButton.setMessage(deliveryLabel());
 		}
 	}
 
@@ -198,6 +219,12 @@ public class BotControlScreen extends Screen {
 			}
 		}
 		return null;
+	}
+
+	@Nullable
+	private Payloads.JobView jobView() {
+		Payloads.BotEntry bot = selected();
+		return bot == null ? null : bot.jobView();
 	}
 
 	private void requestList() {
@@ -217,52 +244,83 @@ public class BotControlScreen extends Screen {
 		ClientPlayNetworking.send(new Payloads.BotCommand(basePos, bot.id(), action, text, args));
 	}
 
+	/** Sends an order and says so at the bottom of the panel. */
+	private void order(int action, String text, int... args) {
+		command(action, text, args);
+		flash(Component.translatable("butterbot.gui.order_sent"), false);
+	}
+
 	private void flash(Component message, boolean error) {
 		flashMessage = message;
 		flashTicks = 80;
 		flashIsError = error;
 	}
 
+	private void cycleBot(int step) {
+		if (bots.isEmpty()) {
+			return;
+		}
+		int index = 0;
+		for (int i = 0; i < bots.size(); i++) {
+			if (bots.get(i).id().equals(selectedBotId)) {
+				index = i;
+			}
+		}
+		selectBot(bots.get(Math.floorMod(index + step, bots.size())).id());
+	}
+
+	private void selectBot(UUID id) {
+		selectedBotId = id;
+		selectedSkinIndex = -1;
+		selectedNeed = null;
+		jobPicker = false;
+		releaseArmedUntil = 0L;
+		rebuildPreservingInput();
+	}
+
 	// ================================================================ layout
 
 	@Override
 	protected void init() {
+		int totalHeight = TAB_H + BODY_H + FOOTER_H;
 		left = (width - PANEL_W) / 2;
-		top = (height - PANEL_H) / 2;
-		contentX = left + 100;
-		contentY = top + 30;
+		top = Math.max(TAB_H + 2, (height - totalHeight) / 2 + TAB_H);
+		cardX = left + 7;
+		cardY = top + 7;
+		cx = left + 110;
+		cy = top + 8;
 		resetWidgetRefs();
-
-		if (receivedList && selected() == null && activeTab != Tab.BOTS) {
-			activeTab = Tab.BOTS;
-		}
+		lastBotCount = bots.size();
 
 		Tab[] tabs = Tab.values();
 		for (int i = 0; i < tabs.length; i++) {
 			Tab tab = tabs[i];
-			ParchmentButton button = ParchmentButton.ribbon(left + 10, top + 26 + i * 19, 80, 18, tab.label(), b -> switchTab(tab));
-			button.selected(tab == activeTab);
-			button.active = receivedList && (tab == Tab.BOTS || selected() != null);
+			boolean current = tab == activeTab && !listOpen;
+			McButton button = new McButton(left + 4 + i * 70, top - TAB_H, 69, current ? TAB_H + 3 : TAB_H, tab.label(),
+					new ItemStack(tab.icon), McButton.Layout.TAB, b -> switchTab(tab)).selected(() -> tab == activeTab && !listOpen);
+			button.active = receivedList && selected() != null;
 			addRenderableWidget(button);
 		}
 
 		if (!receivedList) {
-			// Wait for the bot list before building the tab contents; the remembered tab is kept.
+			// Wait for the bot list before building the rest; the remembered tab is kept.
 			requestList();
 			return;
 		}
-
+		initCard();
+		if (selected() == null) {
+			return;
+		}
+		if (listOpen) {
+			initBotList();
+			return;
+		}
 		switch (activeTab) {
-			case BOTS -> initBotsTab();
-			case CONTROL -> initControlTab();
-			case JOB -> initJobTab();
-			case MINING -> initMiningTab();
-			case FARM -> initFarmTab();
-			case CRAFTING -> initCraftingTab();
-			case TUNNEL -> initTunnelTab();
-			case PROGRAM -> initProgramTab();
-			case SKIN -> initSkinTab();
-			case LEVEL -> initLevelTab();
+			case HOME -> initHome();
+			case MINE -> initMine();
+			case JOB -> initJob();
+			case STYLE -> initStyle();
+			case MORE -> initMore();
 		}
 	}
 
@@ -276,16 +334,21 @@ public class BotControlScreen extends Screen {
 		toZBox = null;
 		renameBox = null;
 		scriptEditor = null;
-		deliveryButton = null;
 		suggestions.clear();
 	}
 
 	private void switchTab(Tab tab) {
-		if (tab == activeTab) {
+		if (tab == activeTab && !listOpen) {
+			if (tab == Tab.MORE && morePage != MorePage.MAIN) {
+				saveInput();
+				morePage = MorePage.MAIN;
+				rebuildWidgets();
+			}
 			return;
 		}
 		saveInput();
 		activeTab = tab;
+		listOpen = false;
 		rebuildWidgets();
 	}
 
@@ -317,314 +380,415 @@ public class BotControlScreen extends Screen {
 		}
 	}
 
-	// ---------------------------------------------------------------- Bots tab
+	// ---------------------------------------------------------------- the bot card
 
-	private void initBotsTab() {
-		int pages = Math.max(1, (bots.size() + ROWS_PER_PAGE - 1) / ROWS_PER_PAGE);
-		botsPage = Math.min(botsPage, pages - 1);
-		int y = contentY + 14;
-		int start = botsPage * ROWS_PER_PAGE;
-		for (int i = start; i < Math.min(bots.size(), start + ROWS_PER_PAGE); i++) {
-			Payloads.BotEntry bot = bots.get(i);
-			boolean isSelected = bot.id().equals(selectedBotId);
-			Component label = Component.literal(bot.name());
-			ParchmentButton row = ParchmentButton.parchment(contentX, y, 185, 18, label, b -> {
-				selectedBotId = bot.id();
-				rebuildPreservingInput();
-			}).selected(isSelected);
-			row.setTooltip(Tooltip.create(bot.status()));
-			addRenderableWidget(row);
-
-			ParchmentButton release = ParchmentButton.danger(contentX + 188, y, 22, 18, Component.literal("✖"), b -> {
-				selectedBotId = bot.id();
-				command(Payloads.BotCommand.RELEASE);
-				selectedBotId = null;
-			});
-			release.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.release_tooltip")));
-			addRenderableWidget(release);
-			y += 22;
+	private void initCard() {
+		if (bots.size() > 1) {
+			addRenderableWidget(McButton.text(cardX + 3, cardY + 3, 13, 13, Component.literal("<"), b -> cycleBot(-1))
+					.tip(Component.translatable("butterbot.ui.prev_bot")));
+			addRenderableWidget(McButton.text(cardX + CARD_W - 16, cardY + 3, 13, 13, Component.literal(">"), b -> cycleBot(1))
+					.tip(Component.translatable("butterbot.ui.next_bot")));
 		}
-
-		if (pages > 1) {
-			int py = contentY + 14 + ROWS_PER_PAGE * 22;
-			ParchmentButton prev = ParchmentButton.parchment(contentX, py, 24, 16, Component.literal("<"), b -> {
-				botsPage = Math.max(0, botsPage - 1);
+		if (!bots.isEmpty()) {
+			addRenderableWidget(McButton.text(cardX + 4, cardY + CARD_H - 20, CARD_W - 8, 16, Component.empty(), b -> {
+				saveInput();
+				listOpen = !listOpen;
+				listPage = 0;
 				rebuildWidgets();
-			});
-			prev.active = botsPage > 0;
-			addRenderableWidget(prev);
-			ParchmentButton next = ParchmentButton.parchment(contentX + 186, py, 24, 16, Component.literal(">"), b -> {
-				botsPage = Math.min(pages - 1, botsPage + 1);
-				rebuildWidgets();
-			});
-			next.active = botsPage < pages - 1;
-			addRenderableWidget(next);
+			}).label(() -> Component.translatable(listOpen ? "butterbot.ui.close_list" : "butterbot.ui.all_bots", bots.size()))
+					.selected(() -> listOpen));
 		}
 	}
 
-	// ---------------------------------------------------------------- Control tab
-
-	private void initControlTab() {
+	private void renderCard(GuiGraphicsExtractor g) {
 		Payloads.BotEntry bot = selected();
-		int colW = 102;
-		int x2 = contentX + colW + 6;
-		int y = contentY + 14;
+		int middle = cardX + CARD_W / 2;
+		if (bot == null) {
+			Component none = Component.translatable(receivedList ? "butterbot.ui.no_bot" : "butterbot.gui.loading");
+			List<FormattedCharSequence> lines = font.split(none, CARD_W - 10);
+			for (int i = 0; i < lines.size(); i++) {
+				g.text(font, lines.get(i), cardX + 5, cardY + 40 + i * 10, McStyle.TEXT_LIGHT_DIM, true);
+			}
+			return;
+		}
+		String name = font.plainSubstrByWidth(bot.name(), CARD_W - 36);
+		g.text(font, name, middle - font.width(name) / 2, cardY + 6, McStyle.TEXT_LIGHT, true);
 
-		addRenderableWidget(ParchmentButton.parchment(contentX, y, colW, 20, Component.translatable("butterbot.gui.summon"),
-				b -> command(Payloads.BotCommand.SUMMON)));
-		addRenderableWidget(ParchmentButton.parchment(x2, y, colW, 20, Component.translatable("butterbot.gui.follow"),
-				b -> command(Payloads.BotCommand.FOLLOW)));
-		y += 24;
-		addRenderableWidget(ParchmentButton.danger(contentX, y, colW, 20, Component.translatable("butterbot.gui.stop"),
-				b -> command(Payloads.BotCommand.STOP)));
-		addRenderableWidget(ParchmentButton.parchment(x2, y, colW, 20, Component.translatable("butterbot.gui.deliver"),
-				b -> command(Payloads.BotCommand.DELIVER)));
-		y += 24;
-		addRenderableWidget(ParchmentButton.parchment(contentX, y, colW, 20, Component.translatable("butterbot.gui.backpack"),
-				b -> command(Payloads.BotCommand.BACKPACK)));
-		addRenderableWidget(ParchmentButton.parchment(x2, y, colW, 20, Component.translatable("butterbot.gui.status"),
-				b -> command(Payloads.BotCommand.STATUS)));
-		y += 24;
-		deliveryButton = ParchmentButton.parchment(contentX, y, colW, 20, deliveryLabel(), b -> {
+		int level = bot.level();
+		g.text(font, Component.translatable("butterbot.ui.level", level), cardX + 5, cardY + 20, McStyle.GOLD_LIGHT, true);
+		float xp = level >= BotLevels.MAX_LEVEL ? 1.0F : bot.workXp() / (float) BotLevels.xpToNext(level);
+		McStyle.bar(g, cardX + 5, cardY + 30, CARD_W - 10, 4, xp, McStyle.XP);
+
+		ClientSkinManager.SkinInfo skin = cardSkin(bot);
+		if (skin != null) {
+			drawPaperDoll(g, skin, middle - 16, cardY + 38, 2);
+		}
+		if (isPreviewingSkin()) {
+			Component preview = Component.translatable("butterbot.ui.preview");
+			g.text(font, preview, middle - font.width(preview) / 2, cardY + 103, McStyle.GOLD_LIGHT, true);
+		}
+
+		int maxHealth = (int) Math.round(BotLevels.maxHealth(level));
+		int health = Math.round(bot.health() * maxHealth);
+		g.text(font, Component.translatable("butterbot.ui.health", health, maxHealth), cardX + 5, cardY + 113, McStyle.TEXT_LIGHT, true);
+		McStyle.bar(g, cardX + 5, cardY + 123, CARD_W - 10, 4, bot.health(), McStyle.HEALTH);
+		int capacity = BotLevels.backpackSize(level) * 64;
+		g.text(font, Component.translatable("butterbot.ui.bag", bot.itemCount(), capacity), cardX + 5, cardY + 131,
+				bot.itemCount() >= capacity ? McStyle.BAD_LIGHT : McStyle.TEXT_LIGHT, true);
+
+		List<FormattedCharSequence> lines = font.split(bot.status(), CARD_W - 10);
+		for (int i = 0; i < Math.min(3, lines.size()); i++) {
+			g.text(font, lines.get(i), cardX + 5, cardY + 144 + i * 10, McStyle.TEXT_LIGHT_DIM, true);
+		}
+	}
+
+	private boolean isPreviewingSkin() {
+		return activeTab == Tab.STYLE && !listOpen && selectedSkinIndex >= 0
+				&& selectedSkinIndex < ClientSkinManager.localSkins().size();
+	}
+
+	/** The skin shown on the card: the one being previewed in the Style tab, otherwise the bot's own. */
+	@Nullable
+	private ClientSkinManager.SkinInfo cardSkin(Payloads.BotEntry bot) {
+		if (isPreviewingSkin()) {
+			ClientSkinManager.SkinInfo preview = ClientSkinManager.skinFor(ClientSkinManager.localSkins().get(selectedSkinIndex).skinId());
+			if (preview != null) {
+				return preview;
+			}
+		}
+		return botSkin(bot);
+	}
+
+	@Nullable
+	private static ClientSkinManager.SkinInfo botSkin(Payloads.BotEntry bot) {
+		ClientSkinManager.SkinInfo skin = bot.skinId().isEmpty() ? null : ClientSkinManager.skinFor(bot.skinId());
+		return skin != null ? skin : ClientSkinManager.defaultSkinFor(bot.skinVariant());
+	}
+
+	// ---------------------------------------------------------------- all bots
+
+	private void initBotList() {
+		int pages = Math.max(1, (bots.size() + LIST_ROWS - 1) / LIST_ROWS);
+		listPage = Math.min(listPage, pages - 1);
+		if (pages > 1) {
+			int py = cy + 14 + LIST_ROWS * 30 + 4;
+			addRenderableWidget(McButton.text(cx, py, 30, 16, Component.literal("<"), b -> {
+				listPage = Math.max(0, listPage - 1);
+				rebuildWidgets();
+			}).enabled(listPage > 0));
+			addRenderableWidget(McButton.text(cx + CW - 30, py, 30, 16, Component.literal(">"), b -> {
+				listPage = Math.min(pages - 1, listPage + 1);
+				rebuildWidgets();
+			}).enabled(listPage < pages - 1));
+		}
+	}
+
+	private void renderBotList(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+		g.text(font, Component.translatable("butterbot.ui.bot_list", bots.size()), cx, cy + 2, McStyle.TEXT, false);
+		int start = listPage * LIST_ROWS;
+		for (int i = start; i < Math.min(bots.size(), start + LIST_ROWS); i++) {
+			Payloads.BotEntry bot = bots.get(i);
+			int y = cy + 14 + (i - start) * 30;
+			boolean hovered = inside(mouseX, mouseY, cx, y, CW, 28);
+			boolean isSelected = bot.id().equals(selectedBotId);
+			McStyle.inset(g, cx, y, CW, 28, hovered ? 0xFFD6D6D6 : isSelected ? 0xFFBFD8BF : 0xFFB4B4B4);
+			ClientSkinManager.SkinInfo skin = botSkin(bot);
+			if (skin != null) {
+				PlayerFaceExtractor.extractRenderState(g, skin.texture(), cx + 5, y + 6, 16, true, false, -1);
+			}
+			String line = font.plainSubstrByWidth(bot.name() + "  Lv " + bot.level(), CW - 80);
+			g.text(font, line, cx + 27, y + 5, McStyle.TEXT, false);
+			String status = font.plainSubstrByWidth(Component.empty().append(bot.status()).getString(), CW - 32);
+			g.text(font, status, cx + 27, y + 16, McStyle.TEXT_DIM, false);
+			if (minecraft != null && minecraft.player != null) {
+				double distance = Math.sqrt(minecraft.player.blockPosition().distSqr(bot.pos()));
+				String meters = (int) Math.round(distance) + " m";
+				g.text(font, meters, cx + CW - 5 - font.width(meters), y + 5, McStyle.TEXT_DIM, false);
+			}
+		}
+	}
+
+	private boolean botListClicked(double mouseX, double mouseY) {
+		int start = listPage * LIST_ROWS;
+		for (int i = start; i < Math.min(bots.size(), start + LIST_ROWS); i++) {
+			int y = cy + 14 + (i - start) * 30;
+			if (inside(mouseX, mouseY, cx, y, CW, 28)) {
+				listOpen = false;
+				selectBot(bots.get(i).id());
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// ---------------------------------------------------------------- Main tab
+
+	private void initHome() {
+		Payloads.BotEntry bot = selected();
+		String[] keys = {"follow", "stop", "home", "deliver", "backpack", "light", "farm", "sort"};
+		Item[] icons = {Items.LEAD, Items.BARRIER, Items.BED.pick(DyeColor.RED), Items.HOPPER, Items.BUNDLE, Items.TORCH, Items.WHEAT, Items.CHEST};
+		int[] actions = {Payloads.BotCommand.FOLLOW, Payloads.BotCommand.STOP, Payloads.BotCommand.SUMMON, Payloads.BotCommand.DELIVER,
+				Payloads.BotCommand.BACKPACK, Payloads.BotCommand.LIGHT, Payloads.BotCommand.FARM, Payloads.BotCommand.SORT};
+		Object[][] tipArgs = {{}, {}, {}, {}, {}, {LightAreaAction.DEFAULT_RADIUS}, {FarmTaskAction.RADIUS}, {SortTaskAction.RADIUS}};
+		for (int i = 0; i < keys.length; i++) {
+			int action = actions[i];
+			McButton tile = McButton.tile(cx + (i % 4) * 60, cy + 12 + (i / 4) * 39, 58, 36,
+					Component.translatable("butterbot.ui." + keys[i]), new ItemStack(icons[i]), b -> {
+						if (action == Payloads.BotCommand.LIGHT) {
+							order(action, "", LightAreaAction.DEFAULT_RADIUS);
+						} else if (action == Payloads.BotCommand.BACKPACK) {
+							command(action);
+						} else {
+							order(action, "");
+						}
+					}).tip(Component.translatable("butterbot.ui." + keys[i] + "_tip", tipArgs[i]));
+			if (action == Payloads.BotCommand.SUMMON && bot != null && !bot.hasBase() && basePos.isEmpty()) {
+				tile.enabled(false).tip(Component.translatable("butterbot.ui.home_none_tip"));
+			}
+			if (action == Payloads.BotCommand.STOP) {
+				tile.danger();
+			}
+			addRenderableWidget(tile);
+		}
+
+		int y = cy + 104;
+		toggle(cx, y, "guard", Items.IRON_SWORD, () -> live(Payloads.BotEntry::guard), Payloads.BotCommand.GUARD, "butterbot.gui.guard_tooltip");
+		toggle(cx + 121, y, "torches", Items.TORCH, () -> live(Payloads.BotEntry::autoTorch), Payloads.BotCommand.AUTO_TORCH,
+				"butterbot.gui.torches_auto_tooltip");
+		toggle(cx, y + 22, "feed", Items.BREAD, () -> live(Payloads.BotEntry::feedOwner), Payloads.BotCommand.FEED, "butterbot.gui.feed_tooltip");
+		toggle(cx + 121, y + 22, "refill", Items.ARROW, () -> live(Payloads.BotEntry::autoRefill), Payloads.BotCommand.REFILL,
+				"butterbot.gui.refill_tooltip");
+		addRenderableWidget(McButton.icon(cx, y + 44, 118, 20, Component.empty(), new ItemStack(Items.FURNACE), b -> {
+			Payloads.BotEntry current = selected();
+			if (current != null) {
+				command(Payloads.BotCommand.SMELT_MODE, "", SmeltMode.byOrdinal(current.smeltMode()).next().ordinal());
+			}
+		}).label(() -> {
+			Payloads.BotEntry current = selected();
+			SmeltMode mode = current == null ? SmeltMode.OFF : SmeltMode.byOrdinal(current.smeltMode());
+			return Component.translatable("butterbot.ui.smelt", Component.translatable(mode.key()));
+		}).tip(Component.translatable("butterbot.gui.smelt_tooltip")));
+		addRenderableWidget(McButton.icon(cx + 121, y + 44, 118, 20, Component.empty(), new ItemStack(Items.CHEST_MINECART), b -> {
 			Payloads.BotEntry current = selected();
 			if (current != null) {
 				command(Payloads.BotCommand.DELIVERY_MODE, "", DeliveryMode.byOrdinal(current.deliveryMode()).next().ordinal());
 			}
-		});
-		deliveryButton.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.delivery_tooltip")));
-		addRenderableWidget(deliveryButton);
-		ParchmentButton link = ParchmentButton.parchment(x2, y, colW, 20, Component.translatable("butterbot.gui.link_base"),
-				b -> command(Payloads.BotCommand.LINK_BASE));
-		link.active = basePos.isPresent();
-		link.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.link_base_tooltip")));
-		addRenderableWidget(link);
-		y += 30;
-
-		renameBox = new EditBox(font, contentX + 1, y + 1, 140, 18, Component.translatable("butterbot.gui.rename"));
-		renameBox.setMaxLength(32);
-		renameBox.setHint(Component.translatable("butterbot.gui.rename_hint"));
-		if (bot != null) {
-			renameBox.setValue(bot.name());
-		}
-		addRenderableWidget(renameBox);
-		addRenderableWidget(ParchmentButton.parchment(contentX + 146, y, 64, 20, Component.translatable("butterbot.gui.rename"), b -> {
-			if (renameBox != null) {
-				command(Payloads.BotCommand.RENAME, renameBox.getValue());
-			}
-		}));
+		}).label(() -> {
+			Payloads.BotEntry current = selected();
+			boolean toBase = current != null && DeliveryMode.byOrdinal(current.deliveryMode()) == DeliveryMode.BASE;
+			return Component.translatable("butterbot.ui.delivery",
+					Component.translatable(toBase ? "butterbot.ui.delivery.base" : "butterbot.ui.delivery.owner"));
+		}).tip(Component.translatable("butterbot.gui.delivery_tooltip")));
 	}
 
-	private Component deliveryLabel() {
+	private interface BotFlag {
+		boolean get(Payloads.BotEntry bot);
+	}
+
+	private boolean live(BotFlag flag) {
 		Payloads.BotEntry bot = selected();
-		DeliveryMode mode = bot == null ? DeliveryMode.OWNER : DeliveryMode.byOrdinal(bot.deliveryMode());
-		return Component.translatable(mode == DeliveryMode.BASE ? "butterbot.gui.delivery_base" : "butterbot.gui.delivery_owner");
+		return bot != null && flag.get(bot);
+	}
+
+	private void toggle(int x, int y, String key, Item icon, BooleanSupplier on, int action, String tooltipKey) {
+		addRenderableWidget(McButton.toggle(x, y, 118, 20, Component.translatable("butterbot.ui." + key), new ItemStack(icon), on,
+				b -> command(action, "", on.getAsBoolean() ? 0 : 1)).tip(Component.translatable(tooltipKey)));
+	}
+
+	private void renderHome(GuiGraphicsExtractor g) {
+		g.text(font, Component.translatable("butterbot.ui.orders"), cx, cy + 2, McStyle.TEXT, false);
+		g.text(font, Component.translatable("butterbot.ui.settings"), cx, cy + 94, McStyle.TEXT, false);
+		g.text(font, Component.translatable("butterbot.ui.wheel_hint", BotKeys.panelKeyName()), cx, cy + 174, McStyle.TEXT_DIM, false);
 	}
 
 	// ---------------------------------------------------------------- Mining tab
 
-	private void initMiningTab() {
+	private void initMine() {
 		BotResource[] resources = BotResource.values();
 		resourceIndex = Math.floorMod(resourceIndex, resources.length);
 		for (int i = 0; i < resources.length; i++) {
-			BotResource resource = resources[i];
-			int col = i % 3;
-			int row = i / 3;
 			int index = i;
-			addRenderableWidget(ParchmentButton.parchment(contentX + col * 71, contentY + 16 + row * 21, 68, 18,
-					resource.displayName(), b -> {
-						resourceIndex = index;
-						rebuildPreservingInput();
-					}).selected(i == resourceIndex));
+			addRenderableWidget(new McButton(cx + (i % 6) * 40, cy + 12 + (i / 6) * 34, 38, 32, resources[i].displayName(),
+					new ItemStack(iconFor(resources[i])), McButton.Layout.SLOT, b -> resourceIndex = index)
+					.selected(() -> resourceIndex == index)
+					.tip(resources[i].displayName()));
 		}
-		int y = contentY + 16 + 4 * 21 + 8;
-		mineCountBox = new NumberBox(font, contentX + 61, y + 1, 44, 18, Component.translatable("butterbot.gui.amount"), false, 4);
+		int y = cy + 96;
+		mineCountBox = new NumberBox(font, cx + 45, y + 1, 40, 18, Component.translatable("butterbot.gui.amount"), false, 4);
 		mineCountBox.setValue(mineCountText);
 		addRenderableWidget(mineCountBox);
-		int[] quick = {16, 64, 256};
-		for (int i = 0; i < quick.length; i++) {
-			int amount = quick[i];
-			addRenderableWidget(ParchmentButton.parchment(contentX + 112 + i * 33, y, 30, 20, Component.literal(String.valueOf(amount)), b -> {
+		for (int i = 0; i < MINE_AMOUNTS.length; i++) {
+			int amount = MINE_AMOUNTS[i];
+			addRenderableWidget(McButton.text(cx + 91 + i * 30, y, 28, 20, Component.literal(String.valueOf(amount)), b -> {
 				if (mineCountBox != null) {
 					mineCountBox.setValue(String.valueOf(amount));
 				}
-			}));
+			}).selected(() -> mineCountBox != null && mineCountBox.intValue(-1) == amount));
 		}
-		addRenderableWidget(ParchmentButton.accent(contentX, y + 28, 138, 20, Component.translatable("butterbot.gui.start_mining"), b -> {
-			int count = mineCountBox == null ? 64 : mineCountBox.intValue(64);
-			BotResource resource = BotResource.values()[resourceIndex];
-			command(Payloads.BotCommand.MINE, resource.id(), Math.max(1, count));
-			flash(Component.translatable("butterbot.gui.order_sent"), false);
-		}));
-		ParchmentButton find = ParchmentButton.parchment(contentX + 142, y + 28, 68, 20, Component.translatable("butterbot.gui.find"), b -> {
-			command(Payloads.BotCommand.FIND, BotResource.values()[resourceIndex].id());
-			flash(Component.translatable("butterbot.gui.find_sent"), false);
-		});
-		find.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.find_tooltip", OreFinder.RADIUS)));
-		addRenderableWidget(find);
+		addRenderableWidget(McButton.icon(cx, cy + 124, 158, 22, Component.translatable("butterbot.ui.start_mining"),
+				new ItemStack(Items.IRON_PICKAXE), b -> {
+					int count = mineCountBox == null ? 64 : mineCountBox.intValue(64);
+					order(Payloads.BotCommand.MINE, BotResource.values()[resourceIndex].id(), Math.max(1, count));
+				}));
+		addRenderableWidget(McButton.icon(cx + 161, cy + 124, 78, 22, Component.translatable("butterbot.gui.find"),
+				new ItemStack(Items.SPYGLASS), b -> {
+					command(Payloads.BotCommand.FIND, BotResource.values()[resourceIndex].id());
+					flash(Component.translatable("butterbot.gui.find_sent"), false);
+				}).tip(Component.translatable("butterbot.gui.find_tooltip", OreFinder.RADIUS)));
 	}
 
-	// ---------------------------------------------------------------- Farm tab
-
-	private void initFarmTab() {
-		addRenderableWidget(ParchmentButton.accent(contentX, contentY + 70, CONTENT_W, 20, Component.translatable("butterbot.gui.start_farming"), b -> {
-			command(Payloads.BotCommand.FARM);
-			flash(Component.translatable("butterbot.gui.order_sent"), false);
-		}));
-		addRenderableWidget(ParchmentButton.parchment(contentX, contentY + 148, 103, 20, Component.translatable("butterbot.gui.sort_chests"), b -> {
-			command(Payloads.BotCommand.SORT);
-			flash(Component.translatable("butterbot.gui.order_sent"), false);
-		}));
-		ParchmentButton light = ParchmentButton.parchment(contentX + 107, contentY + 148, 103, 20, Component.translatable("butterbot.gui.light_area"), b -> {
-			command(Payloads.BotCommand.LIGHT, "", LightAreaAction.DEFAULT_RADIUS);
-			flash(Component.translatable("butterbot.gui.order_sent"), false);
-		});
-		light.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.light_tooltip", LightAreaAction.DEFAULT_RADIUS)));
-		addRenderableWidget(light);
+	private static Item iconFor(BotResource resource) {
+		return switch (resource) {
+			case DIAMOND -> Items.DIAMOND;
+			case IRON -> Items.RAW_IRON;
+			case GOLD -> Items.RAW_GOLD;
+			case COPPER -> Items.RAW_COPPER;
+			case COAL -> Items.COAL;
+			case REDSTONE -> Items.REDSTONE;
+			case LAPIS -> Items.LAPIS_LAZULI;
+			case EMERALD -> Items.EMERALD;
+			case STONE -> Items.COBBLESTONE;
+			case WOOD -> Items.OAK_LOG;
+			case SAND -> Items.SAND;
+		};
 	}
 
-	private void renderFarmTab(GuiGraphicsExtractor g) {
-		g.textWithWordWrap(font, Component.translatable("butterbot.gui.farm_help", FarmTaskAction.RADIUS), contentX, contentY + 14,
-				CONTENT_W, COLOR_TEXT_DIM, false);
-		g.textWithWordWrap(font, Component.translatable("butterbot.gui.sort_help", SortTaskAction.RADIUS), contentX, contentY + 98,
-				CONTENT_W, COLOR_TEXT_DIM, false);
-	}
-
-	// ---------------------------------------------------------------- Level tab
-
-	private void initLevelTab() {
-		Payloads.BotEntry bot = selected();
-		if (bot == null) {
-			return;
-		}
-		int colW = 102;
-		int x2 = contentX + colW + 6;
-		int y = contentY + 94;
-		toggleButton(contentX, y, colW, bot.guard(), "butterbot.gui.guard", Payloads.BotCommand.GUARD, "butterbot.gui.guard_tooltip");
-		toggleButton(x2, y, colW, bot.autoTorch(), "butterbot.gui.torches_auto", Payloads.BotCommand.AUTO_TORCH,
-				"butterbot.gui.torches_auto_tooltip");
-		y += 23;
-		toggleButton(contentX, y, colW, bot.feedOwner(), "butterbot.gui.feed", Payloads.BotCommand.FEED, "butterbot.gui.feed_tooltip");
-		toggleButton(x2, y, colW, bot.autoRefill(), "butterbot.gui.refill", Payloads.BotCommand.REFILL, "butterbot.gui.refill_tooltip");
-		y += 23;
-		SmeltMode mode = SmeltMode.byOrdinal(bot.smeltMode());
-		ParchmentButton smelt = ParchmentButton.parchment(contentX, y, colW, 20,
-				Component.translatable("butterbot.gui.smelt", Component.translatable(mode.key())), b -> {
-					Payloads.BotEntry current = selected();
-					if (current != null) {
-						command(Payloads.BotCommand.SMELT_MODE, "", SmeltMode.byOrdinal(current.smeltMode()).next().ordinal());
-					}
-				}).selected(mode != SmeltMode.OFF);
-		smelt.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.smelt_tooltip")));
-		addRenderableWidget(smelt);
+	private void renderMine(GuiGraphicsExtractor g) {
+		g.text(font, Component.translatable("butterbot.ui.pick_resource"), cx, cy + 2, McStyle.TEXT, false);
+		BotResource resource = BotResource.values()[Math.floorMod(resourceIndex, BotResource.values().length)];
+		Component where = resource.isUnderground()
+				? Component.translatable("butterbot.ui.dug_at", resource.displayName(), resource.optimalY())
+				: Component.translatable("butterbot.ui.on_surface", resource.displayName());
+		g.text(font, where, cx, cy + 83, McStyle.TEXT, false);
+		g.text(font, Component.translatable("butterbot.gui.amount_label"), cx, cy + 102, McStyle.TEXT, false);
+		g.textWithWordWrap(font, Component.translatable("butterbot.ui.mine_help"), cx, cy + 152, CW, McStyle.TEXT_DIM, false);
 	}
 
 	// ---------------------------------------------------------------- Job tab
 
-	private static final int JOB_GRID_Y = 86;
-	private static final int NEED_CELL_W = 68;
-	private static final int NEED_CELL_H = 18;
-	private static final int NEED_PITCH_X = 71;
-	private static final int NEED_PITCH_Y = 20;
-	private static final int PICK_CELL = 18;
-	private static final int PICK_PITCH = 21;
-	private static final int PICK_COLUMNS = 10;
-
-	private void initJobTab() {
+	private void initJob() {
 		Payloads.BotEntry bot = selected();
 		if (bot == null) {
 			return;
 		}
 		Payloads.JobView view = bot.jobView();
 		BotJob current = BotJob.byOrdinal(view.job());
+		lastJobType = view.job();
 		BotJob[] values = BotJob.values();
+		Item[] icons = {ModItems.BUTTER_BOT, Items.IRON_PICKAXE, Items.IRON_AXE, Items.IRON_SWORD, Items.IRON_HOE};
 		for (int i = 0; i < values.length; i++) {
 			BotJob value = values[i];
-			ParchmentButton button = ParchmentButton.parchment(contentX + Math.round(i * 42.5F), contentY + 12, 40, 18,
-					Component.translatable(value.key() + ".short"), b -> {
-						if (value != current) {
+			addRenderableWidget(McButton.tile(cx + Math.round(i * 48.25F), cy, 46, 34, Component.translatable(value.key() + ".short"),
+					new ItemStack(icons[i]), b -> {
+						Payloads.JobView now = jobView();
+						if (now != null && now.job() != value.ordinal()) {
 							jobPicker = false;
 							selectedNeed = null;
 							command(Payloads.BotCommand.JOB_SET, "", value.ordinal());
 						}
-					}).selected(value == current);
-			addRenderableWidget(withTooltip(button, value.key() + ".tooltip"));
+					}).selected(() -> {
+						Payloads.JobView now = jobView();
+						return now != null && now.job() == value.ordinal();
+					}).tip(Component.translatable(value.key() + ".tooltip")));
 		}
 		if (current == BotJob.NONE) {
 			jobPicker = false;
 			return;
 		}
 
-		int bx = contentX + 130;
-		addRenderableWidget(withTooltip(ParchmentButton.parchment(contentX + 172, contentY + 64, 38, 16,
-				Component.translatable(view.paused() ? "butterbot.gui.job_resume" : "butterbot.gui.job_pause"),
-				b -> command(Payloads.BotCommand.JOB_PAUSE, "", view.paused() ? 0 : 1)).selected(view.paused()),
-				"butterbot.gui.job_pause_tooltip"));
+		int right = cx + CW;
+		addRenderableWidget(McButton.text(right - 52, cy + 38, 52, 16, Component.empty(), b -> {
+			Payloads.JobView now = jobView();
+			if (now != null) {
+				command(Payloads.BotCommand.JOB_PAUSE, "", now.paused() ? 0 : 1);
+			}
+		}).label(() -> {
+			Payloads.JobView now = jobView();
+			return Component.translatable(now != null && now.paused() ? "butterbot.gui.job_resume" : "butterbot.gui.job_pause");
+		}).tip(Component.translatable("butterbot.gui.job_pause_tooltip")));
 
 		if (current.usesList()) {
-			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx, contentY + 46, 80, 16,
-					Component.translatable("butterbot.gui.job_pick_chest"), b -> startPick(bot, BotKeys.PickKind.CHEST)),
-					"butterbot.gui.job_pick_chest_tooltip"));
-			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx, contentY + 64, 18, 16, Component.literal("-"),
-					b -> command(Payloads.BotCommand.JOB_ZONE, "", Math.max(0, view.zone() - JobConfig.ZONE_STEP))),
-					"butterbot.gui.job_zone_tooltip"));
-			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx + 20, contentY + 64, 18, 16, Component.literal("+"),
-					b -> command(Payloads.BotCommand.JOB_ZONE, "", Math.min(JobConfig.MAX_ZONE, view.zone() + JobConfig.ZONE_STEP))),
-					"butterbot.gui.job_zone_tooltip"));
-			int buttonsY = contentY + 157;
+			addRenderableWidget(McButton.icon(right - 84, cy + 58, 84, 18, Component.translatable("butterbot.ui.pick_chest"),
+					new ItemStack(Items.CHEST), b -> startPick(BotKeys.PickKind.CHEST))
+					.tip(Component.translatable("butterbot.gui.job_pick_chest_tooltip")));
+			addRenderableWidget(McButton.text(right - 40, cy + 80, 19, 18, Component.literal("-"), b -> {
+				Payloads.JobView now = jobView();
+				if (now != null) {
+					command(Payloads.BotCommand.JOB_ZONE, "", Math.max(0, now.zone() - JobConfig.ZONE_STEP));
+				}
+			}).tip(Component.translatable("butterbot.gui.job_zone_tooltip")));
+			addRenderableWidget(McButton.text(right - 19, cy + 80, 19, 18, Component.literal("+"), b -> {
+				Payloads.JobView now = jobView();
+				if (now != null) {
+					command(Payloads.BotCommand.JOB_ZONE, "", Math.min(JobConfig.MAX_ZONE, now.zone() + JobConfig.ZONE_STEP));
+				}
+			}).tip(Component.translatable("butterbot.gui.job_zone_tooltip")));
+			int rowY = cy + 176;
 			if (jobPicker) {
-				addRenderableWidget(ParchmentButton.parchment(contentX, buttonsY, 60, 16, Component.translatable("butterbot.gui.job_picker_close"),
-						b -> {
-							jobPicker = false;
-							rebuildPreservingInput();
-						}));
+				addRenderableWidget(McButton.text(cx, rowY, 70, 16, Component.translatable("butterbot.gui.job_picker_close"), b -> {
+					jobPicker = false;
+					rebuildPreservingInput();
+				}));
 				return;
 			}
-			Payloads.NeedView need = selectedNeedView(view);
-			if (need == null) {
+			if (selectedNeedView(view) == null) {
 				return;
 			}
 			int[] deltas = {-64, -16, 16, 64};
 			for (int i = 0; i < deltas.length; i++) {
 				int delta = deltas[i];
-				addRenderableWidget(ParchmentButton.parchment(contentX + Math.round(i * 42.5F), buttonsY, 40, 16,
-						Component.literal(delta > 0 ? "+" + delta : String.valueOf(delta)),
-						b -> command(Payloads.BotCommand.JOB_NEED, need.item(), Math.max(0, need.target() + delta))));
+				addRenderableWidget(McButton.text(cx + i * 46, rowY, 44, 16, Component.literal(delta > 0 ? "+" + delta : String.valueOf(delta)),
+						b -> adjustNeed(delta)));
 			}
-			addRenderableWidget(ParchmentButton.danger(contentX + 170, buttonsY, 40, 16, Component.translatable("butterbot.gui.job_remove"),
-					b -> {
-						selectedNeed = null;
-						command(Payloads.BotCommand.JOB_NEED, need.item(), 0);
-					}));
+			addRenderableWidget(McButton.text(cx + 184, rowY, 55, 16, Component.translatable("butterbot.gui.job_remove"), b -> {
+				String item = selectedNeed;
+				selectedNeed = null;
+				if (item != null) {
+					command(Payloads.BotCommand.JOB_NEED, item, 0);
+				}
+				rebuildPreservingInput();
+			}).danger());
 		} else {
-			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx, contentY + 46, 38, 16,
-					Component.translatable("butterbot.gui.job_here"), b -> command(Payloads.BotCommand.JOB_CENTER)),
-					"butterbot.gui.job_here_tooltip"));
-			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx + 40, contentY + 46, 40, 16,
-					Component.translatable("butterbot.gui.job_pick_spot"), b -> startPick(bot, BotKeys.PickKind.CENTER)),
-					"butterbot.gui.job_pick_spot_tooltip"));
+			addRenderableWidget(McButton.text(right - 98, cy + 58, 48, 18, Component.translatable("butterbot.gui.job_here"),
+					b -> command(Payloads.BotCommand.JOB_CENTER)).tip(Component.translatable("butterbot.gui.job_here_tooltip")));
+			addRenderableWidget(McButton.text(right - 48, cy + 58, 48, 18, Component.translatable("butterbot.gui.job_pick_spot"),
+					b -> startPick(BotKeys.PickKind.CENTER)).tip(Component.translatable("butterbot.gui.job_pick_spot_tooltip")));
 			int max = current == BotJob.FARMER ? JobConfig.MAX_FARM_RADIUS : JobConfig.MAX_PATROL_RADIUS;
-			addRenderableWidget(ParchmentButton.parchment(bx, contentY + 64, 18, 16, Component.literal("-"),
-					b -> command(Payloads.BotCommand.JOB_RADIUS, "", Math.max(JobConfig.MIN_RADIUS, view.radius() - 2))));
-			addRenderableWidget(ParchmentButton.parchment(bx + 20, contentY + 64, 18, 16, Component.literal("+"),
-					b -> command(Payloads.BotCommand.JOB_RADIUS, "", Math.min(max, view.radius() + 2))));
-			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx, contentY + 82, 50, 16,
-					Component.translatable("butterbot.gui.job_pick_chest_short"), b -> startPick(bot, BotKeys.PickKind.CHEST)),
-					"butterbot.gui.job_area_chest_tooltip"));
-			addRenderableWidget(withTooltip(ParchmentButton.parchment(bx + 52, contentY + 82, 28, 16,
-					Component.translatable("butterbot.gui.job_auto"), b -> command(Payloads.BotCommand.JOB_CHEST)),
-					"butterbot.gui.job_auto_tooltip"));
+			addRenderableWidget(McButton.text(right - 40, cy + 80, 19, 18, Component.literal("-"), b -> {
+				Payloads.JobView now = jobView();
+				if (now != null) {
+					command(Payloads.BotCommand.JOB_RADIUS, "", Math.max(JobConfig.MIN_RADIUS, now.radius() - 2));
+				}
+			}));
+			addRenderableWidget(McButton.text(right - 19, cy + 80, 19, 18, Component.literal("+"), b -> {
+				Payloads.JobView now = jobView();
+				if (now != null) {
+					command(Payloads.BotCommand.JOB_RADIUS, "", Math.min(max, now.radius() + 2));
+				}
+			}));
+			addRenderableWidget(McButton.text(right - 86, cy + 102, 48, 18, Component.translatable("butterbot.gui.job_pick_chest_short"),
+					b -> startPick(BotKeys.PickKind.CHEST)).tip(Component.translatable("butterbot.gui.job_area_chest_tooltip")));
+			addRenderableWidget(McButton.text(right - 36, cy + 102, 36, 18, Component.translatable("butterbot.gui.job_auto"),
+					b -> command(Payloads.BotCommand.JOB_CHEST)).tip(Component.translatable("butterbot.gui.job_auto_tooltip")));
 		}
 	}
 
-	private static ParchmentButton withTooltip(ParchmentButton button, String key) {
-		button.setTooltip(Tooltip.create(Component.translatable(key)));
-		return button;
+	/** Changes the selected list item by {@code delta}, starting from what the server says now. */
+	private void adjustNeed(int delta) {
+		Payloads.JobView view = jobView();
+		Payloads.NeedView need = view == null ? null : selectedNeedView(view);
+		if (need != null) {
+			command(Payloads.BotCommand.JOB_NEED, need.item(), Math.max(0, need.target() + delta));
+		}
 	}
 
 	/** Closes the panel so the player can look at a chest or spot and press the context key. */
-	private void startPick(Payloads.BotEntry bot, BotKeys.PickKind kind) {
-		BotKeys.beginPick(bot.id(), basePos, kind);
-		onClose();
+	private void startPick(BotKeys.PickKind kind) {
+		Payloads.BotEntry bot = selected();
+		if (bot != null) {
+			BotKeys.beginPick(bot.id(), basePos, kind);
+			onClose();
+		}
 	}
 
 	@Nullable
@@ -640,52 +804,24 @@ public class BotControlScreen extends Screen {
 		return null;
 	}
 
-	private static ItemStack stackOf(String id) {
-		Identifier identifier = Identifier.tryParse(id);
-		return identifier == null ? ItemStack.EMPTY : new ItemStack(BuiltInRegistries.ITEM.getValue(identifier));
-	}
-
-	private static String itemId(Item item) {
-		return BuiltInRegistries.ITEM.getKey(item).toString();
-	}
-
-	private static boolean isOnList(Payloads.JobView view, String id) {
-		for (Payloads.NeedView need : view.needs()) {
-			if (need.item().equals(id)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private static String compact(int value) {
-		return value < 1000 ? String.valueOf(value) : String.format(Locale.ROOT, "%.1fk", value / 1000.0F);
-	}
-
-	private static boolean inside(double mouseX, double mouseY, int x, int y, int w, int h) {
-		return mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
-	}
-
-	private void renderJobTab(GuiGraphicsExtractor g, @Nullable Payloads.BotEntry bot, int mouseX, int mouseY) {
-		if (bot == null) {
-			return;
-		}
+	private void renderJob(GuiGraphicsExtractor g, Payloads.BotEntry bot, int mouseX, int mouseY) {
 		Payloads.JobView view = bot.jobView();
 		BotJob job = BotJob.byOrdinal(view.job());
 		if (job == BotJob.NONE) {
-			g.textWithWordWrap(font, Component.translatable("butterbot.gui.job_none_help"), contentX, contentY + 36, CONTENT_W, COLOR_TEXT_DIM, false);
+			g.textWithWordWrap(font, Component.translatable("butterbot.gui.job_none_help"), cx, cy + 42, CW, McStyle.TEXT_DIM, false);
 			return;
 		}
-		String status = font.plainSubstrByWidth(Component.empty().append(bot.status()).getString(), CONTENT_W);
-		g.text(font, status, contentX, contentY + 34, view.paused() ? COLOR_BAD : COLOR_TEXT_DIM, false);
+		String status = font.plainSubstrByWidth(Component.empty().append(bot.status()).getString(), CW - 58);
+		g.text(font, status, cx, cy + 42, view.paused() ? McStyle.BAD : McStyle.TEXT, false);
+
 		Component chest = view.chest().isEmpty()
 				? Component.translatable(job.usesList() ? "butterbot.gui.job_chest_none" : "butterbot.gui.job_area_chest_auto")
 				: Component.translatable(view.chestOk() ? "butterbot.gui.job_chest_ok" : "butterbot.gui.job_chest_bad",
 				view.chest().get().toShortString());
-		int chestColor = view.chest().isPresent() ? (view.chestOk() ? COLOR_TEXT : COLOR_BAD) : (job.usesList() ? COLOR_BAD : COLOR_TEXT);
+		int chestColor = view.chest().isPresent() ? (view.chestOk() ? McStyle.TEXT : McStyle.BAD) : (job.usesList() ? McStyle.BAD : McStyle.TEXT);
 		if (job.usesList()) {
-			g.text(font, font.plainSubstrByWidth(chest.getString(), 126), contentX, contentY + 50, chestColor, false);
-			g.text(font, Component.translatable("butterbot.gui.job_zone", view.zone()), contentX, contentY + 68, COLOR_TEXT, false);
+			g.text(font, font.plainSubstrByWidth(chest.getString(), CW - 88), cx, cy + 63, chestColor, false);
+			g.text(font, Component.translatable("butterbot.gui.job_zone", view.zone()), cx, cy + 85, McStyle.TEXT, false);
 			if (jobPicker) {
 				renderJobPicker(g, job, view, mouseX, mouseY);
 			} else {
@@ -695,30 +831,27 @@ public class BotControlScreen extends Screen {
 		}
 		Component spot = view.center().isEmpty() ? Component.translatable("butterbot.gui.job_spot_none")
 				: Component.translatable("butterbot.gui.job_spot", view.center().get().toShortString());
-		g.text(font, font.plainSubstrByWidth(spot.getString(), 126), contentX, contentY + 50,
-				view.center().isPresent() ? COLOR_TEXT : COLOR_BAD, false);
-		g.text(font, Component.translatable("butterbot.gui.job_radius", view.radius()), contentX, contentY + 68, COLOR_TEXT, false);
-		g.text(font, font.plainSubstrByWidth(chest.getString(), 126), contentX, contentY + 86, chestColor, false);
+		g.text(font, font.plainSubstrByWidth(spot.getString(), CW - 102), cx, cy + 63, view.center().isPresent() ? McStyle.TEXT : McStyle.BAD, false);
+		g.text(font, Component.translatable("butterbot.gui.job_radius", view.radius()), cx, cy + 85, McStyle.TEXT, false);
+		g.text(font, font.plainSubstrByWidth(chest.getString(), CW - 90), cx, cy + 107, chestColor, false);
 		String info = job == BotJob.GUARD ? "butterbot.gui.job_guard_info" : "butterbot.gui.job_farmer_info";
-		g.textWithWordWrap(font, Component.translatable(info, view.stat(), view.radius()), contentX, contentY + 106, CONTENT_W,
-				COLOR_TEXT_DIM, false);
+		g.textWithWordWrap(font, Component.translatable(info, view.stat(), view.radius()), cx, cy + 128, CW, McStyle.TEXT_DIM, false);
 	}
 
-	/** The list as a 3x3 grid: icon, "in chest / wanted" and a progress bar; the last cell adds an item. */
+	/** The list as a 3x3 grid of slots with "in chest / wanted" and a progress bar; the last cell adds an item. */
 	private void renderNeeds(GuiGraphicsExtractor g, Payloads.JobView view, int mouseX, int mouseY) {
 		List<Payloads.NeedView> needs = view.needs();
-		Component label = null;
 		int cells = Math.min(JobConfig.MAX_NEEDS, needs.size() + 1);
 		for (int i = 0; i < cells; i++) {
-			int x = contentX + (i % 3) * NEED_PITCH_X;
-			int y = contentY + JOB_GRID_Y + (i / 3) * NEED_PITCH_Y;
-			boolean hovered = inside(mouseX, mouseY, x, y, NEED_CELL_W, NEED_CELL_H);
+			int x = cx + (i % 3) * CELL_PITCH_X;
+			int y = cy + GRID_Y + (i / 3) * CELL_PITCH_Y;
+			boolean hovered = inside(mouseX, mouseY, x, y, CELL_W, CELL_H);
 			if (i >= needs.size()) {
-				g.fill(x, y, x + NEED_CELL_W, y + NEED_CELL_H, hovered ? COLOR_PARCHMENT_DARK : COLOR_PARCHMENT);
-				g.outline(x, y, NEED_CELL_W, NEED_CELL_H, COLOR_FRAME);
-				g.centeredText(font, Component.translatable("butterbot.gui.job_add"), x + NEED_CELL_W / 2, y + 5, COLOR_GOOD);
+				McStyle.inset(g, x, y, CELL_W, CELL_H, hovered ? 0xFFD6D6D6 : 0xFFB4B4B4);
+				Component add = Component.translatable("butterbot.gui.job_add");
+				g.text(font, add, x + (CELL_W - font.width(add)) / 2, y + 7, McStyle.GOOD, false);
 				if (hovered) {
-					label = Component.translatable("butterbot.gui.job_add_hint");
+					g.setTooltipForNextFrame(Component.translatable("butterbot.gui.job_add_hint"), mouseX, mouseY);
 				}
 				continue;
 			}
@@ -726,64 +859,67 @@ public class BotControlScreen extends Screen {
 			ItemStack stack = stackOf(need.item());
 			boolean done = need.have() >= need.target();
 			boolean isSelected = need.item().equals(selectedNeed);
-			g.fill(x, y, x + NEED_CELL_W, y + NEED_CELL_H, isSelected || hovered ? COLOR_PARCHMENT_DARK : COLOR_PARCHMENT);
-			g.outline(x, y, NEED_CELL_W, NEED_CELL_H, isSelected ? 0xFF6E36B4 : COLOR_FRAME);
-			if (need.have() > 0 && need.target() > 0) {
-				int barWidth = Math.round((NEED_CELL_W - 2) * Math.min(1.0F, need.have() / (float) need.target()));
-				g.fill(x + 1, y + NEED_CELL_H - 3, x + 1 + barWidth, y + NEED_CELL_H - 1, done ? COLOR_GOOD : COLOR_XP);
+			McStyle.inset(g, x, y, CELL_W, CELL_H, hovered ? 0xFFD6D6D6 : isSelected ? 0xFFBFD8BF : 0xFFB4B4B4);
+			if (isSelected) {
+				g.outline(x - 1, y - 1, CELL_W + 2, CELL_H + 2, McStyle.WHITE);
 			}
-			g.item(stack, x + 1, y + 1);
+			McStyle.slot(g, x + 2, y + 2);
+			g.item(stack, x + 3, y + 3);
 			String count = (need.have() < 0 ? "?" : compact(need.have())) + "/" + compact(need.target());
-			g.text(font, font.plainSubstrByWidth(count, NEED_CELL_W - 20), x + 19, y + 5, done ? COLOR_GOOD : COLOR_TEXT, false);
-			if (hovered || (isSelected && label == null)) {
-				label = Component.translatable("butterbot.gui.job_need_label", stack.getHoverName(),
-						need.have() < 0 ? "?" : String.valueOf(need.have()), need.target());
+			g.text(font, font.plainSubstrByWidth(count, CELL_W - 24), x + 23, y + 5, done ? McStyle.GOOD : McStyle.TEXT, false);
+			if (need.target() > 0) {
+				float progress = Math.max(0, need.have()) / (float) need.target();
+				McStyle.bar(g, x + 23, y + 15, CELL_W - 27, 4, progress, done ? 0xFF3FB83F : McStyle.XP);
+			}
+			if (hovered) {
+				g.setTooltipForNextFrame(Component.translatable("butterbot.gui.job_need_label", stack.getHoverName(),
+						need.have() < 0 ? "?" : String.valueOf(need.have()), need.target()), mouseX, mouseY);
 			}
 		}
-		if (label == null) {
-			label = Component.translatable(needs.isEmpty() ? "butterbot.gui.job_list_empty" : "butterbot.gui.job_list_hint");
+		if (selectedNeed == null) {
+			Component hint = Component.translatable(needs.isEmpty() ? "butterbot.gui.job_list_empty" : "butterbot.gui.job_list_hint");
+			g.text(font, font.plainSubstrByWidth(hint.getString(), CW), cx, cy + 180, McStyle.TEXT_DIM, false);
 		}
-		g.text(font, font.plainSubstrByWidth(label.getString(), CONTENT_W), contentX, contentY + JOB_GRID_Y + 3 * NEED_PITCH_Y + 2,
-				COLOR_TEXT_DIM, false);
 	}
 
 	/** Every item the job can collect; a green frame means it is already on the list. */
 	private void renderJobPicker(GuiGraphicsExtractor g, BotJob job, Payloads.JobView view, int mouseX, int mouseY) {
 		List<ResourceCatalog.Entry> entries = ResourceCatalog.forJob(job);
-		Component label = Component.translatable("butterbot.gui.job_picker_hint");
+		int offset = (CW - PICK_COLUMNS * PICK_PITCH) / 2;
 		for (int i = 0; i < entries.size(); i++) {
-			int x = contentX + (i % PICK_COLUMNS) * PICK_PITCH;
-			int y = contentY + JOB_GRID_Y + (i / PICK_COLUMNS) * NEED_PITCH_Y;
+			int x = cx + offset + (i % PICK_COLUMNS) * PICK_PITCH;
+			int y = cy + GRID_Y + (i / PICK_COLUMNS) * PICK_PITCH;
 			ItemStack stack = new ItemStack(entries.get(i).item());
-			boolean hovered = inside(mouseX, mouseY, x, y, PICK_CELL, PICK_CELL);
-			g.fill(x, y, x + PICK_CELL, y + PICK_CELL, hovered ? COLOR_PARCHMENT_DARK : COLOR_PARCHMENT);
-			g.outline(x, y, PICK_CELL, PICK_CELL, isOnList(view, itemId(stack.getItem())) ? COLOR_GOOD : COLOR_FRAME);
-			g.item(stack, x + 1, y + 1);
-			if (hovered) {
-				label = stack.getHoverName();
+			McStyle.slot(g, x, y);
+			if (isOnList(view, itemId(stack.getItem()))) {
+				g.outline(x, y, 18, 18, 0xFF3FB83F);
 			}
+			if (inside(mouseX, mouseY, x, y, 18, 18)) {
+				g.fill(x + 1, y + 1, x + 17, y + 17, 0x80FFFFFF);
+				g.setTooltipForNextFrame(font, stack, mouseX, mouseY);
+			}
+			g.item(stack, x + 1, y + 1);
 		}
-		g.text(font, font.plainSubstrByWidth(label.getString(), CONTENT_W), contentX, contentY + JOB_GRID_Y + 3 * NEED_PITCH_Y + 2,
-				COLOR_TEXT_DIM, false);
+		g.text(font, Component.translatable("butterbot.gui.job_picker_hint"), cx + 76, cy + 180, McStyle.TEXT_DIM, false);
 	}
 
 	/** Clicks on the list grid or the item picker (they are drawn, not widgets). */
 	private boolean jobTabClicked(double mouseX, double mouseY) {
-		Payloads.BotEntry bot = selected();
-		if (bot == null) {
+		Payloads.JobView view = jobView();
+		if (view == null) {
 			return false;
 		}
-		Payloads.JobView view = bot.jobView();
 		BotJob job = BotJob.byOrdinal(view.job());
 		if (!job.usesList()) {
 			return false;
 		}
 		if (jobPicker) {
 			List<ResourceCatalog.Entry> entries = ResourceCatalog.forJob(job);
+			int offset = (CW - PICK_COLUMNS * PICK_PITCH) / 2;
 			for (int i = 0; i < entries.size(); i++) {
-				int x = contentX + (i % PICK_COLUMNS) * PICK_PITCH;
-				int y = contentY + JOB_GRID_Y + (i / PICK_COLUMNS) * NEED_PITCH_Y;
-				if (inside(mouseX, mouseY, x, y, PICK_CELL, PICK_CELL)) {
+				int x = cx + offset + (i % PICK_COLUMNS) * PICK_PITCH;
+				int y = cy + GRID_Y + (i / PICK_COLUMNS) * PICK_PITCH;
+				if (inside(mouseX, mouseY, x, y, 18, 18)) {
 					String id = itemId(entries.get(i).item());
 					if (!isOnList(view, id)) {
 						command(Payloads.BotCommand.JOB_NEED, id, 64);
@@ -799,9 +935,9 @@ public class BotControlScreen extends Screen {
 		List<Payloads.NeedView> needs = view.needs();
 		int cells = Math.min(JobConfig.MAX_NEEDS, needs.size() + 1);
 		for (int i = 0; i < cells; i++) {
-			int x = contentX + (i % 3) * NEED_PITCH_X;
-			int y = contentY + JOB_GRID_Y + (i / 3) * NEED_PITCH_Y;
-			if (!inside(mouseX, mouseY, x, y, NEED_CELL_W, NEED_CELL_H)) {
+			int x = cx + (i % 3) * CELL_PITCH_X;
+			int y = cy + GRID_Y + (i / 3) * CELL_PITCH_Y;
+			if (!inside(mouseX, mouseY, x, y, CELL_W, CELL_H)) {
 				continue;
 			}
 			if (i >= needs.size()) {
@@ -817,33 +953,196 @@ public class BotControlScreen extends Screen {
 		return false;
 	}
 
-	private void toggleButton(int x, int y, int width, boolean on, String key, int action, String tooltipKey) {
-		ParchmentButton button = ParchmentButton.parchment(x, y, width, 20,
-				Component.translatable(key, Component.translatable(on ? "butterbot.gui.on" : "butterbot.gui.off")),
-				b -> command(action, "", on ? 0 : 1)).selected(on);
-		button.setTooltip(Tooltip.create(Component.translatable(tooltipKey)));
-		addRenderableWidget(button);
+	// ---------------------------------------------------------------- Style tab
+
+	private void initStyle() {
+		Payloads.BotEntry bot = selected();
+		renameBox = new EditBox(font, cx + 1, cy + 13, 168, 18, Component.translatable("butterbot.gui.rename"));
+		renameBox.setMaxLength(32);
+		renameBox.setHint(Component.translatable("butterbot.gui.rename_hint"));
+		if (bot != null) {
+			renameBox.setValue(bot.name());
+		}
+		addRenderableWidget(renameBox);
+		addRenderableWidget(McButton.text(cx + 174, cy + 12, 65, 20, Component.translatable("butterbot.gui.save"), b -> {
+			if (renameBox != null) {
+				order(Payloads.BotCommand.RENAME, renameBox.getValue());
+			}
+		}));
+
+		addRenderableWidget(McButton.toggle(cx, cy + 38, 118, 20, Component.translatable("butterbot.ui.neko"), new ItemStack(Items.COD),
+				() -> live(Payloads.BotEntry::neko), b -> command(Payloads.BotCommand.SET_NEKO, "", live(Payloads.BotEntry::neko) ? 0 : 1))
+				.tip(Component.translatable("butterbot.gui.neko_tooltip")));
+		addRenderableWidget(McButton.icon(cx + 121, cy + 38, 118, 20, Component.empty(), new ItemStack(Items.LEATHER_CHESTPLATE), b -> {
+			Payloads.BotEntry current = selected();
+			if (current != null) {
+				command(Payloads.BotCommand.DEFAULT_SKIN, "", nextBuiltInSkin(current));
+			}
+		}).label(() -> {
+			Payloads.BotEntry current = selected();
+			int next = current == null ? 0 : nextBuiltInSkin(current);
+			return Component.translatable("butterbot.gui.default_skin_next", Component.translatable("butterbot.skin.default." + next));
+		}).tip(Component.translatable("butterbot.gui.default_skin_tooltip", ClientSkinManager.defaultSkinCount())));
+
+		List<ClientSkinManager.LocalSkin> skins = ClientSkinManager.rescan();
+		int pages = Math.max(1, (skins.size() + SKIN_ROWS - 1) / SKIN_ROWS);
+		skinPage = Math.min(skinPage, pages - 1);
+		if (selectedSkinIndex >= skins.size()) {
+			selectedSkinIndex = -1;
+		}
+		String currentSkin = bot == null ? "" : bot.skinId();
+		int start = skinPage * SKIN_ROWS;
+		for (int i = start; i < Math.min(skins.size(), start + SKIN_ROWS); i++) {
+			ClientSkinManager.LocalSkin skin = skins.get(i);
+			int index = i;
+			Component label = Component.literal(skin.displayName());
+			if (skin.skinId().equals(currentSkin)) {
+				label = Component.literal("✔ ").append(label);
+			}
+			addRenderableWidget(McButton.text(cx, cy + 76 + (i - start) * 20, CW, 18, label,
+					b -> selectedSkinIndex = selectedSkinIndex == index ? -1 : index)
+					.selected(() -> selectedSkinIndex == index)
+					.tip(Component.literal(skin.fileName() + " (" + skin.width() + "x" + skin.height() + ")")));
+		}
+		if (pages > 1) {
+			addRenderableWidget(McButton.text(cx + CW - 30, cy + 62, 14, 12, Component.literal("<"), b -> {
+				skinPage = Math.max(0, skinPage - 1);
+				rebuildPreservingInput();
+			}).enabled(skinPage > 0));
+			addRenderableWidget(McButton.text(cx + CW - 14, cy + 62, 14, 12, Component.literal(">"), b -> {
+				skinPage = Math.min(pages - 1, skinPage + 1);
+				rebuildPreservingInput();
+			}).enabled(skinPage < pages - 1));
+		}
+
+		int by = cy + 176;
+		addRenderableWidget(McButton.text(cx, by, 78, 18, Component.translatable("butterbot.ui.apply"), b -> {
+			List<ClientSkinManager.LocalSkin> list = ClientSkinManager.localSkins();
+			Payloads.BotEntry current = selected();
+			if (current == null || selectedSkinIndex < 0 || selectedSkinIndex >= list.size()) {
+				flash(Component.translatable("butterbot.gui.pick_skin"), true);
+				return;
+			}
+			ClientSkinManager.LocalSkin chosen = list.get(selectedSkinIndex);
+			if (ClientSkinManager.apply(basePos, current.id(), chosen)) {
+				flash(Component.translatable(ClientSkinManager.looksLikeDefault(chosen.skinId())
+						? "butterbot.gui.skin_same_as_default" : "butterbot.gui.skin_sent"), false);
+				selectedSkinIndex = -1;
+			} else {
+				flash(Component.translatable("butterbot.skin.error.corrupt"), true);
+			}
+		}));
+		addRenderableWidget(McButton.text(cx + 80, by, 78, 18, Component.translatable("butterbot.gui.open_folder"), b -> {
+			ClientSkinManager.ensureSetup();
+			Blaze3D.openPath(ClientSkinManager.SKIN_DIR);
+		}).tip(Component.translatable("butterbot.gui.drop_hint")));
+		addRenderableWidget(McButton.text(cx + 160, by, 79, 18, Component.translatable("butterbot.gui.refresh"), b -> rebuildPreservingInput()));
 	}
 
-	private void renderLevelTab(GuiGraphicsExtractor g, @Nullable Payloads.BotEntry bot) {
-		if (bot == null) {
-			return;
-		}
-		int level = bot.level();
-		int y = contentY + 14;
-		g.text(font, Component.translatable("butterbot.gui.level_title", level, BotLevels.MAX_LEVEL), contentX, y, COLOR_TEXT, false);
-		Component forYou = Component.translatable("butterbot.gui.stored_xp", bot.storedXp());
-		g.text(font, forYou, contentX + CONTENT_W - font.width(forYou), y, COLOR_GOOD, false);
+	private static int nextBuiltInSkin(Payloads.BotEntry bot) {
+		return bot.skinId().isEmpty() ? (bot.skinVariant() + 1) % ClientSkinManager.defaultSkinCount() : bot.skinVariant();
+	}
 
-		int barY = y + 12;
+	private void renderStyle(GuiGraphicsExtractor g, Payloads.BotEntry bot) {
+		g.text(font, Component.translatable("butterbot.ui.name"), cx, cy + 2, McStyle.TEXT, false);
+		List<ClientSkinManager.LocalSkin> skins = ClientSkinManager.localSkins();
+		g.text(font, Component.translatable("butterbot.ui.my_skins", skins.size()), cx, cy + 64, McStyle.TEXT, false);
+		ClientSkinManager.skinFor(bot.skinId());
+		ClientSkinManager.Status status = ClientSkinManager.statusOf(bot.skinId());
+		int color = switch (status) {
+			case READY, DEFAULT -> McStyle.GOOD;
+			case LOADING -> McStyle.TEXT_DIM;
+			case FAILED -> McStyle.BAD;
+		};
+		String text = font.plainSubstrByWidth(Component.translatable("butterbot.gui.skin_status." + status.name().toLowerCase(Locale.ROOT),
+				Component.translatable("butterbot.skin.default." + bot.skinVariant())).getString(), 110);
+		int statusRight = skins.size() > SKIN_ROWS ? cx + CW - 34 : cx + CW;
+		g.text(font, text, statusRight - font.width(text), cy + 64, color, false);
+		if (skins.isEmpty()) {
+			g.textWithWordWrap(font, Component.translatable("butterbot.gui.no_skins"), cx, cy + 80, CW, McStyle.TEXT_DIM, false);
+		}
+	}
+
+	// ---------------------------------------------------------------- More tab
+
+	private void initMore() {
+		switch (morePage) {
+			case MAIN -> initMoreMain();
+			case CRAFT -> initCrafting();
+			case TUNNEL -> initTunnel();
+			case PROGRAM -> initProgram();
+		}
+		if (morePage != MorePage.MAIN) {
+			addRenderableWidget(McButton.text(cx, cy, 64, 16, Component.translatable("butterbot.ui.back"), b -> {
+				saveInput();
+				morePage = MorePage.MAIN;
+				rebuildWidgets();
+			}));
+		}
+	}
+
+	private void initMoreMain() {
+		String[] keys = {"crafting", "tunnel", "program"};
+		Item[] icons = {Items.CRAFTING_TABLE, Items.RAIL, Items.WRITABLE_BOOK};
+		MorePage[] pages = {MorePage.CRAFT, MorePage.TUNNEL, MorePage.PROGRAM};
+		for (int i = 0; i < keys.length; i++) {
+			MorePage page = pages[i];
+			addRenderableWidget(McButton.tile(cx + i * 81, cy + 86, 77, 36, Component.translatable("butterbot.ui." + keys[i]),
+					new ItemStack(icons[i]), b -> {
+						saveInput();
+						morePage = page;
+						rebuildWidgets();
+					}).tip(Component.translatable("butterbot.ui." + keys[i] + "_tip")));
+		}
+		addRenderableWidget(McButton.icon(cx, cy + 128, 118, 20, Component.translatable("butterbot.gui.link_base"),
+				new ItemStack(Items.LODESTONE), b -> order(Payloads.BotCommand.LINK_BASE, ""))
+				.enabled(basePos.isPresent())
+				.tip(Component.translatable(basePos.isPresent() ? "butterbot.gui.link_base_tooltip" : "butterbot.ui.link_base_off")));
+		addRenderableWidget(McButton.icon(cx + 121, cy + 128, 118, 20, Component.translatable("butterbot.gui.status"),
+				new ItemStack(Items.PAPER), b -> command(Payloads.BotCommand.STATUS)));
+		addRenderableWidget(McButton.icon(cx, cy + 152, 118, 20, Component.empty(), new ItemStack(Items.BARRIER), b -> {
+			long now = System.currentTimeMillis();
+			if (now < releaseArmedUntil) {
+				command(Payloads.BotCommand.RELEASE);
+				selectedBotId = null;
+				releaseArmedUntil = 0L;
+			} else {
+				releaseArmedUntil = now + RELEASE_CONFIRM_MILLIS;
+			}
+		}).label(() -> Component.translatable(System.currentTimeMillis() < releaseArmedUntil
+				? "butterbot.ui.release_confirm" : "butterbot.ui.release")).danger()
+				.tip(Component.translatable("butterbot.gui.release_tooltip")));
+	}
+
+	private void renderMore(GuiGraphicsExtractor g, Payloads.BotEntry bot, int mouseX, int mouseY) {
+		switch (morePage) {
+			case MAIN -> renderLevel(g, bot);
+			case CRAFT -> renderCrafting(g, mouseX, mouseY);
+			case TUNNEL -> renderTunnel(g);
+			case PROGRAM -> {
+			}
+		}
+		if (morePage != MorePage.MAIN) {
+			String key = switch (morePage) {
+				case CRAFT -> "butterbot.ui.crafting";
+				case TUNNEL -> "butterbot.ui.tunnel";
+				default -> "butterbot.ui.program";
+			};
+			g.text(font, Component.translatable(key), cx + 70, cy + 4, McStyle.TEXT, false);
+		}
+	}
+
+	private void renderLevel(GuiGraphicsExtractor g, Payloads.BotEntry bot) {
+		int level = bot.level();
+		g.text(font, Component.translatable("butterbot.gui.level_title", level, BotLevels.MAX_LEVEL), cx, cy + 2, McStyle.TEXT, false);
+		Component forYou = Component.translatable("butterbot.gui.stored_xp", bot.storedXp());
+		g.text(font, forYou, cx + CW - font.width(forYou), cy + 2, McStyle.GOOD, false);
 		boolean max = level >= BotLevels.MAX_LEVEL;
 		float progress = max ? 1.0F : Math.min(1.0F, bot.workXp() / (float) BotLevels.xpToNext(level));
-		g.fill(contentX, barY, contentX + CONTENT_W, barY + 6, COLOR_FRAME);
-		g.fill(contentX + 1, barY + 1, contentX + CONTENT_W - 1, barY + 5, COLOR_PARCHMENT_DARK);
-		g.fill(contentX + 1, barY + 1, contentX + 1 + Math.round((CONTENT_W - 2) * progress), barY + 5, COLOR_XP);
+		McStyle.bar(g, cx, cy + 13, CW, 5, progress, McStyle.XP);
 		Component xpText = max ? Component.translatable("butterbot.gui.level_max")
 				: Component.translatable("butterbot.gui.xp_progress", bot.workXp(), BotLevels.xpToNext(level));
-		g.text(font, xpText, contentX, barY + 9, COLOR_TEXT_DIM, false);
+		g.text(font, xpText, cx, cy + 21, McStyle.TEXT_DIM, false);
 
 		int tier = BotLevels.toolTier(level);
 		int fortune = BotLevels.fortune(level);
@@ -858,38 +1157,37 @@ public class BotControlScreen extends Screen {
 				vein > 0 ? Component.translatable("butterbot.gui.perk_vein", vein)
 						: Component.translatable("butterbot.gui.perk_vein_locked", 3),
 		};
-		int py = contentY + 46;
+		int y = cy + 32;
 		for (Component perk : perks) {
-			g.text(font, perk, contentX, py, COLOR_TEXT, false);
-			py += 9;
+			g.text(font, font.plainSubstrByWidth(perk.getString(), CW), cx, y, McStyle.TEXT, false);
+			y += 10;
 		}
-		g.textWithWordWrap(font, Component.translatable("butterbot.gui.level_hint"), contentX + 108, contentY + 141, CONTENT_W - 108, COLOR_TEXT_DIM, false);
 	}
 
-	// ---------------------------------------------------------------- Crafting tab
+	// ---------------------------------------------------------------- More: crafting
 
-	private void initCraftingTab() {
-		craftItemBox = new EditBox(font, contentX + 1, contentY + 21, 150, 18, Component.translatable("butterbot.gui.item"));
+	private void initCrafting() {
+		craftItemBox = new EditBox(font, cx + 1, cy + 25, 170, 18, Component.translatable("butterbot.gui.item"));
 		craftItemBox.setMaxLength(64);
 		craftItemBox.setHint(Component.translatable("butterbot.gui.item_hint"));
 		craftItemBox.setValue(craftItemText);
 		craftItemBox.setResponder(this::updateSuggestions);
 		addRenderableWidget(craftItemBox);
 
-		craftCountBox = new NumberBox(font, contentX + 157, contentY + 21, 52, 18, Component.translatable("butterbot.gui.amount"), false, 4);
+		craftCountBox = new NumberBox(font, cx + 178, cy + 25, 60, 18, Component.translatable("butterbot.gui.amount"), false, 4);
 		craftCountBox.setValue(craftCountText);
 		addRenderableWidget(craftCountBox);
 
-		addRenderableWidget(ParchmentButton.accent(contentX, contentY + 152, CONTENT_W, 20, Component.translatable("butterbot.gui.craft"), b -> {
-			String item = craftItemBox == null ? "" : craftItemBox.getValue().trim();
-			if (item.isEmpty()) {
-				flash(Component.translatable("butterbot.gui.enter_item"), true);
-				return;
-			}
-			int count = craftCountBox == null ? 1 : craftCountBox.intValue(1);
-			command(Payloads.BotCommand.CRAFT, item, Math.max(1, count));
-			flash(Component.translatable("butterbot.gui.order_sent"), false);
-		}));
+		addRenderableWidget(McButton.icon(cx, cy + 172, CW, 20, Component.translatable("butterbot.gui.craft"),
+				new ItemStack(Items.CRAFTING_TABLE), b -> {
+					String item = craftItemBox == null ? "" : craftItemBox.getValue().trim();
+					if (item.isEmpty()) {
+						flash(Component.translatable("butterbot.gui.enter_item"), true);
+						return;
+					}
+					int count = craftCountBox == null ? 1 : craftCountBox.intValue(1);
+					order(Payloads.BotCommand.CRAFT, item, Math.max(1, count));
+				}));
 	}
 
 	private void updateSuggestions(String query) {
@@ -935,45 +1233,72 @@ public class BotControlScreen extends Screen {
 		suggestions.clear();
 	}
 
-	// ---------------------------------------------------------------- Tunnel tab
-
-	private void initTunnelTab() {
-		int y1 = contentY + 24;
-		int y2 = contentY + 62;
-		fromXBox = coordBox(contentX, y1, fromXText, "X");
-		fromZBox = coordBox(contentX + 64, y1, fromZText, "Z");
-		toXBox = coordBox(contentX, y2, toXText, "X");
-		toZBox = coordBox(contentX + 64, y2, toZText, "Z");
-		addRenderableWidget(ParchmentButton.parchment(contentX + 130, y1, 80, 18, Component.translatable("butterbot.gui.here"), b -> fillHere(true)));
-		addRenderableWidget(ParchmentButton.parchment(contentX + 130, y2, 80, 18, Component.translatable("butterbot.gui.here"), b -> fillHere(false)));
-
-		int y3 = contentY + 92;
-		tunnelSizeIndex = Math.floorMod(tunnelSizeIndex, TUNNEL_SIZES.length);
-		addRenderableWidget(ParchmentButton.parchment(contentX, y3, 102, 20,
-				Component.translatable("butterbot.gui.size", TUNNEL_SIZES[tunnelSizeIndex][0] + "x" + TUNNEL_SIZES[tunnelSizeIndex][1]), b -> {
-					tunnelSizeIndex = (tunnelSizeIndex + 1) % TUNNEL_SIZES.length;
-					rebuildPreservingInput();
-				}));
-		addRenderableWidget(ParchmentButton.parchment(contentX + 108, y3, 102, 20,
-				Component.translatable(tunnelTorches ? "butterbot.gui.torches_on" : "butterbot.gui.torches_off"), b -> {
-					tunnelTorches = !tunnelTorches;
-					rebuildPreservingInput();
-				}).selected(tunnelTorches));
-
-		addRenderableWidget(ParchmentButton.accent(contentX, contentY + 152, CONTENT_W, 20, Component.translatable("butterbot.gui.dig_tunnel"), b -> {
-			if (fromXBox == null || !fromXBox.hasNumber() || !fromZBox.hasNumber() || !toXBox.hasNumber() || !toZBox.hasNumber()) {
-				flash(Component.translatable("butterbot.gui.enter_coords"), true);
-				return;
+	private void renderCrafting(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+		g.text(font, Component.translatable("butterbot.gui.item_amount"), cx, cy + 15, McStyle.TEXT, false);
+		if (suggestions.isEmpty()) {
+			g.textWithWordWrap(font, Component.translatable("butterbot.gui.craft_hint"), cx, cy + 50, CW, McStyle.TEXT_DIM, false);
+			return;
+		}
+		int sx = cx;
+		int sy = cy + 45;
+		int w = 172;
+		int h = suggestions.size() * 18;
+		g.nextStratum();
+		McStyle.inset(g, sx - 1, sy - 1, w + 2, h + 2, McStyle.PANEL);
+		for (int i = 0; i < suggestions.size(); i++) {
+			int rowY = sy + i * 18;
+			if (inside(mouseX, mouseY, sx, rowY, w, 18)) {
+				g.fill(sx, rowY, sx + w, rowY + 18, 0xFFE2E2E2);
 			}
-			int[] size = TUNNEL_SIZES[tunnelSizeIndex];
-			command(Payloads.BotCommand.TUNNEL, "", fromXBox.intValue(0), fromZBox.intValue(0), toXBox.intValue(0), toZBox.intValue(0),
-					size[0], size[1], tunnelTorches ? 1 : 0);
-			flash(Component.translatable("butterbot.gui.order_sent"), false);
-		}));
+			ItemStack stack = new ItemStack(BuiltInRegistries.ITEM.getValue(suggestions.get(i)));
+			g.item(stack, sx + 1, rowY + 1);
+			g.text(font, font.plainSubstrByWidth(stack.getHoverName().getString(), w - 24), sx + 21, rowY + 5, McStyle.TEXT, false);
+		}
+	}
+
+	private boolean suggestionClicked(double mouseX, double mouseY) {
+		for (int i = 0; i < suggestions.size(); i++) {
+			if (inside(mouseX, mouseY, cx, cy + 45 + i * 18, 172, 18)) {
+				applySuggestion(suggestions.get(i));
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// ---------------------------------------------------------------- More: tunnel
+
+	private void initTunnel() {
+		int y1 = cy + 34;
+		int y2 = cy + 70;
+		fromXBox = coordBox(cx, y1, fromXText, "X");
+		fromZBox = coordBox(cx + 64, y1, fromZText, "Z");
+		toXBox = coordBox(cx, y2, toXText, "X");
+		toZBox = coordBox(cx + 64, y2, toZText, "Z");
+		addRenderableWidget(McButton.text(cx + 130, y1 - 1, 80, 20, Component.translatable("butterbot.gui.here"), b -> fillHere(true)));
+		addRenderableWidget(McButton.text(cx + 130, y2 - 1, 80, 20, Component.translatable("butterbot.gui.here"), b -> fillHere(false)));
+
+		tunnelSizeIndex = Math.floorMod(tunnelSizeIndex, TUNNEL_SIZES.length);
+		addRenderableWidget(McButton.text(cx, cy + 98, 118, 20, Component.empty(),
+				b -> tunnelSizeIndex = (tunnelSizeIndex + 1) % TUNNEL_SIZES.length)
+				.label(() -> Component.translatable("butterbot.gui.size", TUNNEL_SIZES[tunnelSizeIndex][0] + "x" + TUNNEL_SIZES[tunnelSizeIndex][1])));
+		addRenderableWidget(McButton.toggle(cx + 121, cy + 98, 118, 20, Component.translatable("butterbot.ui.tunnel_torches"),
+				new ItemStack(Items.TORCH), () -> tunnelTorches, b -> tunnelTorches = !tunnelTorches));
+
+		addRenderableWidget(McButton.icon(cx, cy + 172, CW, 20, Component.translatable("butterbot.gui.dig_tunnel"),
+				new ItemStack(Items.IRON_PICKAXE), b -> {
+					if (fromXBox == null || !fromXBox.hasNumber() || !fromZBox.hasNumber() || !toXBox.hasNumber() || !toZBox.hasNumber()) {
+						flash(Component.translatable("butterbot.gui.enter_coords"), true);
+						return;
+					}
+					int[] size = TUNNEL_SIZES[tunnelSizeIndex];
+					order(Payloads.BotCommand.TUNNEL, "", fromXBox.intValue(0), fromZBox.intValue(0), toXBox.intValue(0), toZBox.intValue(0),
+							size[0], size[1], tunnelTorches ? 1 : 0);
+				}));
 	}
 
 	private NumberBox coordBox(int x, int y, String value, String hint) {
-		NumberBox box = new NumberBox(font, x + 1, y + 1, 58, 16, Component.literal(hint), true, 8);
+		NumberBox box = new NumberBox(font, x + 1, y, 58, 18, Component.literal(hint), true, 8);
 		box.setHint(Component.literal(hint).withStyle(ChatFormatting.GRAY));
 		box.setValue(value);
 		addRenderableWidget(box);
@@ -988,21 +1313,42 @@ public class BotControlScreen extends Screen {
 		if (from && fromXBox != null) {
 			fromXBox.setValue(String.valueOf(pos.getX()));
 			fromZBox.setValue(String.valueOf(pos.getZ()));
-		} else if (toXBox != null) {
+		} else if (!from && toXBox != null) {
 			toXBox.setValue(String.valueOf(pos.getX()));
 			toZBox.setValue(String.valueOf(pos.getZ()));
 		}
 	}
 
-	// ---------------------------------------------------------------- Program tab
+	private void renderTunnel(GuiGraphicsExtractor g) {
+		g.text(font, Component.translatable("butterbot.gui.tunnel_from"), cx, cy + 23, McStyle.TEXT, false);
+		g.text(font, Component.translatable("butterbot.gui.tunnel_to"), cx, cy + 59, McStyle.TEXT, false);
+		if (fromXBox != null && fromXBox.hasNumber() && fromZBox.hasNumber() && toXBox.hasNumber() && toZBox.hasNumber()) {
+			int dx = toXBox.intValue(0) - fromXBox.intValue(0);
+			int dz = toZBox.intValue(0) - fromZBox.intValue(0);
+			String dir;
+			int length;
+			if (Math.abs(dx) >= Math.abs(dz)) {
+				dir = dx >= 0 ? "east" : "west";
+				length = Math.abs(dx) + 1;
+			} else {
+				dir = dz >= 0 ? "south" : "north";
+				length = Math.abs(dz) + 1;
+			}
+			Component preview = Component.translatable("butterbot.gui.tunnel_preview", length, Component.translatable("butterbot.direction." + dir));
+			g.text(font, preview, cx, cy + 128, length > 512 ? McStyle.BAD : McStyle.TEXT, false);
+		}
+		g.text(font, Component.translatable("butterbot.gui.tunnel_hint"), cx, cy + 142, McStyle.TEXT_DIM, false);
+	}
 
-	private void initProgramTab() {
+	// ---------------------------------------------------------------- More: Lua program
+
+	private void initProgram() {
 		Payloads.BotEntry bot = selected();
 		scriptEditor = MultiLineEditBox.builder()
-				.setX(contentX)
-				.setY(contentY + 12)
+				.setX(cx)
+				.setY(cy + 20)
 				.setPlaceholder(Component.translatable("butterbot.gui.script_placeholder"))
-				.build(font, CONTENT_W, 110, Component.translatable("butterbot.gui.tab.program"));
+				.build(font, CW, 118, Component.translatable("butterbot.ui.program"));
 		scriptEditor.setCharacterLimit(LuaProgram.MAX_SCRIPT_LENGTH);
 		String text;
 		if (scriptDraft != null && bot != null && bot.id().equals(scriptDraftBot)) {
@@ -1013,21 +1359,18 @@ public class BotControlScreen extends Screen {
 		scriptEditor.setValue(text, true);
 		addRenderableWidget(scriptEditor);
 
-		int y = contentY + 128;
-		addRenderableWidget(ParchmentButton.accent(contentX, y, 70, 20, Component.translatable("butterbot.gui.save_run"), b -> sendScript(true)));
-		addRenderableWidget(ParchmentButton.parchment(contentX + 73, y, 64, 20, Component.translatable("butterbot.gui.save"), b -> sendScript(false)));
-		addRenderableWidget(ParchmentButton.danger(contentX + 140, y, 70, 20, Component.translatable("butterbot.gui.stop_program"),
-				b -> command(Payloads.BotCommand.STOP)));
-		ParchmentButton example = ParchmentButton.parchment(contentX, y + 23, 103, 18, Component.translatable("butterbot.gui.example"), b -> {
+		int y = cy + 144;
+		addRenderableWidget(McButton.text(cx, y, 78, 20, Component.translatable("butterbot.gui.save_run"), b -> sendScript(true)));
+		addRenderableWidget(McButton.text(cx + 80, y, 78, 20, Component.translatable("butterbot.gui.save"), b -> sendScript(false)));
+		addRenderableWidget(McButton.text(cx + 160, y, 79, 20, Component.translatable("butterbot.gui.stop_program"),
+				b -> command(Payloads.BotCommand.STOP)).danger());
+		addRenderableWidget(McButton.text(cx, y + 24, 118, 20, Component.translatable("butterbot.gui.example"), b -> {
 			if (scriptEditor != null) {
 				scriptEditor.setValue(exampleScript(), true);
 			}
-		});
-		addRenderableWidget(example);
-		ParchmentButton help = ParchmentButton.parchment(contentX + 107, y + 23, 103, 18, Component.translatable("butterbot.gui.api_help"), b -> {
-		});
-		help.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.api_help_text")));
-		addRenderableWidget(help);
+		}));
+		addRenderableWidget(McButton.text(cx + 121, y + 24, 118, 20, Component.translatable("butterbot.gui.api_help"), b -> {
+		}).tip(Component.translatable("butterbot.gui.api_help_text")));
 	}
 
 	private void sendScript(boolean run) {
@@ -1058,97 +1401,35 @@ public class BotControlScreen extends Screen {
 				""";
 	}
 
-	// ---------------------------------------------------------------- Skin tab
+	// ================================================================ helpers
 
-	private void initSkinTab() {
-		List<ClientSkinManager.LocalSkin> skins = ClientSkinManager.rescan();
-		int pages = Math.max(1, (skins.size() + SKIN_ROWS - 1) / SKIN_ROWS);
-		skinPage = Math.min(skinPage, pages - 1);
-		if (selectedSkinIndex >= skins.size()) {
-			selectedSkinIndex = -1;
-		}
-		Payloads.BotEntry bot = selected();
-		String currentSkin = bot == null ? "" : bot.skinId();
-
-		int y = contentY + 14;
-		int start = skinPage * SKIN_ROWS;
-		for (int i = start; i < Math.min(skins.size(), start + SKIN_ROWS); i++) {
-			ClientSkinManager.LocalSkin skin = skins.get(i);
-			int index = i;
-			Component label = Component.literal(skin.displayName());
-			if (skin.skinId().equals(currentSkin)) {
-				label = Component.literal("✔ ").append(label);
-			}
-			ParchmentButton row = ParchmentButton.parchment(contentX, y, 132, 18, label, b -> {
-				selectedSkinIndex = index;
-				rebuildPreservingInput();
-			}).selected(index == selectedSkinIndex);
-			row.setTooltip(Tooltip.create(Component.literal(skin.fileName() + " (" + skin.width() + "x" + skin.height() + ")")));
-			addRenderableWidget(row);
-			y += 21;
-		}
-
-		int py = contentY + 14 + SKIN_ROWS * 21;
-		if (pages > 1) {
-			ParchmentButton prev = ParchmentButton.parchment(contentX, py, 24, 14, Component.literal("<"), b -> {
-				skinPage = Math.max(0, skinPage - 1);
-				rebuildPreservingInput();
-			});
-			prev.active = skinPage > 0;
-			addRenderableWidget(prev);
-			ParchmentButton next = ParchmentButton.parchment(contentX + 108, py, 24, 14, Component.literal(">"), b -> {
-				skinPage = Math.min(pages - 1, skinPage + 1);
-				rebuildPreservingInput();
-			});
-			next.active = skinPage < pages - 1;
-			addRenderableWidget(next);
-		}
-
-		int by = contentY + 113;
-		ParchmentButton neko = ParchmentButton.parchment(contentX, by, CONTENT_W, 18,
-				Component.translatable(bot != null && bot.neko() ? "butterbot.gui.neko_on" : "butterbot.gui.neko_off"), b -> {
-					Payloads.BotEntry current = selected();
-					if (current != null) {
-						command(Payloads.BotCommand.SET_NEKO, "", current.neko() ? 0 : 1);
-					}
-				}).selected(bot != null && bot.neko());
-		neko.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.neko_tooltip")));
-		addRenderableWidget(neko);
-
-		by += 21;
-		ParchmentButton apply = ParchmentButton.accent(contentX, by, 103, 20, Component.translatable("butterbot.gui.apply_skin"), b -> {
-			List<ClientSkinManager.LocalSkin> list = ClientSkinManager.localSkins();
-			Payloads.BotEntry current = selected();
-			if (current == null || selectedSkinIndex < 0 || selectedSkinIndex >= list.size()) {
-				flash(Component.translatable("butterbot.gui.pick_skin"), true);
-				return;
-			}
-			ClientSkinManager.LocalSkin chosen = list.get(selectedSkinIndex);
-			if (ClientSkinManager.apply(basePos, current.id(), chosen)) {
-				flash(Component.translatable(ClientSkinManager.looksLikeDefault(chosen.skinId())
-						? "butterbot.gui.skin_same_as_default" : "butterbot.gui.skin_sent"), false);
-			} else {
-				flash(Component.translatable("butterbot.skin.error.corrupt"), true);
-			}
-		});
-		apply.active = selectedSkinIndex >= 0;
-		addRenderableWidget(apply);
-		// Built-in skins: shows the one the bot wears and switches to the next one on every click.
-		int variant = bot == null ? 0 : bot.skinVariant();
-		boolean wearsDefault = bot != null && bot.skinId().isEmpty();
-		int nextVariant = wearsDefault ? (variant + 1) % ClientSkinManager.defaultSkinCount() : variant;
-		ParchmentButton builtIn = ParchmentButton.parchment(contentX + 107, by, 103, 20,
-				Component.translatable("butterbot.gui.default_skin_next", Component.translatable("butterbot.skin.default." + nextVariant)),
-				b -> command(Payloads.BotCommand.DEFAULT_SKIN, "", nextVariant));
-		builtIn.setTooltip(Tooltip.create(Component.translatable("butterbot.gui.default_skin_tooltip", ClientSkinManager.defaultSkinCount())));
-		addRenderableWidget(builtIn);
-		addRenderableWidget(ParchmentButton.parchment(contentX, by + 23, 103, 18, Component.translatable("butterbot.gui.open_folder"), b -> {
-			ClientSkinManager.ensureSetup();
-			Blaze3D.openPath(ClientSkinManager.SKIN_DIR);
-		}));
-		addRenderableWidget(ParchmentButton.parchment(contentX + 107, by + 23, 103, 18, Component.translatable("butterbot.gui.refresh"),
-				b -> rebuildPreservingInput()));
+	private static ItemStack stackOf(String id) {
+		Identifier identifier = Identifier.tryParse(id);
+		return identifier == null ? ItemStack.EMPTY : new ItemStack(BuiltInRegistries.ITEM.getValue(identifier));
 	}
+
+	private static String itemId(Item item) {
+		return BuiltInRegistries.ITEM.getKey(item).toString();
+	}
+
+	private static boolean isOnList(Payloads.JobView view, String id) {
+		for (Payloads.NeedView need : view.needs()) {
+			if (need.item().equals(id)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static String compact(int value) {
+		return value < 1000 ? String.valueOf(value) : String.format(Locale.ROOT, "%.1fk", value / 1000.0F);
+	}
+
+	private static boolean inside(double mouseX, double mouseY, int x, int y, int w, int h) {
+		return mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
+	}
+
+	// ================================================================ ticking and input
 
 	@Override
 	public void onFilesDrop(List<Path> files) {
@@ -1164,17 +1445,14 @@ public class BotControlScreen extends Screen {
 		}
 		if (added > 0) {
 			flash(Component.translatable("butterbot.gui.skins_imported", added), false);
-			if (activeTab != Tab.SKIN) {
-				saveInput();
-				activeTab = Tab.SKIN;
-			}
+			saveInput();
+			activeTab = Tab.STYLE;
+			listOpen = false;
 			rebuildWidgets();
 		} else if (lastError != null) {
 			flash(Component.translatable(lastError), true);
 		}
 	}
-
-	// ================================================================ ticking and input
 
 	@Override
 	public void tick() {
@@ -1190,18 +1468,15 @@ public class BotControlScreen extends Screen {
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (activeTab == Tab.JOB && event.button() == 0 && jobTabClicked(event.x(), event.y())) {
-			return true;
-		}
-		if (activeTab == Tab.CRAFTING && !suggestions.isEmpty() && event.button() == 0) {
-			int sx = contentX;
-			int sy = contentY + 41;
-			for (int i = 0; i < suggestions.size(); i++) {
-				int rowY = sy + i * 18;
-				if (event.x() >= sx && event.x() < sx + 176 && event.y() >= rowY && event.y() < rowY + 18) {
-					applySuggestion(suggestions.get(i));
-					return true;
-				}
+		if (event.button() == 0) {
+			if (listOpen && botListClicked(event.x(), event.y())) {
+				return true;
+			}
+			if (!listOpen && activeTab == Tab.JOB && jobTabClicked(event.x(), event.y())) {
+				return true;
+			}
+			if (!listOpen && activeTab == Tab.MORE && morePage == MorePage.CRAFT && suggestionClicked(event.x(), event.y())) {
+				return true;
 			}
 		}
 		return super.mouseClicked(event, doubleClick);
@@ -1209,8 +1484,13 @@ public class BotControlScreen extends Screen {
 
 	@Override
 	public boolean keyPressed(KeyEvent event) {
-		if (event.key() == 258 && activeTab == Tab.CRAFTING && craftItemBox != null && craftItemBox.isFocused() && !suggestions.isEmpty()) {
+		if (event.key() == InputConstants.KEY_TAB && craftItemBox != null && craftItemBox.isFocused() && !suggestions.isEmpty()) {
 			applySuggestion(suggestions.getFirst());
+			return true;
+		}
+		// The panel key closes the panel again (unless the player is typing).
+		if (BotKeys.isPanelKey(event) && !(getFocused() instanceof EditBox) && !(getFocused() instanceof MultiLineEditBox)) {
+			onClose();
 			return true;
 		}
 		return super.keyPressed(event);
@@ -1238,181 +1518,35 @@ public class BotControlScreen extends Screen {
 	@Override
 	public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
 		super.extractBackground(graphics, mouseX, mouseY, a);
-		renderBook(graphics);
-	}
-
-	private void renderBook(GuiGraphicsExtractor g) {
-		g.fill(left - 2, top - 2, left + PANEL_W + 2, top + PANEL_H + 2, COLOR_COVER_EDGE);
-		g.fill(left, top, left + PANEL_W, top + PANEL_H, COLOR_COVER);
-		g.fill(left + 6, top + 22, left + PANEL_W - 6, top + PANEL_H - 6, COLOR_PARCHMENT);
-		g.fill(left + 6, top + 22, left + 94, top + PANEL_H - 6, COLOR_PARCHMENT_DARK);
-		g.outline(left + 6, top + 22, PANEL_W - 12, PANEL_H - 28, COLOR_FRAME);
-		g.verticalLine(left + 94, top + 22, top + PANEL_H - 7, COLOR_FRAME);
-		int stud = 0xFFC9A227;
-		g.fill(left + 2, top + 2, left + 5, top + 5, stud);
-		g.fill(left + PANEL_W - 5, top + 2, left + PANEL_W - 2, top + 5, stud);
-		g.fill(left + 2, top + PANEL_H - 5, left + 5, top + PANEL_H - 2, stud);
-		g.fill(left + PANEL_W - 5, top + PANEL_H - 5, left + PANEL_W - 2, top + PANEL_H - 2, stud);
+		McStyle.panel(graphics, left, top, PANEL_W, BODY_H);
+		McStyle.inset(graphics, cardX, cardY, CARD_W, CARD_H, McStyle.BLACK);
 	}
 
 	private void renderForeground(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-		g.centeredText(font, title, left + PANEL_W / 2, top + 7, 0xFFEEDFA9);
-
+		renderCard(g);
 		Payloads.BotEntry bot = selected();
 		if (!receivedList) {
-			g.text(font, Component.translatable("butterbot.gui.loading"), contentX, contentY, COLOR_TEXT_DIM, false);
-			return;
-		}
-		if (bots.isEmpty()) {
-			g.textWithWordWrap(font, Component.translatable("butterbot.gui.no_bots"), contentX, contentY + 4, CONTENT_W, COLOR_TEXT, false);
-			return;
-		}
-
-		if (bot != null && activeTab != Tab.BOTS) {
-			g.text(font, Component.literal(bot.name()), contentX, contentY, COLOR_TEXT, false);
-		}
-
-		switch (activeTab) {
-			case BOTS -> renderBotsTab(g, bot);
-			case CONTROL -> renderControlTab(g, bot);
-			case JOB -> renderJobTab(g, bot, mouseX, mouseY);
-			case MINING -> g.text(font, Component.translatable("butterbot.gui.amount_label"), contentX, contentY + 16 + 4 * 21 + 14, COLOR_TEXT, false);
-			case FARM -> renderFarmTab(g);
-			case LEVEL -> renderLevelTab(g, bot);
-			case CRAFTING -> renderCraftingTab(g, mouseX, mouseY);
-			case TUNNEL -> renderTunnelTab(g, bot);
-			case PROGRAM -> {
-			}
-			case SKIN -> renderSkinTab(g, bot);
-		}
-
-		if (flashMessage != null) {
-			int color = flashIsError ? COLOR_BAD : COLOR_GOOD;
-			g.text(font, flashMessage, contentX, top + PANEL_H - 17, color, false);
-		} else if (activeTab == Tab.SKIN) {
-			g.text(font, Component.translatable("butterbot.gui.drop_hint"), contentX, top + PANEL_H - 17, COLOR_TEXT_DIM, false);
-		} else if (basePos.isPresent()) {
-			g.text(font, Component.translatable("butterbot.gui.base_at", basePos.get().toShortString()), contentX, top + PANEL_H - 17, COLOR_TEXT_DIM, false);
-		}
-	}
-
-	private void renderBotsTab(GuiGraphicsExtractor g, @Nullable Payloads.BotEntry bot) {
-		g.text(font, Component.translatable("butterbot.gui.bots_header", bots.size()), contentX, contentY, COLOR_TEXT, false);
-		if (bot == null) {
-			return;
-		}
-		int y = contentY + 14 + ROWS_PER_PAGE * 22 + (bots.size() > ROWS_PER_PAGE ? 18 : 2);
-		g.text(font, Component.empty().append(bot.status()), contentX, y, COLOR_TEXT_DIM, false);
-		Component details = Component.translatable("butterbot.gui.details", bot.pos().toShortString(), bot.itemCount(),
-				Math.round(bot.health() * 100.0F));
-		g.text(font, details, contentX, y + 11, COLOR_TEXT_DIM, false);
-	}
-
-	private void renderControlTab(GuiGraphicsExtractor g, @Nullable Payloads.BotEntry bot) {
-		if (bot == null) {
-			return;
-		}
-		int y = contentY + 14 + 4 * 24 + 30 + 24;
-		g.text(font, Component.empty().append(bot.status()), contentX, y, COLOR_TEXT_DIM, false);
-		if (!bot.hasBase()) {
-			g.text(font, Component.translatable("butterbot.gui.no_base_hint"), contentX, y + 11, COLOR_BAD, false);
-		}
-	}
-
-	private void renderCraftingTab(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-		g.text(font, Component.translatable("butterbot.gui.item_amount"), contentX, contentY + 11, COLOR_TEXT_DIM, false);
-		g.textWithWordWrap(font, Component.translatable("butterbot.gui.craft_hint"), contentX, contentY + 70, CONTENT_W, COLOR_TEXT_DIM, false);
-		if (suggestions.isEmpty()) {
-			return;
-		}
-		int sx = contentX;
-		int sy = contentY + 41;
-		int w = 176;
-		int h = suggestions.size() * 18;
-		g.nextStratum();
-		g.fill(sx - 1, sy - 1, sx + w + 1, sy + h + 1, COLOR_FRAME);
-		g.fill(sx, sy, sx + w, sy + h, COLOR_PARCHMENT);
-		for (int i = 0; i < suggestions.size(); i++) {
-			int rowY = sy + i * 18;
-			if (mouseX >= sx && mouseX < sx + w && mouseY >= rowY && mouseY < rowY + 18) {
-				g.fill(sx, rowY, sx + w, rowY + 18, COLOR_PARCHMENT_DARK);
-			}
-			Item item = BuiltInRegistries.ITEM.getValue(suggestions.get(i));
-			ItemStack stack = new ItemStack(item);
-			g.item(stack, sx + 1, rowY + 1);
-			String name = font.plainSubstrByWidth(stack.getHoverName().getString(), w - 24);
-			g.text(font, name, sx + 21, rowY + 5, COLOR_TEXT, false);
-		}
-	}
-
-	private void renderTunnelTab(GuiGraphicsExtractor g, @Nullable Payloads.BotEntry bot) {
-		g.text(font, Component.translatable("butterbot.gui.tunnel_from"), contentX, contentY + 14, COLOR_TEXT_DIM, false);
-		g.text(font, Component.translatable("butterbot.gui.tunnel_to"), contentX, contentY + 52, COLOR_TEXT_DIM, false);
-		if (fromXBox != null && fromXBox.hasNumber() && fromZBox.hasNumber() && toXBox.hasNumber() && toZBox.hasNumber()) {
-			int dx = toXBox.intValue(0) - fromXBox.intValue(0);
-			int dz = toZBox.intValue(0) - fromZBox.intValue(0);
-			String dir;
-			int length;
-			if (Math.abs(dx) >= Math.abs(dz)) {
-				dir = dx >= 0 ? "east" : "west";
-				length = Math.abs(dx) + 1;
-			} else {
-				dir = dz >= 0 ? "south" : "north";
-				length = Math.abs(dz) + 1;
-			}
-			Component preview = Component.translatable("butterbot.gui.tunnel_preview", length,
-					Component.translatable("butterbot.direction." + dir));
-			g.text(font, preview, contentX, contentY + 120, length > 512 ? COLOR_BAD : COLOR_TEXT, false);
-		}
-		g.text(font, Component.translatable("butterbot.gui.tunnel_hint"), contentX, contentY + 134, COLOR_TEXT_DIM, false);
-	}
-
-	private void renderSkinTab(GuiGraphicsExtractor g, @Nullable Payloads.BotEntry bot) {
-		List<ClientSkinManager.LocalSkin> skins = ClientSkinManager.localSkins();
-		int tx = contentX + 138;
-		int ty = contentY + 14;
-		int size = 72;
-		g.fill(tx - 1, ty - 1, tx + size + 1, ty + size + 1, COLOR_FRAME);
-		g.fill(tx, ty, tx + size, ty + size, 0xFF8FB8D8);
-
-		ClientSkinManager.SkinInfo skin;
-		String caption;
-		if (selectedSkinIndex >= 0 && selectedSkinIndex < skins.size()) {
-			ClientSkinManager.LocalSkin local = skins.get(selectedSkinIndex);
-			skin = ClientSkinManager.skinFor(local.skinId());
-			caption = local.width() + "x" + local.height();
-		} else if (bot != null && !bot.skinId().isEmpty()) {
-			skin = ClientSkinManager.skinFor(bot.skinId());
-			caption = Component.translatable("butterbot.gui.current_skin").getString();
+			g.text(font, Component.translatable("butterbot.gui.loading"), cx, cy + 4, McStyle.TEXT_DIM, false);
+		} else if (bots.isEmpty() || bot == null) {
+			g.textWithWordWrap(font, Component.translatable("butterbot.gui.no_bots"), cx, cy + 4, CW, McStyle.TEXT, false);
+		} else if (listOpen) {
+			renderBotList(g, mouseX, mouseY);
 		} else {
-			skin = bot == null ? null : ClientSkinManager.defaultSkinFor(bot.skinVariant());
-			caption = bot == null ? Component.translatable("butterbot.gui.default_skin_caption").getString()
-					: Component.translatable("butterbot.skin.default." + bot.skinVariant()).getString();
-		}
-		if (skin != null) {
-			drawPaperDoll(g, skin, tx + 20, ty + 4, 2);
-			caption = caption + " · " + Component.translatable(skin.slim() ? "butterbot.gui.arms_slim" : "butterbot.gui.arms_wide").getString();
-		}
-		g.text(font, font.plainSubstrByWidth(caption, size + 2), tx, ty + size + 4, COLOR_TEXT_DIM, false);
-		if (bot != null) {
-			// Also starts loading the bot's skin if this computer hasn't seen it yet.
-			ClientSkinManager.skinFor(bot.skinId());
-			ClientSkinManager.Status status = ClientSkinManager.statusOf(bot.skinId());
-			int color = switch (status) {
-				case READY, DEFAULT -> COLOR_GOOD;
-				case LOADING -> COLOR_TEXT_DIM;
-				case FAILED -> COLOR_BAD;
-			};
-			String text = Component.translatable("butterbot.gui.skin_status." + status.name().toLowerCase(Locale.ROOT),
-					Component.translatable("butterbot.skin.default." + bot.skinVariant())).getString();
-			g.text(font, font.plainSubstrByWidth(text, size + 4), tx, ty + size + 14, color, false);
+			switch (activeTab) {
+				case HOME -> renderHome(g);
+				case MINE -> renderMine(g);
+				case JOB -> renderJob(g, bot, mouseX, mouseY);
+				case STYLE -> renderStyle(g, bot);
+				case MORE -> renderMore(g, bot, mouseX, mouseY);
+			}
 		}
 
-		if (skins.isEmpty()) {
-			g.textWithWordWrap(font, Component.translatable("butterbot.gui.no_skins"), contentX, contentY + 18, 130, COLOR_TEXT_DIM, false);
-		}
-		if (bot != null && !bot.skinId().isEmpty() && !SkinLimits.isValidSkinId(bot.skinId())) {
-			g.text(font, "?", tx, ty, COLOR_BAD, false);
+		int footerY = top + BODY_H + 4;
+		if (flashMessage != null) {
+			g.text(font, flashMessage, left + 4, footerY, flashIsError ? McStyle.BAD_LIGHT : McStyle.GOOD_LIGHT, true);
+		} else if (basePos.isPresent()) {
+			g.text(font, Component.translatable("butterbot.gui.base_at", basePos.get().toShortString()), left + 4, footerY,
+					McStyle.TEXT_LIGHT_DIM, true);
 		}
 	}
 
