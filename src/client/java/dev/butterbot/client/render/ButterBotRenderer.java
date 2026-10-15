@@ -28,7 +28,7 @@ import java.util.Map;
 
 /**
  * Renders the bot as a person with a normal Minecraft player skin (wide or slim arms), optional cat
- * ears and tail, the tool it is using, and a name line plus speech bubble above its head.
+ * ears and tail, the armor and tool it is using, and a name line plus speech bubble above its head.
  */
 public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, ButterBotRenderState, PlayerModel> {
 
@@ -46,6 +46,7 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		super(context, new PlayerModel(context.bakeLayer(ModelLayers.PLAYER), false), 0.5F);
 		this.wideModel = this.model;
 		this.slimModel = new PlayerModel(context.bakeLayer(ModelLayers.PLAYER_SLIM), true);
+		this.addLayer(new BotArmorLayer(this, context));
 		this.addLayer(new BotItemInHandLayer(this));
 		this.addLayer(new NekoLayer(this));
 	}

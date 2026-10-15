@@ -29,6 +29,7 @@ import dev.butterbot.ai.job.JobStorage;
 import dev.butterbot.ai.job.ResourceCatalog;
 import dev.butterbot.block.BotBaseBlockEntity;
 import dev.butterbot.item.ButterBotItem;
+import dev.butterbot.menu.BotInventoryMenu;
 import dev.butterbot.lua.LuaProgram;
 import dev.butterbot.network.ModNetworking;
 import dev.butterbot.registry.ModBlocks;
@@ -73,7 +74,6 @@ import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleContainer;
-import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -88,6 +88,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.SpawnGroupData;
@@ -103,15 +104,21 @@ import net.minecraft.world.entity.ai.navigation.GroundPathNavigation;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
+import net.fabricmc.fabric.api.menu.v1.ExtendedMenuProvider;
 import net.minecraft.world.item.equipment.Equippable;
-import net.minecraft.world.inventory.ChestMenu;
-import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.Consumable;
 import net.minecraft.world.item.component.SwingAnimation;
+import net.minecraft.world.item.component.Tool;
+import net.minecraft.world.item.component.Weapon;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentEffectComponents;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.level.ClipContext;
@@ -134,11 +141,13 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -184,13 +193,15 @@ public class ButterBotEntity extends PathfinderMob {
 	private static final long PROBLEM_MESSAGE_TICKS = 20L * 60L;
 	private static final long PROBLEM_MEMORY_TICKS = 20L * 60L * 5L;
 	private static final float MAX_DIGGABLE_HARDNESS = 10.0F;
-	/** Ancient debris needs a diamond pickaxe, as for a player: the bot gets one at this level. */
+	/** Ancient debris needs a diamond pickaxe, as for a player: the bot gets its own at this level. */
 	public static final int NETHERITE_MIN_LEVEL = 5;
 	/** How long the bot keeps holding its tool after the last block it dug. */
 	private static final int TOOL_HOLD_TICKS = 60;
 	private static final int SWING_INTERVAL_TICKS = 5;
 	/** Shortest pause between two voice lines. */
 	private static final int VOICE_GAP_TICKS = 25;
+	/** How long the bot tries to get into a portal before it gives up on it (and on portals for as long). */
+	private static final int PORTAL_PATIENCE_TICKS = 20 * 60 * 3;
 	private static final String[] DEFAULT_NAMES = {
 			"Mochi", "Kuro", "Shiro", "Momo", "Yuki", "Hana", "Sora", "Neko", "Miko", "Tama",
 			"Kiki", "Luna", "Coco", "Nana", "Rin", "Mimi", "Suzu", "Haru", "Nori", "Kinako"
@@ -200,6 +211,10 @@ public class ButterBotEntity extends PathfinderMob {
 	private final MiningController miner = new MiningController(this);
 	private final BotSmelter smelter = new BotSmelter(this);
 	private SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
+	/** Tools the owner gave it, in {@link GearSlot#TOOLS} order (armor sits in the vanilla armor slots). */
+	private final SimpleContainer toolbox = new SimpleContainer(GearSlot.TOOLS.size());
+	/** How far each piece of gear was warned about: 1 nearly worn out, 2 put aside so it doesn't break. */
+	private final Map<GearSlot, Integer> wearWarnings = new EnumMap<>(GearSlot.class);
 	private final Map<Long, Long> blacklistedTargets = new HashMap<>();
 
 	@Nullable
@@ -281,6 +296,9 @@ public class ButterBotEntity extends PathfinderMob {
 	@Nullable
 	private ResourceKey<Level> portalWish;
 	private long portalWishUntil;
+	/** How long the current try to get into a portal has lasted; past the patience it gives up on portals for a while. */
+	private int portalTicks;
+	private long portalGiveUpUntil;
 	/** Pillaring: the block to put under the bot once its jump has lifted it high enough. */
 	@Nullable
 	private BlockPos pillarBase;
@@ -479,19 +497,18 @@ public class ButterBotEntity extends PathfinderMob {
 	}
 
 	/**
-	 * Shows a fitting tool in the bot's hand while it digs, fights or farms, and swings its arm. The
-	 * tool is only for looks: it is never dropped.
+	 * Shows a fitting tool in the bot's hand while it digs, fights or farms, and swings its arm. What it
+	 * holds is a copy, only for looks: it is never dropped (tools the owner gave it stay in its gear).
 	 */
 	private void updateHeldTool() {
 		BlockPos digPos = miner.getDigPos();
-		int tier = BotLevels.toolTier(getBotLevel());
 		ItemStack wanted;
 		if (combatTicks > 0) {
 			combatTicks--;
-			wanted = new ItemStack(tier == 2 ? Items.NETHERITE_SWORD : tier == 1 ? Items.DIAMOND_SWORD : Items.IRON_SWORD);
+			wanted = weapon();
 		} else if (digPos != null) {
 			toolHoldTicks = TOOL_HOLD_TICKS;
-			wanted = toolFor(this.level().getBlockState(digPos), tier);
+			wanted = diggingTool(this.level().getBlockState(digPos));
 			if (this.tickCount % SWING_INTERVAL_TICKS == 0) {
 				this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
 			}
@@ -505,10 +522,15 @@ public class ButterBotEntity extends PathfinderMob {
 			toolHoldTicks = 0;
 			wanted = ItemStack.EMPTY;
 		}
-		ItemStack current = this.getMainHandItem();
-		if (!ItemStack.isSameItem(current, wanted) || current.isEmpty() != wanted.isEmpty()) {
+		if (!looksSame(this.getMainHandItem(), wanted)) {
 			this.setItemSlot(EquipmentSlot.MAINHAND, wanted.copy());
 		}
+	}
+
+	/** Same item with the same enchantments (wear doesn't matter): no need to swap what the bot holds. */
+	private static boolean looksSame(ItemStack held, ItemStack wanted) {
+		return held.isEmpty() == wanted.isEmpty() && ItemStack.isSameItem(held, wanted)
+				&& Objects.equals(held.get(DataComponents.ENCHANTMENTS), wanted.get(DataComponents.ENCHANTMENTS));
 	}
 
 	/** Holds {@code tool} for a moment and swings it, for work that does not go through the miner. */
@@ -530,7 +552,7 @@ public class ButterBotEntity extends PathfinderMob {
 	/** After defeating a monster: keep its loot and experience, and learn from the fight. */
 	public void onDefeated(LivingEntity victim) {
 		if (this.level() instanceof ServerLevel serverLevel) {
-			storedXp += Math.max(1, victim.getExperienceReward(serverLevel, this));
+			storedXp += mendGear(Math.max(1, victim.getExperienceReward(serverLevel, this)));
 		}
 		int xp = BotLevels.killXp(victim);
 		progress.addStat(BotProgress.Stat.KILLS, 1);
@@ -545,25 +567,32 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 	}
 
-	/** The tool the bot digs {@code blockState} with (what it shows in its hand). */
+	/**
+	 * The tool the bot digs {@code blockState} with (what it shows in its hand): one the owner gave it,
+	 * else its own. Given tools are the real stack: only read it.
+	 */
 	public ItemStack diggingTool(BlockState blockState) {
-		return toolFor(blockState, BotLevels.toolTier(getBotLevel()));
+		ItemStack given = givenToolFor(blockState);
+		return given.isEmpty() ? toolFor(blockState, BotLevels.toolTier(getBotLevel())) : given;
 	}
 
+	/** The bot's own tool for {@code blockState} (better ones as it levels up). */
 	private static ItemStack toolFor(BlockState blockState, int tier) {
-		if (blockState.is(BlockTags.MINEABLE_WITH_AXE)) {
-			return new ItemStack(tier == 2 ? Items.NETHERITE_AXE : tier == 1 ? Items.DIAMOND_AXE : Items.IRON_AXE);
-		}
-		if (blockState.is(BlockTags.MINEABLE_WITH_SHOVEL)) {
-			return new ItemStack(tier == 2 ? Items.NETHERITE_SHOVEL : tier == 1 ? Items.DIAMOND_SHOVEL : Items.IRON_SHOVEL);
-		}
-		if (blockState.is(BlockTags.MINEABLE_WITH_HOE)) {
-			return new ItemStack(tier == 2 ? Items.NETHERITE_HOE : tier == 1 ? Items.DIAMOND_HOE : Items.IRON_HOE);
-		}
-		return new ItemStack(tier == 2 ? Items.NETHERITE_PICKAXE : tier == 1 ? Items.DIAMOND_PICKAXE : Items.IRON_PICKAXE);
+		GearSlot slot = GearSlot.forBlock(blockState);
+		return ownTool(slot == null ? GearSlot.PICKAXE : slot, tier);
 	}
 
-	/** The bot's tool for {@code blockState}, carrying Fortune from its level. */
+	private static ItemStack ownTool(GearSlot slot, int tier) {
+		return new ItemStack(switch (slot) {
+			case SWORD -> tier == 2 ? Items.NETHERITE_SWORD : tier == 1 ? Items.DIAMOND_SWORD : Items.IRON_SWORD;
+			case AXE -> tier == 2 ? Items.NETHERITE_AXE : tier == 1 ? Items.DIAMOND_AXE : Items.IRON_AXE;
+			case SHOVEL -> tier == 2 ? Items.NETHERITE_SHOVEL : tier == 1 ? Items.DIAMOND_SHOVEL : Items.IRON_SHOVEL;
+			case HOE -> tier == 2 ? Items.NETHERITE_HOE : tier == 1 ? Items.DIAMOND_HOE : Items.IRON_HOE;
+			default -> tier == 2 ? Items.NETHERITE_PICKAXE : tier == 1 ? Items.DIAMOND_PICKAXE : Items.IRON_PICKAXE;
+		});
+	}
+
+	/** The bot's own tool for {@code blockState}, carrying Fortune from its level. */
 	private ItemStack miningTool(ServerLevel level, BlockState blockState) {
 		ItemStack tool = toolFor(blockState, BotLevels.toolTier(getBotLevel()));
 		int fortune = stats().fortune();
@@ -571,6 +600,202 @@ public class ButterBotEntity extends PathfinderMob {
 			tool.enchant(level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(Enchantments.FORTUNE), fortune);
 		}
 		return tool;
+	}
+
+	// ------------------------------------------------------------------ gear
+
+	/** The armor piece or tool in {@code slot} (the stack itself, not a copy). */
+	public ItemStack getGear(GearSlot slot) {
+		return slot.isArmor() ? this.getItemBySlot(slot.armorSlot()) : toolbox.getItem(slot.toolIndex());
+	}
+
+	public void setGear(GearSlot slot, ItemStack stack) {
+		if (slot.isArmor()) {
+			this.setItemSlot(slot.armorSlot(), stack);
+		} else {
+			toolbox.setItem(slot.toolIndex(), stack);
+		}
+		wearWarnings.remove(slot);
+	}
+
+	/** The tool in {@code slot} if the bot works with it: not when missing or put aside before it breaks. */
+	private ItemStack usableTool(GearSlot slot) {
+		ItemStack stack = getGear(slot);
+		return stack.isEmpty() || GearSlot.isResting(stack) ? ItemStack.EMPTY : stack;
+	}
+
+	/** The given tool for digging {@code state} (one that gets its drops), or EMPTY to use the bot's own. */
+	private ItemStack givenToolFor(BlockState state) {
+		GearSlot slot = GearSlot.forBlock(state);
+		ItemStack tool = slot == null ? ItemStack.EMPTY : usableTool(slot);
+		return tool.isEmpty() || state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state) ? ItemStack.EMPTY : tool;
+	}
+
+	/** A copy of the tool for {@code slot} to show while working with it: a given one, else its own. */
+	public ItemStack workTool(GearSlot slot) {
+		ItemStack given = usableTool(slot);
+		return given.isEmpty() ? ownTool(slot, BotLevels.toolTier(getBotLevel())) : given.copy();
+	}
+
+	/** The sword the bot fights with: a given one (the real stack), else its own. */
+	private ItemStack weapon() {
+		ItemStack sword = usableTool(GearSlot.SWORD);
+		return sword.isEmpty() ? ownTool(GearSlot.SWORD, BotLevels.toolTier(getBotLevel())) : sword;
+	}
+
+	/** How fast the bot digs {@code state}: never slower than with its own tool; a given one can be faster (Efficiency counts). */
+	public float toolSpeed(BlockState state) {
+		float speed = toolFor(state, BotLevels.toolTier(getBotLevel())).getDestroySpeed(state);
+		ItemStack given = givenToolFor(state);
+		if (!given.isEmpty()) {
+			float givenSpeed = given.getDestroySpeed(state);
+			int efficiency = enchantmentLevel(Enchantments.EFFICIENCY, given);
+			if (givenSpeed > 1.0F && efficiency > 0) {
+				givenSpeed += efficiency * efficiency + 1;
+			}
+			speed = Math.max(speed, givenSpeed);
+		}
+		return Math.max(1.0F, speed);
+	}
+
+	/** Whether digging {@code state} gives its drops (with the bot's own tool or a given one). */
+	public boolean canHarvest(BlockState state) {
+		return !state.requiresCorrectToolForDrops() || toolFor(state, BotLevels.toolTier(getBotLevel())).isCorrectToolForDrops(state)
+				|| !givenToolFor(state).isEmpty();
+	}
+
+	/** Ancient debris needs a diamond pickaxe: its own from level {@value #NETHERITE_MIN_LEVEL}, or a given one at any level. */
+	public boolean canMineNetherite() {
+		return getBotLevel() >= NETHERITE_MIN_LEVEL || !givenToolFor(Blocks.ANCIENT_DEBRIS.defaultBlockState()).isEmpty();
+	}
+
+	private int enchantmentLevel(ResourceKey<Enchantment> enchantment, ItemStack stack) {
+		return this.level().registryAccess().lookupOrThrow(Registries.ENCHANTMENT).get(enchantment)
+				.map(holder -> EnchantmentHelper.getItemEnchantmentLevel(holder, stack)).orElse(0);
+	}
+
+	/**
+	 * A copy of a given tool to work out drops with: Fortune at least the bot's own, and no Silk Touch
+	 * on mining runs (ores must drop what the run is collecting).
+	 */
+	private ItemStack dropTool(ServerLevel level, ItemStack given) {
+		ItemStack tool = given.copy();
+		if (task == BotTask.MINE) {
+			EnchantmentHelper.updateEnchantments(tool, enchantments -> enchantments.removeIf(holder -> holder.is(Enchantments.SILK_TOUCH)));
+		}
+		int fortune = stats().fortune();
+		if (fortune > 0) {
+			// Keeps the tool's own Fortune when that is higher.
+			tool.enchant(level.registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(Enchantments.FORTUNE), fortune);
+		}
+		return tool;
+	}
+
+	/** Wears the given tool in {@code slot} (Unbreaking counts), telling the owner when it wears out or breaks. */
+	private void wearTool(GearSlot slot, int amount) {
+		ItemStack stack = getGear(slot);
+		if (stack.isEmpty() || amount <= 0 || !(this.level() instanceof ServerLevel level)) {
+			return;
+		}
+		stack.hurtAndBreak(amount, level, null, broken -> {
+			this.playSound(SoundEvents.ITEM_BREAK.value(), 0.8F, 0.8F + this.random.nextFloat() * 0.4F);
+			level.sendParticles(new ItemParticleOption(ParticleTypes.ITEM, broken.getItem()), getX(), getY() + 1.2D, getZ(),
+					8, 0.2D, 0.2D, 0.2D, 0.05D);
+			tellOwner(Component.translatable("butterbot.msg.gear_broke", broken.getHoverName()).withStyle(ChatFormatting.RED));
+		});
+		if (stack.isEmpty()) {
+			setGear(slot, ItemStack.EMPTY);
+		} else {
+			checkWear(slot, stack);
+		}
+	}
+
+	/**
+	 * Warns the owner once when a piece of gear is nearly worn out, and when an enchanted tool is put
+	 * aside so it doesn't break (it is used again once repaired, by Mending too).
+	 */
+	private void checkWear(GearSlot slot, ItemStack stack) {
+		if (stack.isEmpty() || !stack.isDamageableItem()) {
+			wearWarnings.remove(slot);
+			return;
+		}
+		int left = stack.getMaxDamage() - stack.getDamageValue();
+		int warning = !slot.isArmor() && GearSlot.isResting(stack) ? 2 : left <= Math.max(5, stack.getMaxDamage() / 20) ? 1 : 0;
+		int before = wearWarnings.getOrDefault(slot, 0);
+		if (warning == 0) {
+			wearWarnings.remove(slot);
+			return;
+		}
+		wearWarnings.put(slot, warning);
+		if (warning > before) {
+			tellOwner(Component.translatable(warning == 2 ? "butterbot.msg.gear_resting" : "butterbot.msg.gear_low",
+					stack.getHoverName(), left).withStyle(ChatFormatting.GOLD));
+		}
+	}
+
+	/** Experience the bot picks up first mends gear with Mending (like a player's); the rest is kept for the owner. */
+	private int mendGear(int xp) {
+		if (xp <= 0 || !(this.level() instanceof ServerLevel level)) {
+			return xp;
+		}
+		for (GearSlot slot : GearSlot.values()) {
+			ItemStack stack = getGear(slot);
+			if (stack.isEmpty() || !stack.isDamaged() || !EnchantmentHelper.has(stack, EnchantmentEffectComponents.REPAIR_WITH_XP)) {
+				continue;
+			}
+			int durability = EnchantmentHelper.modifyDurabilityToRepairFromXp(level, stack, xp);
+			int repair = Math.min(durability, stack.getDamageValue());
+			if (repair <= 0) {
+				continue;
+			}
+			stack.setDamageValue(stack.getDamageValue() - repair);
+			checkWear(slot, stack);
+			xp -= repair * xp / durability;
+			if (xp <= 0) {
+				return 0;
+			}
+		}
+		return xp;
+	}
+
+	/** Gear belongs to the owner: it drops whole when the bot is destroyed. */
+	private void dropGear(ServerLevel level) {
+		for (GearSlot slot : GearSlot.values()) {
+			ItemStack stack = getGear(slot);
+			if (!stack.isEmpty()) {
+				setGear(slot, ItemStack.EMPTY);
+				this.spawnAtLocation(level, stack);
+			}
+		}
+	}
+
+	/** Worn armor takes wear like a player's (Unbreaking counts). */
+	@Override
+	public void hurtArmor(DamageSource source, float damage) {
+		this.doHurtEquipment(source, damage, EquipmentSlot.FEET, EquipmentSlot.LEGS, EquipmentSlot.CHEST, EquipmentSlot.HEAD);
+		checkArmorWear();
+	}
+
+	@Override
+	public void hurtHelmet(DamageSource source, float damage) {
+		this.doHurtEquipment(source, damage, EquipmentSlot.HEAD);
+		checkArmorWear();
+	}
+
+	private void checkArmorWear() {
+		for (GearSlot slot : GearSlot.values()) {
+			if (slot.isArmor()) {
+				checkWear(slot, getGear(slot));
+			}
+		}
+	}
+
+	@Override
+	public void onEquippedItemBroken(ItemStack brokenItem, EquipmentSlot inSlot) {
+		super.onEquippedItemBroken(brokenItem, inSlot);
+		if (inSlot.isArmor()) {
+			tellOwner(Component.translatable("butterbot.msg.armor_broke", brokenItem.getHoverName()).withStyle(ChatFormatting.RED));
+		}
 	}
 
 	// ------------------------------------------------------------------ interaction
@@ -697,7 +922,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.discard();
 	}
 
-	/** Sends the bot away for good (summon a new one any time). Its backpack goes to the player. */
+	/** Sends the bot away for good (summon a new one any time). Its backpack and gear go to the player. */
 	public void dismiss(ServerPlayer player) {
 		dropInventoryAt(player);
 		if (this.level() instanceof ServerLevel serverLevel) {
@@ -713,6 +938,10 @@ public class ButterBotEntity extends PathfinderMob {
 		for (int i = 0; i < inventory.getContainerSize(); i++) {
 			everything.add(inventory.removeItemNoUpdate(i));
 		}
+		for (GearSlot slot : GearSlot.values()) {
+			everything.add(getGear(slot));
+			setGear(slot, ItemStack.EMPTY);
+		}
 		everything.addAll(recoveredItems);
 		everything.addAll(fetchCarry);
 		recoveredItems.clear();
@@ -726,13 +955,27 @@ public class ButterBotEntity extends PathfinderMob {
 		giveStoredXp(player);
 	}
 
+	/** Opens the bot's gear (armor and tools) and backpack. */
 	public void openBackpack(ServerPlayer player) {
 		Component title = Component.translatable("butterbot.gui.backpack_title", this.getName());
-		int rows = Math.min(6, Math.max(2, inventory.getContainerSize() / 9));
-		MenuType<ChestMenu> menuType = rows == 6 ? MenuType.GENERIC_9x6 : rows == 5 ? MenuType.GENERIC_9x5
-				: rows == 4 ? MenuType.GENERIC_9x4 : rows == 3 ? MenuType.GENERIC_9x3 : MenuType.GENERIC_9x2;
-		player.openMenu(new SimpleMenuProvider((id, playerInventory, p) ->
-				new ChestMenu(menuType, id, playerInventory, new BotBackpack(this), rows), title));
+		BotInventoryMenu.OpenData data = new BotInventoryMenu.OpenData(this.getId(), inventory.getContainerSize());
+		ButterBotEntity bot = this;
+		player.openMenu(new ExtendedMenuProvider<BotInventoryMenu.OpenData>() {
+			@Override
+			public BotInventoryMenu.OpenData getScreenOpeningData(ServerPlayer opener) {
+				return data;
+			}
+
+			@Override
+			public Component getDisplayName() {
+				return title;
+			}
+
+			@Override
+			public AbstractContainerMenu createMenu(int containerId, Inventory playerInventory, Player opener) {
+				return new BotInventoryMenu(containerId, playerInventory, new BotGear(bot), new BotBackpack(bot), data);
+			}
+		});
 	}
 
 	// ------------------------------------------------------------------ status text
@@ -1467,7 +1710,7 @@ public class ButterBotEntity extends PathfinderMob {
 					resource.displayName()).withStyle(ChatFormatting.RED));
 			return false;
 		}
-		if (resource == BotResource.NETHERITE && getBotLevel() < NETHERITE_MIN_LEVEL) {
+		if (resource == BotResource.NETHERITE && !canMineNetherite()) {
 			tellOwner(Component.translatable("butterbot.msg.netherite_needs_level", NETHERITE_MIN_LEVEL).withStyle(ChatFormatting.RED));
 			return false;
 		}
@@ -2051,7 +2294,7 @@ public class ButterBotEntity extends PathfinderMob {
 	 * and not to get through it on the way to work (orders given by hand may).
 	 */
 	public boolean isJobZoneBlocked(BlockPos pos) {
-		boolean jobWork = mineFilter != null || (task == BotTask.NONE && jobs.isActive() && jobs.job().usesList());
+		boolean jobWork = mineFilter != null || (task == BotTask.NONE && !returnRequested && jobs.isActive() && jobs.job().usesList());
 		return jobWork && jobs.isInsideZone(this.level(), basePos, pos);
 	}
 
@@ -2353,7 +2596,7 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		if (blockState.is(Blocks.ANCIENT_DEBRIS)) {
 			// Far harder than anything else it digs, but a diamond pickaxe gets through it.
-			return getBotLevel() >= NETHERITE_MIN_LEVEL;
+			return canMineNetherite();
 		}
 		float hardness = blockState.getDestroySpeed(this.level(), pos);
 		return hardness >= 0.0F && hardness <= MAX_DIGGABLE_HARDNESS;
@@ -2401,11 +2644,11 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/**
 	 * Puts a building block at {@code pos} (stairs, pillars and bridges when the bot is stuck).
-	 * Returns false if the spot is taken by a block or an entity.
+	 * Returns false if the spot is taken by a block or an entity, or is in a job's no-dig zone.
 	 */
 	public boolean placeFillerAt(BlockPos pos) {
 		Level level = this.level();
-		if (!level.isLoaded(pos) || !level.getBlockState(pos).canBeReplaced()) {
+		if (!level.isLoaded(pos) || !level.getBlockState(pos).canBeReplaced() || isJobZoneBlocked(pos)) {
 			return false;
 		}
 		BlockState preview = Blocks.COBBLESTONE.defaultBlockState();
@@ -2472,6 +2715,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.miner.cancel();
 		brain.reset(this);
 		say(Component.translatable("butterbot.msg.unstuck"));
+		this.resetFallDistance();
 		this.teleport(new net.minecraft.world.level.portal.TeleportTransition(destination,
 				new Vec3(spot.getX() + 0.5D, spot.getY(), spot.getZ() + 0.5D), Vec3.ZERO, this.getYRot(), this.getXRot(),
 				net.minecraft.world.level.portal.TeleportTransition.DO_NOTHING));
@@ -2483,6 +2727,9 @@ public class ButterBotEntity extends PathfinderMob {
 		this.getNavigation().stop();
 		this.miner.cancel();
 		this.pillarBase = null;
+		// Arrives standing: a fall (out of the world, say) doesn't carry over and hurt it on landing.
+		this.resetFallDistance();
+		this.setDeltaMovement(Vec3.ZERO);
 		this.teleportTo(spot.getX() + 0.5D, spot.getY(), spot.getZ() + 0.5D);
 		this.playSound(SoundEvents.CHORUS_FRUIT_TELEPORT, 0.6F, 1.2F);
 		level.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
@@ -2555,15 +2802,37 @@ public class ButterBotEntity extends PathfinderMob {
 		return lastOwnerPos;
 	}
 
-	/** Lets the bot use a portal to {@code dimension} for a moment (it never wanders through one by accident). */
-	public void wantPortal(ResourceKey<Level> dimension) {
+	/**
+	 * Lets the bot use a portal to {@code dimension} for a moment (it never wanders through one by
+	 * accident). False once it has been trying for too long: the caller falls back to its last resort.
+	 */
+	public boolean wantPortal(ResourceKey<Level> dimension) {
+		long now = this.level().getGameTime();
+		if (now < portalGiveUpUntil) {
+			return false;
+		}
+		if (portalWish == null || now > portalWishUntil || !portalWish.equals(dimension)) {
+			portalTicks = 0;
+		}
+		if (++portalTicks > PORTAL_PATIENCE_TICKS) {
+			portalWish = null;
+			portalTicks = 0;
+			portalGiveUpUntil = now + PORTAL_PATIENCE_TICKS;
+			return false;
+		}
 		portalWish = dimension;
-		portalWishUntil = this.level().getGameTime() + 40L;
+		portalWishUntil = now + 40L;
+		return true;
 	}
 
+	/**
+	 * Only portals it means to take, and only once the cooldown from the last trip is over (standing in
+	 * a portal it may use would otherwise keep restarting that cooldown for ever).
+	 */
 	@Override
 	public boolean canUsePortal(boolean ignorePassenger) {
-		return portalWish != null && this.level().getGameTime() <= portalWishUntil && super.canUsePortal(ignorePassenger);
+		return portalWish != null && this.level().getGameTime() <= portalWishUntil && !this.isOnPortalCooldown()
+				&& super.canUsePortal(ignorePassenger);
 	}
 
 	/** Notices when it came through a portal (that portal is its way back) and where the owner was last seen. */
@@ -2644,7 +2913,9 @@ public class ButterBotEntity extends PathfinderMob {
 			return false;
 		}
 		this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
-		BlockPos key = pos.immutable();
+		// Doors by their lower half, so the check before closing covers the whole doorway.
+		BlockPos key = state.getBlock() instanceof DoorBlock && state.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.UPPER
+				? pos.below().immutable() : pos.immutable();
 		if (!openedGates.contains(key)) {
 			openedGates.add(key);
 		}
@@ -2681,16 +2952,29 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 	}
 
-	/** Bots that are working or on their way somewhere keep the area around them running (they walk everywhere). */
+	/**
+	 * Bots keep the area around them running while they work a job or are on their way somewhere (they
+	 * walk everywhere), but not while they only wait: never a free chunk loader.
+	 */
 	public boolean keepsChunksLoaded() {
-		if (jobs.hasJob() || returnRequested || recoverPos != null || !recoveredItems.isEmpty()) {
+		if (jobs.isActive() || recoverPos != null) {
+			// Jobs run wherever the bot is; the owner's dropped things vanish if nobody fetches them.
 			return true;
 		}
+		boolean ownerOnline = this.level() instanceof ServerLevel level && ownerUuid != null
+				&& level.getServer().getPlayerList().getPlayer(ownerUuid) != null;
+		if (returnRequested) {
+			// Bringing things to an owner who logged off: wait where it is.
+			return ownerOnline || deliveryMode != DeliveryMode.OWNER;
+		}
+		if (!recoveredItems.isEmpty()) {
+			return ownerOnline;
+		}
 		return switch (task) {
-			case NONE, LUA -> false;
-			// Following someone who logged off: just wait where it is.
-			case FOLLOW -> this.level() instanceof ServerLevel level && ownerUuid != null
-					&& level.getServer().getPlayerList().getPlayer(ownerUuid) != null;
+			// A plain farm order works while the owner is around, like the rest of the world.
+			case NONE, LUA, FARM -> false;
+			case FOLLOW -> ownerOnline;
+			case GOTO -> gotoPos != null && dev.butterbot.ai.Walker.horizontalDistSq(this, gotoPos) > 4.0D * 4.0D;
 			default -> true;
 		};
 	}
@@ -2872,10 +3156,18 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/** {@link #harvestBlock(ServerLevel, BlockPos, BlockState, boolean)}, getting every drop {@code extraCopies} more times. */
 	public void harvestBlock(ServerLevel level, BlockPos pos, BlockState blockState, boolean keepAll, int extraCopies) {
-		ItemStack tool = miningTool(level, blockState);
+		// A tool the owner gave it counts (Fortune, Silk Touch...) and wears; otherwise it uses its own.
+		ItemStack given = givenToolFor(blockState);
+		boolean wears = !given.isEmpty() && blockState.getDestroySpeed(level, pos) != 0.0F;
+		ItemStack tool = given.isEmpty() ? miningTool(level, blockState) : dropTool(level, given);
 		List<ItemStack> drops = Block.getDrops(blockState, level, pos, level.getBlockEntity(pos), this, tool);
 		level.destroyBlock(pos, false, this);
 		blockState.spawnAfterBreak(level, pos, tool, true);
+		GearSlot toolSlot = GearSlot.forBlock(blockState);
+		if (wears && toolSlot != null) {
+			Tool toolData = given.get(DataComponents.TOOL);
+			wearTool(toolSlot, toolData == null ? 1 : toolData.damagePerBlock());
+		}
 		for (ItemStack drop : drops) {
 			for (int i = 0; i < extraCopies; i++) {
 				collectLoot(drop.copy(), pos, keepAll);
@@ -3190,11 +3482,11 @@ public class ButterBotEntity extends PathfinderMob {
 
 	// ------------------------------------------------------------------ experience, food and healing
 
-	/** Soaks up experience orbs around {@code center} and keeps them for the owner. */
+	/** Soaks up experience orbs around {@code center} and keeps them for the owner (after mending its gear). */
 	public void absorbExperience(Vec3 center, double radius) {
 		for (ExperienceOrb orb : this.level().getEntitiesOfClass(ExperienceOrb.class, new AABB(center, center).inflate(radius))) {
 			if (orb.isAlive()) {
-				storedXp += orb.getValue();
+				storedXp += mendGear(orb.getValue());
 				orb.discard();
 			}
 		}
@@ -3370,6 +3662,11 @@ public class ButterBotEntity extends PathfinderMob {
 		output.storeNullable("FarmCenter", BlockPos.CODEC, farmCenter);
 		output.putInt("Harvested", harvestedCount);
 		inventory.storeAsItemList(output.list("BotInventory", ItemStack.CODEC));
+		List<ItemStack> tools = new ArrayList<>();
+		for (int i = 0; i < toolbox.getContainerSize(); i++) {
+			tools.add(toolbox.getItem(i));
+		}
+		output.store("BotTools", ItemStack.OPTIONAL_CODEC.listOf(), tools);
 
 		if (tunnelDirection != null && tunnelOrigin != null) {
 			output.putString("TunnelDir", tunnelDirection.getName());
@@ -3441,6 +3738,12 @@ public class ButterBotEntity extends PathfinderMob {
 		farmCenter = input.read("FarmCenter", BlockPos.CODEC).orElse(null);
 		harvestedCount = input.getIntOr("Harvested", 0);
 		inventory.fromItemList(input.listOrEmpty("BotInventory", ItemStack.CODEC));
+		toolbox.clearContent();
+		input.read("BotTools", ItemStack.OPTIONAL_CODEC.listOf()).ifPresent(tools -> {
+			for (int i = 0; i < Math.min(tools.size(), toolbox.getContainerSize()); i++) {
+				toolbox.setItem(i, tools.get(i));
+			}
+		});
 
 		ownerUuid = input.read("Owner", UUIDUtil.CODEC).orElse(null);
 		ownerName = input.getString("OwnerName").orElse(null);
@@ -3592,7 +3895,16 @@ public class ButterBotEntity extends PathfinderMob {
 	 */
 	@Override
 	public boolean doHurtTarget(ServerLevel level, Entity target) {
+		ItemStack held = weapon();
+		if (!looksSame(this.getMainHandItem(), held)) {
+			// Its enchantments (Sharpness, Fire Aspect, Looting...) count from the first blow.
+			this.setItemSlot(EquipmentSlot.MAINHAND, held.copy());
+		}
 		boolean hit = super.doHurtTarget(level, target);
+		if (hit && !usableTool(GearSlot.SWORD).isEmpty()) {
+			Weapon weaponData = held.get(DataComponents.WEAPON);
+			wearTool(GearSlot.SWORD, weaponData == null ? 1 : weaponData.itemDamagePerAttack());
+		}
 		float sweep = stats().sweepFraction();
 		if (!hit || sweep <= 0.0F) {
 			return hit;
@@ -3641,8 +3953,16 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 	}
 
+	/** Gear drops whole, never with the random wear of a monster's dropped equipment. */
+	@Override
+	protected void dropCustomDeathLoot(ServerLevel level, DamageSource source, boolean killedByPlayer) {
+		dropGear(level);
+		super.dropCustomDeathLoot(level, source, killedByPlayer);
+	}
+
 	@Override
 	protected void dropEquipment(ServerLevel level) {
+		dropGear(level);
 		super.dropEquipment(level);
 		Containers.dropContents(level, this.blockPosition(), inventory);
 		// The owner's rescued things and half-fetched items are not lost either.

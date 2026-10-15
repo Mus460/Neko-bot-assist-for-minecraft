@@ -64,9 +64,8 @@ public class GoToBaseAction implements BotAction {
 			return;
 		}
 
-		// Far away the base isn't loaded yet: head that way; it loads as the bot gets near.
-		Vec3 goal = bot.level().isLoaded(base) ? Vec3.atBottomCenterOf(base) : new Vec3(base.getX() + 0.5D, bot.getY(), base.getZ() + 0.5D);
-		if (!walker.walk(bot, goal, 1.1D, true, MAX_STUCK_TICKS)) {
+		// Far away the base isn't loaded yet: head that way over the ground; it loads as the bot gets near.
+		if (!walker.walkTo(bot, base, 1.1D, true, MAX_STUCK_TICKS)) {
 			// Stuck even digging and building: hop home as a last resort.
 			if (bot.lastResortTeleport(base)) {
 				walker.reset(bot);

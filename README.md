@@ -40,7 +40,7 @@ Bot Base adalah peti 27 slot tempat bot menyimpan hasil kerja. Bisa dipakai hopp
 | Aksi | Hasil |
 |---|---|
 | Klik kanan bot (tangan kosong) | Buka panel kontrol |
-| Jongkok + klik kanan bot (tangan kosong) | Kemas bot jadi item. Nama, skin, mode neko dan program ikut tersimpan. Isi tas diberikan ke kamu |
+| Jongkok + klik kanan bot (tangan kosong) | Kemas bot jadi item. Nama, skin, mode neko dan program ikut tersimpan. Isi tas dan perlengkapannya diberikan ke kamu |
 | Klik kanan Bot Base | Panel kontrol untuk semua bot di sekitar |
 | Jongkok + klik kanan Bot Base | Buka storage base |
 | Pukul bot tanpa jongkok | Tidak berefek (bot aman dari pukulan tak sengaja pemiliknya) |
@@ -57,7 +57,7 @@ Semua tombol bisa diganti di **Options → Controls → Key Binds**, bagian **Bu
 | `N` | Hentikan semua bot |
 | `J` | Semua bot pulang ke Bot Base |
 | `Y` | Semua bot menyerahkan barang bawaannya sekarang |
-| `V` | Buka tas bot terdekat (dalam 8 blok) |
+| `V` | Buka tas dan perlengkapan bot terdekat (dalam 8 blok) |
 | `U` | Mode pengawal semua bot nyala/mati |
 | `I` | Terangi area 24 blok di sekitarmu |
 | `M` | Ambilkan satu tumpuk lagi barang yang sedang kamu pegang |
@@ -146,6 +146,23 @@ Semua aktif sejak awal dan bisa dimatikan di tab **Level** atau lewat perintah c
 - **Tidak merusak ladang**: bot tidak menginjak farmland sampai rusak.
 - **Penjaga barang saat kamu mati**: begitu kamu mati, bot terdekat (dalam 500 blok) berlari ke tempatmu mati dan memungut semua barang dan XP yang jatuh sebelum hilang. Koordinat tempatmu mati muncul di chat. Setelah kamu bangkit, bot menyusulmu (juga ke dimensi lain), mengembalikan barangnya, dan langsung memakaikan armor ke slot armor yang kosong. Barang yang dibawanya tidak hilang walaupun dunia disimpan atau bot ikut mati. `/butterbot death` menampilkan lagi tempat terakhir kamu mati.
 - **Isi ulang hotbar**: saat bot dalam 8 blok darimu, tumpukan block, obor, makanan, panah, roket kembang api, ender pearl, snowball, bone meal dan wind charge di hotbar yang tinggal seperempat atau kurang diisi lagi. Bot mengambil dulu dari inventory-mu sendiri, lalu dari tasnya, lalu dari Bot Base kalau ia berada dekat base. Tumpukan yang habis sama sekali juga diisi lagi kalau bot punya barangnya.
+
+### Perlengkapan (baju zirah dan alat)
+
+Buka tas bot (tombol **Buka tas** di panel, atau `V`). Baris paling atas adalah slot perlengkapan: **helm, baju zirah, celana zirah, sepatu**, lalu **pedang, beliung, kapak, sekop, cangkul**. Klik item ke slotnya, atau shift-klik dari inventory-mu dan item langsung masuk ke slot yang cocok. Arahkan kursor ke slot kosong untuk melihat gunanya. Di kanan atas tertulis nilai armor bot sekarang.
+
+- **Baju zirah** dipakai dan terlihat di tubuh bot (pas untuk skin lengan lebar maupun ramping), melindunginya seperti pemain, dan enchant-nya berlaku (Protection, Thorns, Feather Falling...). Baju zirah aus saat bot terkena serangan.
+- **Alat** dipakai untuk pekerjaan yang cocok: beliung untuk batu dan bijih, kapak untuk kayu dan menebang pohon, sekop untuk tanah, pasir dan kerikil, cangkul untuk panen dan daun, pedang untuk bertarung. Enchant-nya berlaku:
+  - **Efficiency** mempercepat menggali; bot tidak pernah lebih lambat dari alat bawaannya.
+  - **Fortune**: yang dipakai yang lebih tinggi antara Fortune alat dan Fortune dari level bot.
+  - **Silk Touch** berlaku di luar penambangan. Saat menambang, bot tidak memakainya supaya bijih tetap keluar sebagai bijih mentah yang dihitung.
+  - **Sharpness, Smite, Fire Aspect, Knockback, Looting** berlaku saat bertarung.
+- **Ketahanan**: alat aus setiap kali dipakai seperti di tangan pemain (Unbreaking berlaku, tanaman tidak membuat alat aus). Bot memberi tahu saat alat hampir rusak.
+  - Alat **ber-enchant tidak pernah dibiarkan rusak**: saat tinggal 10 pemakaian, bot menyimpannya di slot dan memakai alat bawaannya sampai alat itu diperbaiki.
+  - Alat tanpa enchant dipakai sampai rusak, lalu bot kembali ke alat bawaannya.
+- **Mending**: XP yang dipungut bot dipakai dulu untuk memperbaiki perlengkapan ber-Mending, sisanya disimpan untukmu.
+- Slot kosong berarti bot memakai alat bawaannya (besi, lalu berlian dan netherite sesuai level).
+- Perlengkapan tetap milikmu: dikembalikan saat bot dikemas atau dipulangkan, dan jatuh utuh di tempat bot hancur.
 
 ### Anti nyangkut
 
@@ -244,7 +261,7 @@ Tombol **Mulai bertani** di tab **Bertani**, atau ketik `/butterbot farm`. Area 
 Bawa bot ke Nether (bot dalam mode **ikut** ikut masuk portal bersamamu), lalu pilih **Netherite** di tab **Tambang** (atau `/butterbot mine netherite [jumlah]`, atau lihat puing kuno lalu tekan `Z`).
 
 - Bot menggali tangga turun ke **Y 15**, lalu menambang cabang mencari **puing kuno (ancient debris)**. Puing kuno terlihat dari balik dinding seperti bijih lain.
-- Butuh beliung berlian, jadi bot harus **level 5** ke atas. Satu blok butuh sekitar 5 detik.
+- Butuh beliung berlian: bot punya sendiri mulai **level 5**, atau beri beliung berlian/netherite di slot perlengkapannya (level berapa pun). Satu blok butuh sekitar 5 detik, lebih cepat dengan Efficiency.
 - Lava yang mengalir ke jalur atau ada di bawah langkah berikutnya **ditutup dulu** dengan batu, dan rute galian tidak pernah lewat lava. Bot baru **kebal api di level 12**, jadi taruh makanan di tasnya.
 - Hasilnya puing kuno (atau scrap kalau tungku bawaan dinyalakan). Bijih Overworld (berlian, besi, dll.) hanya bisa dipesan di Overworld, netherite hanya di Nether.
 

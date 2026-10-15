@@ -5,6 +5,8 @@ import dev.butterbot.ai.path.DigPlanner;
 import dev.butterbot.ai.path.PathFollower;
 import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
@@ -20,14 +22,20 @@ public final class Walker {
 	private static final double FAR_TARGET = 40.0D;
 	private static final int UNSTICK_AFTER_TICKS = 30;
 	private static final int UNSTICK_INTERVAL = 10;
-	/** A single walk never builds more than this (no endless bridges across the ocean). */
+	/** A walk never builds more than this in one go (no endless bridges across the ocean). */
 	private static final int MAX_BLOCKS_PLACED = 64;
+	/** Walking this far without building starts a fresh building budget (long trips meet many obstacles). */
+	private static final double FREE_WALK_SQ = 32.0D * 32.0D;
 	/** Dig routes tried per walk before falling back to poking at the obstacle step by step. */
 	private static final int MAX_PLANS = 3;
 
 	private int repathCooldown;
 	private int stuckTicks;
 	private int blocksPlaced;
+	/** {@link #blocksPlaced} (with the route under way) when the bot last built something, and where. */
+	private int budgetMark;
+	@Nullable
+	private Vec3 lastBuildPos;
 	/** Ticks left to finish a step that a dig-out move started (instead of re-pathing mid-step). */
 	private int stepTicks;
 	@Nullable
@@ -40,6 +48,8 @@ public final class Walker {
 		repathCooldown = 0;
 		stuckTicks = 0;
 		blocksPlaced = 0;
+		budgetMark = 0;
+		lastBuildPos = null;
 		stepTicks = 0;
 		failedPlans = 0;
 		follower.clear();
@@ -56,6 +66,7 @@ public final class Walker {
 	 * bot has been stuck for longer than {@code maxStuckTicks}.
 	 */
 	public boolean walk(ButterBotEntity bot, Vec3 target, double speed, boolean digWhenStuck, int maxStuckTicks) {
+		refreshBudget(bot);
 		if (follower.isActive()) {
 			PathFollower.Status status = follower.tick(bot);
 			if (status == PathFollower.Status.RUNNING) {
@@ -147,6 +158,41 @@ public final class Walker {
 		}
 
 		return stuckTicks <= maxStuckTicks;
+	}
+
+	/** {@link #walk} to a block that may not be loaded yet (then over the ground towards it). */
+	public boolean walkTo(ButterBotEntity bot, BlockPos pos, double speed, boolean digWhenStuck, int maxStuckTicks) {
+		return bot.level().isLoaded(pos) ? walk(bot, Vec3.atBottomCenterOf(pos), speed, digWhenStuck, maxStuckTicks)
+				: walkFar(bot, pos.getX() + 0.5D, pos.getZ() + 0.5D, speed, digWhenStuck, maxStuckTicks);
+	}
+
+	/**
+	 * Heads for a far spot that isn't loaded yet (its height unknown) over the ground: towards a point
+	 * {@value #WAYPOINT_DISTANCE} blocks along the way, at the ground there once that is loaded (not
+	 * at the bot's own height, which would bridge ravines and tunnel through mountains).
+	 */
+	public boolean walkFar(ButterBotEntity bot, double x, double z, double speed, boolean digWhenStuck, int maxStuckTicks) {
+		Vec3 step = waypoint(bot, new Vec3(x, bot.getY(), z));
+		Level level = bot.level();
+		BlockPos column = BlockPos.containing(step);
+		if (!level.dimensionType().hasCeiling() && level.isLoaded(column)) {
+			step = new Vec3(step.x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ()), step.z);
+		}
+		return walk(bot, step, speed, digWhenStuck, maxStuckTicks);
+	}
+
+	/** The building budget starts again once the bot has walked a good stretch without building. */
+	private void refreshBudget(ButterBotEntity bot) {
+		int placed = blocksPlaced + (follower.isActive() ? follower.placed() : 0);
+		if (placed != budgetMark) {
+			budgetMark = placed;
+			lastBuildPos = bot.position();
+		} else if (blocksPlaced > 0 && !follower.isActive() && lastBuildPos != null
+				&& bot.position().distanceToSqr(lastBuildPos) > FREE_WALK_SQ) {
+			blocksPlaced = 0;
+			budgetMark = 0;
+			lastBuildPos = null;
+		}
 	}
 
 	/** Plans a route towards the target (or the next waypoint) and starts following it; {@code dig}: may dig and build. */

@@ -5,16 +5,19 @@ import dev.butterbot.ClientHooks;
 import dev.butterbot.client.render.BotBaseRenderer;
 import dev.butterbot.client.render.ButterBotRenderer;
 import dev.butterbot.client.screen.BotControlScreen;
+import dev.butterbot.client.screen.BotInventoryScreen;
 import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.network.Payloads;
 import dev.butterbot.registry.ModBlockEntities;
 import dev.butterbot.registry.ModEntities;
+import dev.butterbot.registry.ModMenus;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
+import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderers;
 import net.minecraft.client.renderer.entity.EntityRenderers;
 import net.minecraft.client.Minecraft;
@@ -27,6 +30,7 @@ public class ButterBotClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		EntityRenderers.register(ModEntities.BUTTER_BOT, ButterBotRenderer::new);
 		BlockEntityRenderers.register(ModBlockEntities.BOT_BASE, BotBaseRenderer::new);
+		MenuScreens.register(ModMenus.BOT_INVENTORY, BotInventoryScreen::new);
 
 		ClientHooks.setBaseScreenOpener(pos -> Minecraft.getInstance().gui.setScreen(new BotControlScreen(Optional.of(pos), null)));
 
