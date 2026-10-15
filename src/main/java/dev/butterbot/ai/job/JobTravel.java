@@ -21,12 +21,17 @@ public final class JobTravel {
 	private static final int LOAD_TIMEOUT_TICKS = 20 * 30;
 	private static final int MAX_STUCK_TICKS = 120;
 
+	/** Right after a hop the bot may land a few blocks off (a safe spot near the target): close enough. */
+	private static final double AFTER_HOP_REACH = 4.5D;
+
 	private final Walker walker = new Walker();
 	private int waitTicks;
+	private boolean hopped;
 
 	public void reset(ButterBotEntity bot) {
 		walker.reset(bot);
 		waitTicks = 0;
+		hopped = false;
 	}
 
 	/**
@@ -38,13 +43,15 @@ public final class JobTravel {
 		BlockPos target = surface && level.isLoaded(pos) ? ground(level, pos) : pos;
 		double distanceSq = sameLevel ? bot.distanceToSqr(Vec3.atBottomCenterOf(target)) : Double.MAX_VALUE;
 
-		if (distanceSq <= reach * reach) {
+		double arriveAt = hopped ? Math.max(reach, AFTER_HOP_REACH) : reach;
+		if (distanceSq <= arriveAt * arriveAt) {
 			bot.getNavigation().stop();
 			waitTicks = 0;
+			hopped = false;
 			return Result.ARRIVED;
 		}
 
-		if (distanceSq > SHORTCUT_SQ) {
+		if (!sameLevel || distanceSq > SHORTCUT_SQ || !level.isLoaded(pos)) {
 			bot.getNavigation().stop();
 			if (waitTicks % 20 == 0) {
 				JobChunks.preload(level, pos);
@@ -53,15 +60,18 @@ public final class JobTravel {
 				return ++waitTicks > LOAD_TIMEOUT_TICKS ? Result.FAILED : Result.MOVING;
 			}
 			target = surface ? ground(level, pos) : pos;
-			boolean hopped = sameLevel ? bot.teleportNear(target, false) : bot.followToLevel(level, target);
+			boolean done = sameLevel ? bot.teleportNear(target, false) : bot.followToLevel(level, target);
 			waitTicks = 0;
 			walker.reset(bot);
-			return hopped ? Result.MOVING : Result.FAILED;
+			hopped |= done;
+			return done ? Result.MOVING : Result.FAILED;
 		}
 
 		if (!walker.walk(bot, Vec3.atBottomCenterOf(target), 1.1D, false, MAX_STUCK_TICKS)) {
 			walker.reset(bot);
-			return bot.teleportNear(target, false) ? Result.MOVING : Result.FAILED;
+			boolean done = bot.teleportNear(target, false);
+			hopped |= done;
+			return done ? Result.MOVING : Result.FAILED;
 		}
 		return Result.MOVING;
 	}

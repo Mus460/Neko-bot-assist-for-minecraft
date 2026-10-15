@@ -29,7 +29,8 @@ public final class JobChunks {
 		}
 		timer = 0;
 		for (ServerLevel level : server.getAllLevels()) {
-			for (ButterBotEntity bot : level.getEntities(ModEntities.BUTTER_BOT, bot -> bot.isAlive() && bot.isJobActive())) {
+			// Paused jobs too: a bot paused far away must stay loaded, or it couldn't be found to resume it.
+			for (ButterBotEntity bot : level.getEntities(ModEntities.BUTTER_BOT, bot -> bot.isAlive() && bot.hasJob())) {
 				keepLoaded(level, bot.blockPosition());
 			}
 		}

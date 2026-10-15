@@ -14,9 +14,12 @@ public class GoToPosAction implements BotAction {
 
 	private static final double SHORTCUT_SQ = 64.0D * 64.0D;
 	private static final double ARRIVED_SQ = 1.5D * 1.5D;
+	/** How long a bot with a job waits at the spot before going back to work. */
+	private static final int JOB_WAIT_TICKS = 20 * 60;
 
 	private final Walker walker = new Walker();
 	private boolean arrived;
+	private int waitedTicks;
 
 	@Override
 	public int getPriority(ButterBotEntity bot) {
@@ -33,6 +36,7 @@ public class GoToPosAction implements BotAction {
 		bot.setBotState(BotState.MOVING_TO_TARGET);
 		walker.reset(bot);
 		arrived = false;
+		waitedTicks = 0;
 	}
 
 	@Override
@@ -62,8 +66,14 @@ public class GoToPosAction implements BotAction {
 		bot.getNavigation().stop();
 		if (!arrived) {
 			arrived = true;
+			waitedTicks = 0;
 			bot.setBotState(BotState.IDLE);
 			bot.say(Component.translatable("butterbot.msg.goto_arrived"));
+		}
+		if (bot.isJobActive() && ++waitedTicks > JOB_WAIT_TICKS) {
+			// A bot with a job only waits a while, then goes back to its job.
+			bot.say(Component.translatable("butterbot.msg.goto_back_to_job"));
+			bot.clearTask();
 		}
 	}
 

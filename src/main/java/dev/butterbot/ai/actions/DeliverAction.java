@@ -35,6 +35,7 @@ public class DeliverAction implements BotAction {
 	private final JobTravel jobTravel = new JobTravel();
 	private boolean done;
 	private int waitTicks;
+	private int siteRecordedFor = Integer.MIN_VALUE;
 
 	@Override
 	public int getPriority(ButterBotEntity bot) {
@@ -60,8 +61,11 @@ public class DeliverAction implements BotAction {
 		jobTravel.reset(bot);
 		done = false;
 		waitTicks = 0;
-		if (bot.isJobDriven() && !bot.isJobSiteSpent() && bot.getMineFilter() != null) {
-			// Come back to exactly this spot (down in the tunnel) after unloading.
+		if (bot.isJobDriven() && !bot.isJobSiteSpent() && bot.getMineFilter() != null && bot.getMineRun() != siteRecordedFor
+				&& !bot.getJobs().isInsideZone(bot.level(), bot.getBasePos(), bot.blockPosition())) {
+			// Come back to exactly this spot (down in the tunnel) after unloading. Only once per run: a
+			// delivery interrupted near the chest (a fight) must not move the spot next to the chest.
+			siteRecordedFor = bot.getMineRun();
 			bot.getJobs().setSite(bot.blockPosition(), bot.getMineFilter().item(), true);
 		}
 	}
@@ -163,7 +167,8 @@ public class DeliverAction implements BotAction {
 
 		bot.getNavigation().stop();
 		bot.getLookControl().setLookAt(owner);
-		bot.deliverInventoryTo(owner);
+		// A farmer keeps its seeds and saplings, or it couldn't sow the field again.
+		bot.deliverInventoryTo(owner, bot.getTask() == BotTask.FARM ? ButterBotEntity.KEEP_PLANTABLES : 0);
 		complete(bot);
 	}
 

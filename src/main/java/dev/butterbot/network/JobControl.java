@@ -11,6 +11,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -44,7 +45,7 @@ public final class JobControl {
 			jobs.setCenter(level.dimension(), player.blockPosition());
 		}
 		BlockPos looked = lookedAtStorage(player);
-		if (looked != null) {
+		if (looked != null && (!job.usesList() || level.dimension().equals(Level.OVERWORLD))) {
 			jobs.setChest(level.dimension(), looked);
 		}
 		tell(player, Component.translatable("butterbot.msg.job_given", bot.getName(), job.displayName()));
@@ -74,6 +75,11 @@ public final class JobControl {
 		}
 		if (player.distanceToSqr(Vec3.atCenterOf(pos)) > PICK_RANGE * PICK_RANGE || !JobStorage.isStorage(level, pos)) {
 			fail(player, Component.translatable("butterbot.msg.job_not_a_chest"));
+			return false;
+		}
+		if (jobs.job().usesList() && !level.dimension().equals(Level.OVERWORLD)) {
+			// Dig sites are picked on the surface, which the Nether and the End don't have.
+			fail(player, Component.translatable("butterbot.msg.job_overworld_only", jobs.job().displayName()));
 			return false;
 		}
 		jobs.setChest(level.dimension(), pos);

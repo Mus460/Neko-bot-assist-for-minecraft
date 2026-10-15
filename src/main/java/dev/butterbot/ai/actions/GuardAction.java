@@ -205,9 +205,9 @@ public class GuardAction implements BotAction {
 		Mob best = null;
 		double bestDistance = Double.MAX_VALUE;
 		AABB around = bot.getBoundingBox().inflate(BOT_RADIUS, 5.0D, BOT_RADIUS);
-		for (Mob mob : bot.level().getEntitiesOfClass(Mob.class, around, mob -> isHostile(bot, mob))) {
+		for (Mob mob : bot.level().getEntitiesOfClass(Mob.class, around, mob -> isValidTarget(bot, mob))) {
 			double distance = bot.distanceToSqr(mob);
-			if (distance < bestDistance && !isIgnored(bot, mob) && bot.getSensing().hasLineOfSight(mob)) {
+			if (distance < bestDistance && bot.getSensing().hasLineOfSight(mob)) {
 				best = mob;
 				bestDistance = distance;
 			}
@@ -217,9 +217,9 @@ public class GuardAction implements BotAction {
 			// Patrolling: every monster in the area, not just the ones next to the bot.
 			double radius = bot.getPatrolRadius();
 			AABB area = new AABB(center).inflate(radius, 8.0D, radius);
-			for (Mob mob : bot.level().getEntitiesOfClass(Mob.class, area, mob -> isHostile(bot, mob))) {
+			for (Mob mob : bot.level().getEntitiesOfClass(Mob.class, area, mob -> isValidTarget(bot, mob))) {
 				double distance = bot.distanceToSqr(mob);
-				if (distance < bestDistance && !isIgnored(bot, mob) && withinChase(bot, mob)
+				if (distance < bestDistance
 						&& (bot.getSensing().hasLineOfSight(mob) || Math.abs(mob.getY() - center.getY()) < 6.0D)) {
 					best = mob;
 					bestDistance = distance;
@@ -229,9 +229,9 @@ public class GuardAction implements BotAction {
 		Player owner = bot.getOwner();
 		if (owner != null && owner.level() == bot.level() && bot.distanceToSqr(owner) < OWNER_LINK_SQ) {
 			AABB aroundOwner = owner.getBoundingBox().inflate(OWNER_RADIUS, 5.0D, OWNER_RADIUS);
-			for (Mob mob : bot.level().getEntitiesOfClass(Mob.class, aroundOwner, mob -> isHostile(bot, mob))) {
+			for (Mob mob : bot.level().getEntitiesOfClass(Mob.class, aroundOwner, mob -> isValidTarget(bot, mob))) {
 				double distance = bot.distanceToSqr(mob);
-				if (distance < bestDistance && !isIgnored(bot, mob) && mob.hasLineOfSight(owner)) {
+				if (distance < bestDistance && mob.hasLineOfSight(owner)) {
 					best = mob;
 					bestDistance = distance;
 				}

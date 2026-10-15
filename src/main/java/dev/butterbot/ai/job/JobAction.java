@@ -14,8 +14,11 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
@@ -51,6 +54,9 @@ public class JobAction implements BotAction {
 	private static final int PATROL_LOOT_STACK = 64;
 	private static final long PATROL_DEPOSIT_TICKS = 20L * 120L;
 	private static final int KEEP_FILLER = 32;
+	private static final int KEEP_FOOD = 16;
+	private static final long UNREACHABLE_LOOT_TICKS = 20L * 60L * 5L;
+	private static final double OWNER_ITEM_DISTANCE_SQ = 5.0D * 5.0D;
 
 	private enum Step {CHECK, DEPOSIT, TRAVEL, STANDBY, WAIT}
 
@@ -64,7 +70,7 @@ public class JobAction implements BotAction {
 	private ResourceCatalog.Entry nextEntry;
 	private int nextCount;
 	private boolean doneAnnounced;
-	private long lastReminder = Long.MIN_VALUE;
+	private long lastReminder = JobConfig.NEVER;
 
 	private PatrolStep patrolStep = PatrolStep.WALK;
 	@Nullable
@@ -72,6 +78,10 @@ public class JobAction implements BotAction {
 	@Nullable
 	private ItemEntity pickup;
 	private long lastDeposit;
+	/** After a failed loot trip (no chest, chest full, can't get there) the guard waits this long before trying again. */
+	private long depositBlockedUntil;
+	/** Loot the guard couldn't get to, by entity id, with the time it may try again. */
+	private final Map<Integer, Long> unreachableLoot = new HashMap<>();
 
 	@Override
 	public int getPriority(ButterBotEntity bot) {
@@ -125,6 +135,10 @@ public class JobAction implements BotAction {
 			needsSetup(bot, jobs, jobs.chest() == null ? "butterbot.msg.job_needs_chest" : "butterbot.msg.job_needs_list");
 			return;
 		}
+		if (!home.dimension().equals(Level.OVERWORLD)) {
+			needsSetup(bot, jobs, "butterbot.msg.job_overworld_only");
+			return;
+		}
 		switch (step) {
 			case CHECK -> check(bot, jobs, home);
 			case DEPOSIT -> deposit(bot, jobs, home);
@@ -158,7 +172,7 @@ public class JobAction implements BotAction {
 			}
 			jobs.rememberChestCounts(counts, now);
 			timer = 0;
-		} else if (now - jobs.chestCountsTime() > CHEST_MEMORY_TICKS) {
+		} else if (jobs.chestCountsTime() == Long.MIN_VALUE || now - jobs.chestCountsTime() > CHEST_MEMORY_TICKS) {
 			bot.getNavigation().stop();
 			if (timer++ % 20 == 0) {
 				JobChunks.preload(home, chest);
@@ -200,8 +214,9 @@ public class JobAction implements BotAction {
 			return;
 		}
 		if (nearlyFull || (chestTrouble && listItems)) {
-			// The last trip couldn't unload (chest or base full): wait instead of going back and forth.
-			problem(bot, jobs, Component.translatable("butterbot.msg.job_chest_full", chest.toShortString()));
+			// The last trip couldn't unload (chest full, missing or out of reach): wait instead of going back and forth.
+			problem(bot, jobs, Component.translatable(nearlyFull ? "butterbot.msg.job_chest_full" : "butterbot.msg.job_chest_trouble",
+					chest.toShortString()));
 			return;
 		}
 
@@ -339,7 +354,7 @@ public class JobAction implements BotAction {
 	}
 
 	/** True if the backpack holds something for the chest (list items, or loot worth keeping). */
-	private static boolean hasSomethingToDeliver(ButterBotEntity bot, JobConfig jobs) {
+	public static boolean hasSomethingToDeliver(ButterBotEntity bot, JobConfig jobs) {
 		for (int i = 0; i < bot.getInventory().getContainerSize(); i++) {
 			ItemStack stack = bot.getInventory().getItem(i);
 			if (!stack.isEmpty() && (jobs.isNeeded(stack.getItem()) || !JobStorage.isSupply(stack))) {
@@ -426,7 +441,7 @@ public class JobAction implements BotAction {
 			bot.absorbExperience(bot.position(), 3.0D);
 		}
 		int loot = lootCount(bot);
-		if (patrolStep != PatrolStep.DEPOSIT && loot > 0
+		if (patrolStep != PatrolStep.DEPOSIT && loot > 0 && now >= depositBlockedUntil
 				&& (loot >= PATROL_LOOT_STACK || bot.freeSlots() <= 3 || now - lastDeposit > PATROL_DEPOSIT_TICKS)) {
 			patrolStep = PatrolStep.DEPOSIT;
 			travel.reset(bot);
@@ -473,14 +488,18 @@ public class JobAction implements BotAction {
 
 	/** Loot lying in the area (things nobody threw away on purpose): go and pick it up. */
 	private boolean lookForLoot(ButterBotEntity bot, ServerLevel home, BlockPos center, int radius) {
-		if (bot.tickCount % 20 != 0 || bot.isInventoryFull()) {
+		if (bot.tickCount % 20 != 0 || bot.isInventoryFull() || (bot.freeSlots() <= 3 && home.getGameTime() < depositBlockedUntil)) {
 			return false;
 		}
+		long now = home.getGameTime();
+		unreachableLoot.values().removeIf(until -> until < now);
+		Player owner = bot.getOwner();
 		AABB area = new AABB(center).inflate(radius, 10.0D, radius);
 		double best = Double.MAX_VALUE;
 		ItemEntity found = null;
 		for (ItemEntity item : home.getEntitiesOfClass(ItemEntity.class, area, item -> item.isAlive() && !item.hasPickUpDelay()
-				&& item.getOwner() == null && !item.getItem().isEmpty())) {
+				&& item.getOwner() == null && !item.getItem().isEmpty() && !unreachableLoot.containsKey(item.getId())
+				&& (owner == null || owner.level() != home || item.distanceToSqr(owner) > OWNER_ITEM_DISTANCE_SQ))) {
 			double dx = item.getX() - (center.getX() + 0.5D);
 			double dz = item.getZ() - (center.getZ() + 0.5D);
 			if (dx * dx + dz * dz > (double) radius * radius) {
@@ -518,6 +537,8 @@ public class JobAction implements BotAction {
 			return;
 		}
 		if (!walker.walk(bot, item.position(), 1.1D, false, 60)) {
+			// Down a pit, behind a fence, on a roof: leave it for a while instead of trying again and again.
+			unreachableLoot.put(item.getId(), bot.level().getGameTime() + UNREACHABLE_LOOT_TICKS);
 			pickup = null;
 			patrolStep = PatrolStep.WALK;
 		}
@@ -525,11 +546,12 @@ public class JobAction implements BotAction {
 
 	private void depositLoot(ButterBotEntity bot, JobConfig jobs, ServerLevel home, BlockPos center, int radius, long now) {
 		jobs.setPhase(JobConfig.Phase.LOOT);
-		BlockPos chestPos = jobs.chest() != null && JobStorage.isStorage(home, jobs.chest())
-				? jobs.chest() : JobStorage.nearest(home, center, radius + 8);
+		BlockPos chest = jobs.chest();
+		BlockPos chestPos = chest != null && (!home.isLoaded(chest) || JobStorage.isStorage(home, chest))
+				? chest : JobStorage.nearest(home, center, radius + 8);
 		if (chestPos == null) {
 			warn(bot, Component.translatable("butterbot.msg.job_no_loot_chest", radius));
-			lastDeposit = now;
+			blockDeposit(now);
 			patrolStep = PatrolStep.WALK;
 			return;
 		}
@@ -541,22 +563,48 @@ public class JobAction implements BotAction {
 		lastDeposit = now;
 		patrolStep = PatrolStep.WALK;
 		if (result == JobTravel.Result.FAILED) {
+			warn(bot, Component.translatable("butterbot.msg.job_chest_unreachable", chestPos.toShortString()));
+			blockDeposit(now);
 			return;
 		}
-		Container chest = JobStorage.open(home, chestPos);
-		if (chest == null) {
+		Container storage = JobStorage.open(home, chestPos);
+		if (storage == null) {
+			warn(bot, Component.translatable("butterbot.msg.job_chest_missing", chestPos.toShortString()));
+			blockDeposit(now);
 			return;
 		}
 		bot.getLookControl().setLookAt(Vec3.atCenterOf(chestPos));
 		boolean[] full = {false};
-		int moved = JobStorage.deposit(bot, chest, stack -> !JobStorage.isSupply(stack), full);
+		// Everything goes in except torches and a small reserve of food and lava-plugging blocks.
+		int[] kept = {0, 0};
+		int moved = JobStorage.deposit(bot, storage, stack -> {
+			if (stack.is(Items.TORCH)) {
+				return false;
+			}
+			int reserve = ButterBotEntity.isSafeFood(stack) ? 0 : ButterBotEntity.isFiller(stack) ? 1 : -1;
+			if (reserve < 0) {
+				return true;
+			}
+			int limit = reserve == 0 ? KEEP_FOOD : KEEP_FILLER;
+			if (kept[reserve] + stack.getCount() <= limit) {
+				kept[reserve] += stack.getCount();
+				return false;
+			}
+			return true;
+		}, full);
 		if (moved > 0) {
 			JobStorage.playOpenClose(home, chestPos);
 			bot.say(Component.translatable("butterbot.msg.job_loot_stored", moved));
 		}
 		if (full[0]) {
 			warn(bot, Component.translatable("butterbot.msg.job_chest_full", chestPos.toShortString()));
+			blockDeposit(now);
 		}
+	}
+
+	private void blockDeposit(long now) {
+		lastDeposit = now;
+		depositBlockedUntil = now + PATROL_DEPOSIT_TICKS;
 	}
 
 	/** A random spot on the ground inside the area. */
