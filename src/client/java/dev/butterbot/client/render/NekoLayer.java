@@ -23,7 +23,8 @@ import org.joml.Vector3f;
  * Voxel cat ears on the head and a swaying tail on the back, tinted with the skin's hair colour.
  * Works with any skin, so every bot can be a neko. Levels show on them too: a collar with a bell and a
  * band on the tail in the tier's colour from level 5, glowing from level 15, glowing ears from level 20
- * and two tails at level 30. On a level up the ears perk up and flick and the tail stands up and quivers.
+ * and two tails at level 30. On a level up the ears perk up and flick and the tail stands up and quivers; a head
+ * pat folds the ears outwards and quickens the tail ({@link ReactionAnimation}).
  * Glowing parts are drawn a second time as an emissive overlay (like spider eyes), so shader packs make them shine.
  */
 public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
@@ -73,11 +74,12 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 		poseStack.pushPose();
 		model.root().translateAndRotate(poseStack);
 		model.head.translateAndRotate(poseStack);
-		// On a level up the ears perk up and flick in turn.
+		// On a level up the ears perk up and flick in turn; a pat or a pout folds them outwards.
 		float twitch = earTwitch(age);
 		float flick = cheer * 18.0F;
-		float rightAngle = twitch + flick * Mth.sin(cheerTime * 1.3F);
-		float leftAngle = twitch + flick * Mth.sin(cheerTime * 1.3F + Mth.HALF_PI);
+		float fold = ReactionAnimation.earFold(state.reaction, state.reactionTime);
+		float rightAngle = twitch + fold + flick * Mth.sin(cheerTime * 1.3F);
+		float leftAngle = twitch + fold + flick * Mth.sin(cheerTime * 1.3F + Mth.HALF_PI);
 		float earScale = 1.0F + 0.25F * cheer;
 		// From diamond on, the inside of the ears glows in the tier's colour.
 		boolean glowingEars = tier.atLeast(BotTier.DIAMOND);
@@ -101,9 +103,12 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 		model.body.translateAndRotate(poseStack);
 		float grow = tier.ordinal();
 		boolean legend = tier == BotTier.LEGEND;
+		float reactionTime = Math.max(0.0F, state.reactionTime);
 		Tail tail = new Tail(age,
 				6.0F + 14.0F * Mth.clamp(state.walkAnimationSpeed, 0.0F, 1.0F) + (state.working ? 4.0F : 0.0F),
 				state.working ? 0.2F : 0.12F,
+				ReactionAnimation.strength(state.reactionTime), reactionTime * ReactionAnimation.wagSpeed(state.reaction),
+				ReactionAnimation.wagSway(state.reaction),
 				cheer, cheerTime,
 				TAIL_SEGMENT_LENGTH + 0.04F * grow,
 				(1.0F + 0.04F * grow) * (1.0F + 0.3F * cheer),
@@ -121,9 +126,13 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 		poseStack.popPose();
 	}
 
-	/** How the tail, collar and bell are drawn this frame. */
-	private record Tail(float age, float sway, float swaySpeed, float cheer, float cheerTime, float segmentLength,
-						float thickness, int color, int tipColor, boolean twin, boolean band, int bandColor, boolean glowing) {
+	/**
+	 * How the tail, collar and bell are drawn this frame. {@code wag} blends in the faster sway of a bond reaction,
+	 * which runs on its own clock ({@code wagTime}, already sped up) so it eases in and out without a jump.
+	 */
+	private record Tail(float age, float sway, float swaySpeed, float wag, float wagTime, float wagSway, float cheer,
+						float cheerTime, float segmentLength, float thickness, int color, int tipColor, boolean twin, boolean band,
+						int bandColor, boolean glowing) {
 	}
 
 	/** Translucent copy of a colour for the emissive overlay. */
@@ -216,6 +225,11 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 		float bend = Mth.lerp(tail.cheer(), 13.0F, 5.0F);
 		for (int i = 0; i < TAIL_SEGMENTS; i++) {
 			float calm = Mth.sin(tail.age() * tail.swaySpeed() - i * 0.45F) * tail.sway() * (0.4F + i * 0.1F);
+			if (tail.wag() > 0.0F) {
+				// Petted or fed it wags twice as fast; a pout lashes it wider still.
+				float wag = Mth.sin(tail.wagTime() * tail.swaySpeed() - i * 0.45F) * tail.sway() * tail.wagSway() * (0.4F + i * 0.1F);
+				calm = Mth.lerp(tail.wag(), calm, wag);
+			}
 			float quiver = Mth.sin(tail.cheerTime() * 2.2F - i * 0.6F) * 7.0F * (0.3F + i * 0.12F);
 			float yaw = Mth.lerp(tail.cheer(), calm, quiver) + (i == 0 ? spread : 0.0F);
 			matrix.rotateX(pitch * Mth.DEG_TO_RAD).rotateY(yaw * Mth.DEG_TO_RAD);

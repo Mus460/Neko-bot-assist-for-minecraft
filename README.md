@@ -40,10 +40,13 @@ Bot Base adalah peti 27 slot tempat bot menyimpan hasil kerja. Bisa dipakai hopp
 | Aksi | Hasil |
 |---|---|
 | Klik kanan bot (tangan kosong) | Buka panel kontrol |
+| Klik kanan puncak kepala bot (tangan kosong) | Elus kepalanya (lihat [Kedekatan](#kedekatan-elus-dan-camilan)) |
+| Klik kanan bot sambil memegang ikan, kue kering, pai labu, beri atau kue | Beri camilan |
 | Jongkok + klik kanan bot (tangan kosong) | Kemas bot jadi item. Nama, skin, mode neko dan program ikut tersimpan. Isi tas dan perlengkapannya diberikan ke kamu |
 | Klik kanan Bot Base | Panel kontrol untuk semua bot di sekitar |
 | Jongkok + klik kanan Bot Base | Buka storage base |
 | Pukul bot tanpa jongkok | Tidak berefek (bot aman dari pukulan tak sengaja pemiliknya) |
+| Pukul bot sambil jongkok | Benar-benar memukulnya: bot ngambek dan kedekatannya turun |
 
 ### Tombol pintas
 
@@ -249,6 +252,25 @@ Pencegahan lain:
 - Kalau kamu offline atau sedang di dimensi lain, bot mengantar barang ke Bot Base, tidak menunggu terus.
 - Powder snow tidak membekukannya, dan api serta lava tidak melukainya.
 - Mengikutimu dan mengantar barang tetap jalan saat kamu naik perahu atau kuda.
+
+### Kedekatan (elus dan camilan)
+
+Setiap bot punya meter **Kedekatan ♥** (0–100) denganmu. Bot baru, dan bot dari versi lama, mulai dari 20. Kedekatan tidak pernah turun sendiri.
+
+- **Elus**: dengan tangan kosong, arahkan ke **puncak kepala** bot (atau kupingnya) lalu klik kanan. Bot mendengkur (bot non-neko bersenandung pelan), muncul hati, kupingnya melipat, ekornya bergoyang cepat dan kepalanya menunduk ke tanganmu. Kerjanya tidak terganggu. Klik bagian badan atau wajah tetap membuka panel, begitu juga `B` atau `Z`. +2 kedekatan, paling sering sekali per menit (mengelus lagi tetap ada animasinya).
+- **Camilan**: klik kanan bot sambil memegang ikan (mentah atau matang), kue kering, pai labu, beri manis, beri bercahaya atau kue. Bot memakannya, sembuh seperti makan dari tasnya, lalu mendengkur. +3 kedekatan (ikan +4), paling sering sekali per 2 menit. Ikan buntal ditolak dan tetap di tanganmu.
+- **Camilan favorit**: setiap bot punya satu favorit di antara kue kering, ikan kod matang, salmon matang, beri manis, pai labu dan beri bercahaya. Favoritnya memberi kedekatan dua kali lipat dan bot berseru "Ini favoritku!". Panel baru menampilkannya setelah kamu pernah memberikannya.
+- **Waktu bersama**: +1 untuk setiap 10 menit bot berada dalam 16 blok darimu, dan +1 setiap kali bot naik level.
+- **Memukul**: memukul bot sambil jongkok membuatnya ngambek (asap marah, ia membuang muka) dan kedekatan turun 5, paling sering sekali per 10 detik.
+
+| Kedekatan | Tingkat | Bonus |
+|---|---|---|
+| 0–19 | Malu-malu | |
+| 20–49 | Akrab | |
+| 50–79 | Sayang | Elusan juga memulihkan 2 darah bot. Sesekali bot mendusel kakimu saat kamu diam di dekatnya (dalam 4 blok, 10 detik) |
+| 80–100 | Belahan Jiwa | Saat darahmu di bawah 30% dan bot dalam 8 blok, ia memelukmu dan memberi Regeneration (sekali tiap 5 menit) |
+
+Naik tingkat diberitahukan di chat. Kedekatan tampil di kartu bot di panel (♥ di baris darah, arahkan kursor untuk rinciannya), di halaman **Statistik** (bar merah muda, tingkat dan camilan favorit), dan di tooltip item bot yang dikemas. Kedekatan dan camilan favorit ikut tersimpan saat bot dikemas jadi item.
 
 ### Level (1 sampai 30)
 
