@@ -11,6 +11,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -100,11 +101,24 @@ public class ButterBotItem extends Item {
 		if (!name.isEmpty()) {
 			bot.setCustomName(Component.literal(name));
 		}
+		if (tag.getBooleanOr("Revived", false) && bot.level() instanceof ServerLevel serverLevel) {
+			serverLevel.sendParticles(ParticleTypes.HEART, bot.getX(), bot.getY() + 2.0D, bot.getZ(), 6, 0.4D, 0.2D, 0.4D, 0.0D);
+			bot.say(Component.translatable("butterbot.msg.revived"));
+		}
 	}
 
 	/** Creates an item holding everything worth keeping from the given bot. */
 	public static ItemStack createFrom(ButterBotEntity bot) {
-		ItemStack stack = new ItemStack(ModItems.BUTTER_BOT);
+		return createFrom(bot, ModItems.BUTTER_BOT, false);
+	}
+
+	/**
+	 * Saves the bot into an item of the given kind. A {@code core} is the Memory Core a destroyed bot
+	 * leaves: it loses the progress inside its current level, its XP was already dropped as orbs, and
+	 * its name stays in the saved data only, so the crafted Butter Bot doesn't inherit a renamed core.
+	 */
+	public static ItemStack createFrom(ButterBotEntity bot, Item target, boolean core) {
+		ItemStack stack = new ItemStack(target);
 		CompoundTag tag = new CompoundTag();
 		tag.putBoolean("Neko", bot.isNeko());
 		tag.putString("Skin", bot.getSkinId());
@@ -112,10 +126,10 @@ public class ButterBotItem extends Item {
 		tag.putString("Script", bot.getLuaScript());
 		tag.putInt("Delivery", bot.getDeliveryMode().ordinal());
 		tag.putInt("Level", bot.getBotLevel());
-		tag.putInt("WorkXp", bot.getWorkXp());
+		tag.putInt("WorkXp", core ? 0 : bot.getWorkXp());
 		tag.putIntArray("Progress", bot.getProgress().save());
 		tag.putLong("SecondWind", bot.getSecondWindReadyAt());
-		tag.putInt("StoredXp", bot.getStoredXp());
+		tag.putInt("StoredXp", core ? 0 : bot.getStoredXp());
 		tag.putBoolean("Guard", bot.guardSetting());
 		tag.putBoolean("AutoTorch", bot.placesTorchesWhileMining());
 		tag.putBoolean("FeedOwner", bot.feedsOwner());
@@ -130,7 +144,12 @@ public class ButterBotItem extends Item {
 		}
 		if (bot.hasCustomName()) {
 			tag.putString("Name", bot.getName().getString());
-			stack.set(DataComponents.CUSTOM_NAME, bot.getName().copy());
+			if (!core) {
+				stack.set(DataComponents.CUSTOM_NAME, bot.getName().copy());
+			}
+		}
+		if (core) {
+			tag.putBoolean("Revived", true);
 		}
 		CompoundTag root = new CompoundTag();
 		root.put(TAG_ROOT, tag);
@@ -139,7 +158,7 @@ public class ButterBotItem extends Item {
 	}
 
 	@Nullable
-	private static CompoundTag savedTag(ItemStack stack) {
+	static CompoundTag savedTag(ItemStack stack) {
 		CustomData data = stack.get(DataComponents.CUSTOM_DATA);
 		if (data == null) {
 			return null;

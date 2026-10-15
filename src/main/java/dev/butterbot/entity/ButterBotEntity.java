@@ -36,6 +36,7 @@ import dev.butterbot.network.ModNetworking;
 import dev.butterbot.network.Payloads;
 import dev.butterbot.registry.ModBlocks;
 import dev.butterbot.registry.ModEntities;
+import dev.butterbot.registry.ModItems;
 import dev.butterbot.registry.ModSounds;
 import dev.butterbot.skin.SkinLimits;
 import dev.butterbot.util.Msg;
@@ -80,6 +81,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.EntityType;
@@ -4311,6 +4313,7 @@ public class ButterBotEntity extends PathfinderMob {
 	public void die(DamageSource source) {
 		// The held tool is only for looks; never drop it.
 		this.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+		boolean firstDeath = !this.dead && !this.isRemoved();
 		super.die(source);
 		if (this.level() instanceof ServerLevel serverLevel && storedXp > 0) {
 			ExperienceOrb.award(serverLevel, this.position(), storedXp);
@@ -4322,6 +4325,62 @@ public class ButterBotEntity extends PathfinderMob {
 				owner.sendSystemMessage(Msg.prefixed(Component.translatable("butterbot.msg.destroyed",
 						this.getName(), source.getLocalizedDeathMessage(this))).withStyle(ChatFormatting.RED));
 			}
+			if (firstDeath && this.level() instanceof ServerLevel serverLevel) {
+				leaveMemoryCore(serverLevel, source);
+			}
+		}
+	}
+
+	/**
+	 * An owned bot leaves a Memory Core holding everything it remembers: in its Bot Base if there is
+	 * room, else in the owner's inventory (from any dimension), else on the ground, glowing and never
+	 * despawning. One that falls out of the world drops it near its base or its owner instead.
+	 * Released bots leave nothing, and Second Wind, packing and dismissing never get here.
+	 */
+	private void leaveMemoryCore(ServerLevel level, DamageSource source) {
+		if (ownerUuid == null) {
+			return;
+		}
+		ItemStack core = ButterBotItem.createFrom(this, ModItems.BOT_CORE, true);
+		ServerPlayer owner = level.getServer().getPlayerList().getPlayer(ownerUuid);
+		BlockPos at = this.blockPosition();
+		String key;
+		BotBaseBlockEntity base = getBase();
+		if (base != null && base.insert(core).isEmpty()) {
+			key = "butterbot.msg.core_base";
+		} else if (owner != null && owner.getInventory().add(core)) {
+			key = "butterbot.msg.core_inventory";
+		} else {
+			key = "butterbot.msg.core_dropped";
+			Vec3 dropAt = this.position().add(0.0D, 0.5D, 0.0D);
+			boolean inVoid = source.is(DamageTypes.FELL_OUT_OF_WORLD) || this.getY() < level.getMinY();
+			if (inVoid) {
+				dropAt = null;
+				for (BlockPos near : new BlockPos[]{basePos, owner != null && owner.level() == level ? owner.blockPosition() : null, lastSafeGround}) {
+					BlockPos spot = near == null ? null : findSafeSpot(level, near, 1, 3);
+					if (spot != null) {
+						dropAt = Vec3.atBottomCenterOf(spot).add(0.0D, 0.5D, 0.0D);
+						break;
+					}
+				}
+			}
+			ItemEntity item;
+			if (dropAt != null) {
+				item = new ItemEntity(level, dropAt.x, dropAt.y, dropAt.z, core, 0.0D, 0.2D, 0.0D);
+			} else {
+				// Nowhere safe nearby: it floats just above the void instead of falling in.
+				item = new ItemEntity(level, this.getX(), level.getMinY() + 1.0D, this.getZ(), core, 0.0D, 0.0D, 0.0D);
+				item.setNoGravity(true);
+			}
+			item.setDefaultPickUpDelay();
+			item.setUnlimitedLifetime();
+			item.setGlowingTag(true);
+			level.addFreshEntity(item);
+			at = item.blockPosition();
+		}
+		if (owner != null) {
+			owner.sendSystemMessage(Msg.prefixed(Component.translatable(key, this.getName(), at.getX(), at.getY(), at.getZ()))
+					.withStyle(ChatFormatting.LIGHT_PURPLE));
 		}
 	}
 
