@@ -1,8 +1,10 @@
 package dev.butterbot.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import dev.butterbot.ButterBot;
 import dev.butterbot.client.skin.ClientSkinManager;
+import dev.butterbot.entity.BotTier;
 import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.Font;
@@ -19,6 +21,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.HumanoidArm;
+import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.player.PlayerModelType;
 import net.minecraft.world.entity.player.PlayerSkin;
 
@@ -71,6 +74,20 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		poseStack.scale(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
 	}
 
+	/** The level-up cheer: a little hop with a twirl. */
+	@Override
+	protected void setupRotations(ButterBotRenderState state, PoseStack poseStack, float bodyRot, float entityScale) {
+		boolean cheering = state.levelUpTime >= 0.0F && state.deathTime <= 0.0F && !state.hasPose(Pose.SLEEPING);
+		if (cheering) {
+			// Hop before the rotations, while up is still up (a bot named Dinnerbone is drawn upside down).
+			poseStack.translate(0.0F, LevelUpAnimation.hop(state.levelUpTime), 0.0F);
+		}
+		super.setupRotations(state, poseStack, bodyRot, entityScale);
+		if (cheering) {
+			poseStack.rotateDegrees(Axis.YP, LevelUpAnimation.twirl(state.levelUpTime));
+		}
+	}
+
 	@Override
 	public void extractRenderState(ButterBotEntity entity, ButterBotRenderState state, float partialTicks) {
 		super.extractRenderState(entity, state, partialTicks);
@@ -91,10 +108,14 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		state.nekoColor = skin.hairColor();
 		state.neko = entity.isNeko();
 		state.working = entity.isWorkingClient();
+		state.tier = BotTier.of(entity.getBotLevel());
+		state.levelUpTime = entity.levelUpAnimTime(partialTicks);
 
 		boolean close = state.distanceToCameraSq < INFO_DISTANCE_SQ && !entity.isInvisible();
 		if (close) {
-			state.infoLine = Component.literal("Lv" + entity.getBotLevel() + " ").withStyle(ChatFormatting.GOLD)
+			// The level shows in the tier's colour; a nekomata (level 30) gets a star and a rainbow.
+			String level = (state.tier == BotTier.LEGEND ? "★" : "") + "Lv" + entity.getBotLevel() + " ";
+			state.infoLine = Component.literal(level).withColor(state.tier.colorAt(state.ageInTicks) & 0xFFFFFF)
 					.append(entity.getName().copy().withStyle(ChatFormatting.WHITE));
 			Component speech = entity.getSpeech();
 			state.speech = speech.getString().isEmpty() ? null : speech;
@@ -137,7 +158,10 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 	private void submitLabels(ButterBotRenderState state, PoseStack poseStack, SubmitNodeCollector collector, CameraRenderState camera) {
 		Font font = getFont();
 		poseStack.pushPose();
-		poseStack.translate(0.0F, state.boundingBoxHeight + 0.5F, 0.0F);
+		// During the level-up cheer the label rises with the hop and makes room for the perked-up ears.
+		float lift = state.levelUpTime >= 0.0F
+				? LevelUpAnimation.hop(state.levelUpTime) * state.scale + 0.15F * LevelUpAnimation.strength(state.levelUpTime) : 0.0F;
+		poseStack.translate(0.0F, state.boundingBoxHeight + 0.5F + lift, 0.0F);
 		poseStack.rotate(camera.orientation);
 		poseStack.scale(0.025F, -0.025F, 0.025F);
 

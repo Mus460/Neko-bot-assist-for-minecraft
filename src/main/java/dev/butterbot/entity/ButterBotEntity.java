@@ -52,11 +52,14 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.Direction;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ItemParticleOption;
+import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -174,6 +177,11 @@ public class ButterBotEntity extends PathfinderMob {
 	private static final EntityDataAccessor<Integer> DATA_LEVEL =
 			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.INT);
 
+	/** Entity events {@code LEVEL_UP_EVENT + tier} tell watching clients to play the level-up cheer. */
+	private static final byte LEVEL_UP_EVENT = 100;
+	/** How long the level-up cheer (hop, twirl, perked ears, raised tail) lasts, in ticks. */
+	public static final int LEVEL_UP_ANIM_TICKS = 40;
+
 	/** Backpack size at level 1; it grows to {@link BotLevels#MAX_BACKPACK} with levels. */
 	public static final int INVENTORY_SIZE = BotLevels.BASE_BACKPACK;
 	public static final int MAX_NAME_LENGTH = 32;
@@ -265,6 +273,8 @@ public class ButterBotEntity extends PathfinderMob {
 	private final BotProgress progress = new BotProgress();
 	@Nullable
 	private BotStats cachedStats;
+	/** Client side: the tick the last level-up cheer started. */
+	private int levelUpAnimStart = Integer.MIN_VALUE / 2;
 	/** Game time from which Second Wind can save the bot again. */
 	private long secondWindReadyAt;
 	/** What the bot is digging its way to and how (shown by the debug key). */
@@ -457,7 +467,13 @@ public class ButterBotEntity extends PathfinderMob {
 	public void tick() {
 		super.tick();
 
-		if (this.level().isClientSide() || !this.isAlive()) {
+		if (this.level().isClientSide()) {
+			if (this.isAlive()) {
+				tickTierAura();
+			}
+			return;
+		}
+		if (!this.isAlive()) {
 			return;
 		}
 
@@ -1233,6 +1249,83 @@ public class ButterBotEntity extends PathfinderMob {
 		return this.entityData.get(DATA_WORKING);
 	}
 
+	/** Ticks since the level-up cheer started (with the partial tick), or -1 when it is not playing. Client side. */
+	public float levelUpAnimTime(float partialTicks) {
+		float time = this.tickCount - levelUpAnimStart + partialTicks;
+		return time >= 0.0F && time < LEVEL_UP_ANIM_TICKS ? time : -1.0F;
+	}
+
+	@Override
+	public void handleEntityEvent(byte id) {
+		if (id >= LEVEL_UP_EVENT && id < LEVEL_UP_EVENT + BotTier.values().length) {
+			levelUpAnimStart = this.tickCount;
+			// The event comes before the new level is synced, so it carries the new tier itself.
+			spawnLevelUpBurst(BotTier.byIndex(id - LEVEL_UP_EVENT));
+		} else {
+			super.handleEntityEvent(id);
+		}
+	}
+
+	/** A rising spiral in the new tier's colour and a ring of light at the feet. Client side. */
+	private void spawnLevelUpBurst(BotTier tier) {
+		DustParticleOptions dust = new DustParticleOptions(tier.color() & 0xFFFFFF, 1.4F);
+		int count = 24 + tier.ordinal() * 6;
+		for (int i = 0; i < count; i++) {
+			double angle = i * 0.6D;
+			double height = 0.1D + 2.0D * i / count;
+			this.level().addParticle(dust, getX() + Math.cos(angle) * 0.8D, getY() + height, getZ() + Math.sin(angle) * 0.8D,
+					0.0D, 0.0D, 0.0D);
+		}
+		for (int i = 0; i < 16; i++) {
+			double angle = i * Math.PI / 8.0D;
+			this.level().addParticle(ParticleTypes.END_ROD, getX(), getY() + 0.15D, getZ(),
+					Math.cos(angle) * 0.16D, 0.01D, Math.sin(angle) * 0.16D);
+		}
+	}
+
+	/**
+	 * Motes in the tier's colour around the tail, more often at higher tiers; enchanting letters from amethyst and
+	 * soul-fire wisps for a nekomata. Client side; these particles follow the Particles setting and distance limit.
+	 */
+	private void tickTierAura() {
+		BotTier tier = BotTier.of(getBotLevel());
+		if (!tier.atLeast(BotTier.SILVER) || this.isInvisible()) {
+			return;
+		}
+		// The tail tip is a little behind the hips.
+		float yaw = this.yBodyRot * Mth.DEG_TO_RAD;
+		double tipX = getX() + Mth.sin(yaw) * 0.45D;
+		double tipY = getY() + 1.0D;
+		double tipZ = getZ() - Mth.cos(yaw) * 0.45D;
+		int moteOneIn = switch (tier) {
+			case SILVER -> 40;
+			case GOLD -> 28;
+			case DIAMOND -> 22;
+			default -> 18;
+		};
+		if (this.random.nextInt(moteOneIn) == 0) {
+			sparkle(new DustParticleOptions(tier.colorAt(this.tickCount) & 0xFFFFFF, 0.8F), tipX, tipY, tipZ);
+		}
+		if (tier.atLeast(BotTier.AMETHYST) && this.random.nextInt(tier == BotTier.LEGEND ? 8 : 10) == 0) {
+			drawInEnchant();
+		}
+		if (tier == BotTier.LEGEND && this.random.nextInt(16) == 0) {
+			sparkle(ParticleTypes.SOUL_FIRE_FLAME, tipX, tipY + 0.2D, tipZ);
+		}
+	}
+
+	private void sparkle(ParticleOptions particle, double x, double y, double z) {
+		this.level().addParticle(particle, x + (this.random.nextDouble() - 0.5D) * 0.4D, y + (this.random.nextDouble() - 0.5D) * 0.4D,
+				z + (this.random.nextDouble() - 0.5D) * 0.4D, 0.0D, 0.015D, 0.0D);
+	}
+
+	/** Enchanting-table letters drifting in towards the bot's chest. */
+	private void drawInEnchant() {
+		// Like the enchanting table: the letter falls 1.2 blocks on its way, so aim that much higher.
+		this.level().addParticle(ParticleTypes.ENCHANT, getX(), getY() + 2.3D, getZ(), (this.random.nextDouble() - 0.5D) * 2.0D,
+				this.random.nextDouble() * 0.8D - 1.2D, (this.random.nextDouble() - 0.5D) * 2.0D);
+	}
+
 	// ------------------------------------------------------------------ levels and settings
 
 	public int getBotLevel() {
@@ -1345,15 +1438,33 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 	}
 
-	/** Fireworks, a title on the owner's screen for big levels, and a chat line telling what is new. */
+	/**
+	 * Fireworks, a cheer (hop, twirl, perked ears and raised tail) on watching clients, a title on the owner's
+	 * screen for big levels, and a chat line telling what is new. Reaching a new tier adds a chime and light.
+	 */
 	private void celebrateLevelUp(int from, int to) {
+		BotTier tier = BotTier.of(to);
+		boolean newTier = tier != BotTier.of(from);
 		this.playSound(SoundEvents.PLAYER_LEVELUP, 0.8F, 1.2F);
 		this.playSound(SoundEvents.FIREWORK_ROCKET_LARGE_BLAST, 0.7F, 1.0F);
+		if (newTier) {
+			this.playSound(SoundEvents.AMETHYST_BLOCK_RESONATE, 1.0F, 1.0F);
+			if (tier == BotTier.LEGEND) {
+				this.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 0.8F, 1.0F);
+			}
+		}
 		speak(ModSounds.VOICE_LEVEL_UP, null, 0.0F, true);
 		if (this.level() instanceof ServerLevel serverLevel) {
+			serverLevel.broadcastEntityEvent(this, (byte) (LEVEL_UP_EVENT + tier.ordinal()));
 			serverLevel.sendParticles(ParticleTypes.FIREWORK, getX(), getY() + 1.2D, getZ(), 40, 0.5D, 0.8D, 0.5D, 0.12D);
 			serverLevel.sendParticles(ParticleTypes.TOTEM_OF_UNDYING, getX(), getY() + 1.0D, getZ(), 25, 0.4D, 0.6D, 0.4D, 0.25D);
 			serverLevel.sendParticles(ParticleTypes.HAPPY_VILLAGER, getX(), getY() + 1.0D, getZ(), 15, 0.4D, 0.6D, 0.4D, 0.1D);
+			if (newTier) {
+				serverLevel.sendParticles(ParticleTypes.END_ROD, getX(), getY() + 1.0D, getZ(), 30, 0.3D, 0.8D, 0.3D, 0.08D);
+				if (tier == BotTier.LEGEND) {
+					serverLevel.sendParticles(ParticleTypes.SOUL_FIRE_FLAME, getX(), getY() + 1.0D, getZ(), 40, 0.6D, 0.9D, 0.6D, 0.04D);
+				}
+			}
 		}
 		boolean milestone = false;
 		Component highlight = null;
@@ -1367,13 +1478,25 @@ public class ButterBotEntity extends PathfinderMob {
 						: isSkillRowLevel(level) ? Component.translatable("butterbot.levelup.new_skills_short") : null;
 			}
 		}
+		if (newTier) {
+			// Collar, bell and tails are only drawn on neko bots.
+			String key = tier == BotTier.LEGEND ? "butterbot.msg.tier_up_legend"
+					: tier == BotTier.BRONZE ? "butterbot.msg.tier_up_first" : "butterbot.msg.tier_up";
+			tellOwner(Component.translatable(isNeko() ? key : key + "_plain", getName(), tier.displayName())
+					.withColor(tier.color() & 0xFFFFFF));
+		}
 		if (getOwner() instanceof ServerPlayer owner) {
 			if (milestone) {
 				MutableComponent subtitle = getName().copy();
 				if (highlight != null) {
 					subtitle.append(" - ").append(highlight);
 				}
-				showTitle(owner, Component.translatable("butterbot.title.level", to).withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), subtitle);
+				if (newTier) {
+					subtitle.append(" - ").append(Component.translatable("butterbot.title.tier", tier.displayName())
+							.withColor(tier.color() & 0xFFFFFF));
+				}
+				showTitle(owner, Component.translatable("butterbot.title.level", to).withStyle(ChatFormatting.BOLD)
+						.withColor(tier.color() & 0xFFFFFF), subtitle);
 			} else {
 				owner.sendSystemMessage(Component.translatable("butterbot.msg.level_up_bar", getName(), to)
 						.withStyle(ChatFormatting.GOLD), true);

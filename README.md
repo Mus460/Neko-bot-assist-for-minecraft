@@ -223,7 +223,7 @@ Pencegahan lain:
 
 ### Level (1 sampai 30)
 
-Bot mendapat XP kerja dari setiap blok yang digali, tanaman yang dipanen, crafting, item yang dilebur dan monster yang dikalahkan. Kerja yang lebih sulit memberi lebih banyak XP: batu 1, batu bara/tembaga 2, besi/redstone 3, emas/lapis 4, zamrud 8, berlian 10, ancient debris 15; monster sesuai kekuatannya (boss 200). Level tampil di atas kepala bot (`Lv3 Mochi-3F`). Saat naik level ada kembang api, dan untuk level penting muncul judul besar di layarmu.
+Bot mendapat XP kerja dari setiap blok yang digali, tanaman yang dipanen, crafting, item yang dilebur dan monster yang dikalahkan. Kerja yang lebih sulit memberi lebih banyak XP: batu 1, batu bara/tembaga 2, besi/redstone 3, emas/lapis 4, zamrud 8, berlian 10, ancient debris 15; monster sesuai kekuatannya (boss 200). Level tampil di atas kepala bot (`Lv3 Mochi-3F`). Saat naik level ada kembang api dan bot bersorak: melompat sambil berputar, kupingnya tegak dan bergoyang, ekornya berdiri dan bergetar, lalu muncul spiral cahaya berwarna tingkatnya. Untuk level penting muncul judul besar di layarmu.
 
 | Level | Kemampuan baru |
 |---|---|
@@ -244,6 +244,22 @@ Bot mendapat XP kerja dari setiap blok yang digali, tanaman yang dipanen, crafti
 | 24 | Baris skill ke-4 terbuka |
 | 25 | **Hati Baja**: sekali tiap 10 menit, pukulan mematikan menyisakan setengah darah |
 | 30 | **Legenda**: +10% darah, serangan dan kecepatan gali, kilau emas |
+
+#### Tingkat dan penampilan
+
+Setiap 5 level bot naik **tingkat**, dan penampilannya ikut berubah. Warna tingkat dipakai untuk lonceng, pita ekor, tulisan `Lv` di atas kepala, dan judul saat naik level. Tingkat juga tampil di panel (**Lainnya**), di sebelah level.
+
+| Level | Tingkat | Yang terlihat |
+|---|---|---|
+| 1–4 | Anak kucing | Kuping dan ekor biasa |
+| 5–9 | Perunggu | Kalung merah dengan lonceng dan pita di ekor; ekor sedikit lebih panjang dan tebal |
+| 10–14 | Perak | Kilau putih keperakan sesekali di dekat ekor |
+| 15–19 | Emas | Lonceng dan pita ekor menyala dalam gelap (dengan shader ikut bersinar), kilau emas |
+| 20–24 | Berlian | Bagian dalam kuping ikut menyala, kilau biru muda |
+| 25–29 | Kecubung | Kilau ungu, dan huruf sihir meja enchant melayang ke arah bot |
+| 30 | **Nekomata** | Dua ekor berujung api arwah biru, warna pelangi, bintang ★ di depan level |
+
+Kilau mengikuti pengaturan Partikel di Minecraft. Ekor dan kalung hanya tampil pada bot neko. Kalau bot memakai baju zirah dada, loncengnya dipasang di depan baju zirah. Bot non-neko tetap mendapat warna level, kilau, dan sorakan lompat-berputar.
 
 #### Pohon skill
 
