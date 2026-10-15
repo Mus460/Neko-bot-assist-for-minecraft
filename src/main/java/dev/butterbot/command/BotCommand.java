@@ -310,7 +310,11 @@ public final class BotCommand {
 						.then(Commands.argument("number", IntegerArgumentType.integer(1, JobConfig.MAX_SOURCES))
 								.executes(ctx -> {
 									int number = IntegerArgumentType.getInteger(ctx, "number");
-									return simple(ctx.getSource(), bot -> bot.getJobs().removeSource(number - 1));
+									return simple(ctx.getSource(), bot -> {
+										bot.getJobs().removeSource(number - 1);
+										ctx.getSource().sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.job_source_removed",
+												bot.getName(), bot.getJobs().sources().size(), JobConfig.MAX_SOURCES)), false);
+									});
 								}))));
 		job.then(Commands.literal("smelt")
 				.then(Commands.literal("on").executes(ctx -> smelt(ctx.getSource(), true)))

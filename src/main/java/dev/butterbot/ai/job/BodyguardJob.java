@@ -25,26 +25,43 @@ final class BodyguardJob {
 	private static final int NO_PORTAL_WAIT_TICKS = 20 * 10;
 	private static final long REMIND_TICKS = 20L * 60L * 3L;
 
+	/** A ward that can't be found for this long (it may only be in a chunk that isn't loaded yet) counts as gone. */
+	private static final int MISSING_GRACE_TICKS = 20 * 10;
+
 	private final Walker walker = new Walker();
 	private int awayTicks;
 	private boolean toldNoWay;
+	private int missingTicks;
 	private long lastReminder = JobConfig.NEVER;
 
+	/** The job (or the bot to guard) changed. */
 	void reset(ButterBotEntity bot) {
 		walker.reset(bot);
 		awayTicks = 0;
 		toldNoWay = false;
+		missingTicks = 0;
+	}
+
+	/** Back after a fight or an order: what it already told the owner and how long it waited still count. */
+	void resume(ButterBotEntity bot) {
+		walker.reset(bot);
 	}
 
 	void tick(ButterBotEntity bot, JobConfig jobs) {
 		ButterBotEntity ward = bot.findWard();
 		if (ward == null) {
-			jobs.setPhase(jobs.ward() == null ? JobConfig.Phase.SETUP : JobConfig.Phase.NO_WARD);
 			bot.setBotState(BotState.IDLE);
 			bot.getNavigation().stop();
-			remind(bot, jobs, jobs.ward() == null ? "butterbot.msg.job_needs_ward" : "butterbot.msg.job_ward_missing");
+			if (jobs.ward() == null) {
+				jobs.setPhase(JobConfig.Phase.SETUP);
+				remind(bot, jobs, "butterbot.msg.job_needs_ward");
+			} else if (++missingTicks > MISSING_GRACE_TICKS) {
+				jobs.setPhase(JobConfig.Phase.NO_WARD);
+				remind(bot, jobs, "butterbot.msg.job_ward_missing");
+			}
 			return;
 		}
+		missingTicks = 0;
 		jobs.setPhase(JobConfig.Phase.ESCORTING);
 		if (ward.level() != bot.level()) {
 			followAcross(bot, ward);
@@ -63,9 +80,11 @@ final class BodyguardJob {
 			return;
 		}
 		bot.setBotState(BotState.MOVING_TO_TARGET);
-		// Digs or builds its way only towards a bot standing somewhere (down its tunnel, say).
+		// Digs or builds its way only towards a bot standing somewhere (down its tunnel, say), and never
+		// into the pen or field of a bot that farms, ranches or guards an area.
 		boolean wardStanding = ward.onGround() || ward.isInWater();
-		if (!walker.walk(bot, ward.position(), distanceSq > RUN_SQ ? 1.3D : 1.1D, wardStanding, MAX_STUCK_TICKS)) {
+		boolean dig = wardStanding && !ward.getJobs().job().usesArea();
+		if (!walker.walk(bot, ward.position(), distanceSq > RUN_SQ ? 1.3D : 1.1D, dig, MAX_STUCK_TICKS)) {
 			walker.reset(bot);
 			// Stuck for a good while even digging and building: hop to it as a last resort.
 			if (!wardStanding || !bot.lastResortTeleport(ward.blockPosition())) {

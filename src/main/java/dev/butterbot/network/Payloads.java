@@ -110,7 +110,10 @@ public final class Payloads {
 		public static final int JOB_HERD = 35;
 		/** Rancher: {@code args[0]} 1 lets it cull animals over the limit, 0 doesn't. */
 		public static final int JOB_BUTCHER = 36;
-		/** Courier: adds the source chest at {@code args[0..2]}, removes source number {@code args[0]}, or (no args) all. */
+		/**
+		 * Courier: adds the source chest at {@code args[0..2]} (removes it with {@code text} "remove"), removes
+		 * source number {@code args[0]}, or (no args) all.
+		 */
 		public static final int JOB_SOURCE = 37;
 		/** Courier: {@code args[0]} 1 smelts raw ores on the way, 0 doesn't. */
 		public static final int JOB_SMELT = 38;

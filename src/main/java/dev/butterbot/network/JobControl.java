@@ -55,12 +55,16 @@ public final class JobControl {
 			jobs.setChest(level.dimension(), looked);
 		}
 		if (job == BotJob.BODYGUARD && jobs.ward() == null) {
-			// Guards the nearest of the player's other bots until another is picked.
+			// Guards the player's bot nearest to it (not another bodyguard) until another is picked.
+			ButterBotEntity nearest = null;
 			for (ButterBotEntity other : BotAccess.listBots(player, Optional.empty())) {
-				if (other != bot) {
-					jobs.setWard(other.getUUID());
-					break;
+				if (other != bot && other.level() == bot.level() && other.getJobs().job() != BotJob.BODYGUARD
+						&& (nearest == null || bot.distanceToSqr(other) < bot.distanceToSqr(nearest))) {
+					nearest = other;
 				}
+			}
+			if (nearest != null) {
+				jobs.setWard(nearest.getUUID(), nearest.getName().getString());
 			}
 		}
 		tell(player, Component.translatable("butterbot.msg.job_given", bot.getName(), job.displayName()));
@@ -112,7 +116,7 @@ public final class JobControl {
 	/** Makes a bodyguard stay with the player's bot with UUID {@code wardId} (empty: no one). */
 	public static void setWard(ServerPlayer player, ButterBotEntity bot, String wardId) {
 		if (wardId.isEmpty()) {
-			bot.getJobs().setWard(null);
+			bot.getJobs().setWard(null, "");
 			tell(player, Component.translatable("butterbot.msg.job_ward_cleared", bot.getName()));
 			return;
 		}
@@ -147,7 +151,8 @@ public final class JobControl {
 			fail(player, Component.translatable("butterbot.msg.job_ward_invalid"));
 			return;
 		}
-		bot.getJobs().setWard(ward.getUUID());
+		bot.getJobs().setWard(ward.getUUID(), ward.getName().getString());
+		bot.clearTaskForJob();
 		bot.say(Component.translatable("butterbot.msg.job_ward_set_say", ward.getName()));
 		tell(player, Component.translatable("butterbot.msg.job_ward_set", bot.getName(), ward.getName()));
 	}

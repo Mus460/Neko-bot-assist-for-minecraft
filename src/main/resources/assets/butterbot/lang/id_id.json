@@ -603,6 +603,7 @@
   "butterbot.msg.job_sources_full": "Paling banyak %s peti sumber. Hapus satu dulu.",
   "butterbot.msg.job_source_added": "%s akan mengosongkan peti di %s (%s/%s sumber).",
   "butterbot.msg.job_sources_cleared": "Semua peti sumber %s dihapus.",
+  "butterbot.msg.job_source_removed": "Satu peti sumber %s dihapus (sisa %s/%s).",
   "butterbot.msg.job_ward_cleared": "%s sekarang tidak mengawal siapa pun.",
   "butterbot.msg.job_ward_invalid": "Itu bukan bot milikmu yang lain.",
   "butterbot.msg.job_ward_set_say": "Aku akan menjaga %s!",

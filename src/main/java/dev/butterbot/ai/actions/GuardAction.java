@@ -51,6 +51,8 @@ public class GuardAction implements BotAction {
 	/** A bodyguard fights monsters this close to the bot it guards, and chases them this far from it. */
 	private static final double WARD_RADIUS = 12.0D;
 	private static final double WARD_CHASE_SQ = 20.0D * 20.0D;
+	/** ...but only while it is this close to that bot itself (otherwise it catches up first). */
+	private static final double WARD_LINK_SQ = 20.0D * 20.0D;
 
 	@Nullable
 	private Mob target;
@@ -194,8 +196,8 @@ public class GuardAction implements BotAction {
 
 	/** Normally monsters near the bot; a patrolling guard keeps to its area, a bodyguard to the bot it guards. */
 	private static boolean withinChase(ButterBotEntity bot, Mob mob) {
-		ButterBotEntity ward = bot.findWard();
-		if (ward != null && ward.level() == bot.level() && mob.distanceToSqr(ward) < WARD_CHASE_SQ) {
+		ButterBotEntity ward = nearWard(bot);
+		if (ward != null && mob.distanceToSqr(ward) < WARD_CHASE_SQ) {
 			return true;
 		}
 		BlockPos center = bot.getPatrolCenter();
@@ -234,8 +236,8 @@ public class GuardAction implements BotAction {
 				}
 			}
 		}
-		ButterBotEntity ward = bot.findWard();
-		if (ward != null && ward.level() == bot.level()) {
+		ButterBotEntity ward = nearWard(bot);
+		if (ward != null) {
 			// Bodyguard: the monsters around the bot it guards, first of all the ones going for it.
 			AABB aroundWard = ward.getBoundingBox().inflate(WARD_RADIUS, 5.0D, WARD_RADIUS);
 			for (Mob mob : bot.level().getEntitiesOfClass(Mob.class, aroundWard, mob -> isValidTarget(bot, mob))) {
@@ -261,6 +263,13 @@ public class GuardAction implements BotAction {
 			}
 		}
 		return best;
+	}
+
+	/** The bot a bodyguard guards, when it is close (fights far from it would keep the bodyguard from catching up). */
+	@Nullable
+	private static ButterBotEntity nearWard(ButterBotEntity bot) {
+		ButterBotEntity ward = bot.findWard();
+		return ward != null && ward.level() == bot.level() && bot.distanceToSqr(ward) < WARD_LINK_SQ ? ward : null;
 	}
 
 	/** Monsters only. Neutral mobs and named mobs count only once they go after the bot or its owner. */

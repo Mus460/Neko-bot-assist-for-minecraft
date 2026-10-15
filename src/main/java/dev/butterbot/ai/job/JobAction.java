@@ -165,8 +165,9 @@ public class JobAction implements BotAction {
 		choreAnimal = null;
 		chorePartner = null;
 		chore = null;
-		courier.reset(bot);
-		bodyguard.reset(bot);
+		// Back after a fight or an order: the courier and the bodyguard carry on where they were.
+		courier.resume(bot);
+		bodyguard.resume(bot);
 		bot.setBotState(BotState.SEARCHING);
 	}
 
@@ -181,6 +182,8 @@ public class JobAction implements BotAction {
 		}
 		if (bot.takeJobChange()) {
 			start(bot);
+			courier.reset(bot);
+			bodyguard.reset(bot);
 		}
 		JobConfig jobs = bot.getJobs();
 		ServerLevel home = jobs.level(botLevel.getServer());

@@ -875,9 +875,10 @@ public class BotControlScreen extends Screen {
 					.tip(Component.translatable("butterbot.gui.job_add_source_tooltip")));
 		}
 		for (int i = 0; i < view.sources().size(); i++) {
-			int index = i;
+			// Removed by position, so a double click can't take off the next one too.
+			BlockPos source = view.sources().get(i);
 			addRenderableWidget(McButton.text(right - 18, cy + SOURCE_Y + i * SOURCE_PITCH, 18, 16, Component.literal("x"),
-					b -> command(Payloads.BotCommand.JOB_SOURCE, "", index)).danger()
+					b -> command(Payloads.BotCommand.JOB_SOURCE, "remove", source.getX(), source.getY(), source.getZ())).danger()
 					.tip(Component.translatable("butterbot.gui.job_remove_source_tooltip")));
 		}
 	}
