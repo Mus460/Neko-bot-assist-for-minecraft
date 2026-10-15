@@ -23,6 +23,7 @@ import dev.butterbot.ai.actions.RecoverItemsAction;
 import dev.butterbot.ai.actions.SortTaskAction;
 import dev.butterbot.ai.actions.TunnelTaskAction;
 import dev.butterbot.ai.job.JobAction;
+import dev.butterbot.ai.job.JobChunks;
 import dev.butterbot.ai.path.DigPath;
 import dev.butterbot.ai.path.PathFollower;
 import dev.butterbot.ai.job.JobStorage;
@@ -281,6 +282,8 @@ public class ButterBotEntity extends PathfinderMob {
 	private boolean guard = true;
 	private boolean autoTorch = true;
 	private boolean feedOwner = true;
+	/** Teleport mode: true "far" (long trips by teleport), false "emergencies only" (walks everywhere). */
+	private boolean farTeleport = true;
 	private SmeltMode smeltMode = SmeltMode.ORES;
 
 	private int scanCooldown;
@@ -2758,19 +2761,81 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/** Last resort only: goes to {@code destination} without a portal (it knows none that leads there). */
 	public boolean lastResortToLevel(ServerLevel destination, BlockPos near) {
+		return toLevel(destination, near, true);
+	}
+
+	private boolean toLevel(ServerLevel destination, BlockPos near, boolean stuck) {
 		BlockPos spot = findSafeSpot(destination, near, 1, 3);
-		if (spot == null || !(this.level() instanceof ServerLevel)) {
+		if (spot == null || !(this.level() instanceof ServerLevel here)) {
 			return false;
 		}
 		this.getNavigation().stop();
 		this.miner.cancel();
 		brain.reset(this);
-		say(Component.translatable("butterbot.msg.unstuck"));
+		if (stuck) {
+			say(Component.translatable("butterbot.msg.unstuck"));
+		}
+		here.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
 		this.resetFallDistance();
 		this.teleport(new net.minecraft.world.level.portal.TeleportTransition(destination,
 				new Vec3(spot.getX() + 0.5D, spot.getY(), spot.getZ() + 0.5D), Vec3.ZERO, this.getYRot(), this.getXRot(),
 				net.minecraft.world.level.portal.TeleportTransition.DO_NOTHING));
 		return true;
+	}
+
+	// Teleport mode. "Far" (the default): trips longer than SHORTCUT_DISTANCE, catching up with the owner
+	// from farther than FOLLOW_SHORTCUT_DISTANCE and other dimensions go by teleport, as in the first
+	// versions. "Emergencies only": it walks everywhere and only hops when stuck or in danger.
+
+	/** Mode "far": trips longer than this (blocks) are one teleport. */
+	public static final double SHORTCUT_DISTANCE = 64.0D;
+	/** Mode "far": a bot following someone catches up by teleport from this far. */
+	public static final double FOLLOW_SHORTCUT_DISTANCE = 24.0D;
+
+	public boolean teleportsFar() {
+		return farTeleport;
+	}
+
+	public void setFarTeleport(boolean farTeleport) {
+		this.farTeleport = farTeleport;
+	}
+
+	/**
+	 * Mode "far": hops next to {@code target} (in this dimension) when it is farther than
+	 * {@code distance}. A spot that isn't loaded yet is loaded first, and the bot walks meanwhile. False
+	 * when it should walk: the other mode, close enough, or no safe spot there.
+	 */
+	public boolean shortcutTo(BlockPos target, double distance) {
+		if (!farTeleport || !(this.level() instanceof ServerLevel level)
+				|| this.distanceToSqr(Vec3.atCenterOf(target)) <= distance * distance) {
+			return false;
+		}
+		if (!level.isLoaded(target)) {
+			if (this.tickCount % 20 == 0) {
+				JobChunks.preload(level, target);
+			}
+			return false;
+		}
+		BlockPos spot = findSafeSpot(level, target, 1, 3);
+		if (spot == null) {
+			return false;
+		}
+		hopTo(level, spot);
+		return true;
+	}
+
+	/** Mode "far": goes to another dimension straight away instead of walking to a portal (loads the spot first). */
+	public boolean shortcutToLevel(ServerLevel destination, BlockPos near) {
+		if (!farTeleport) {
+			return false;
+		}
+		if (!destination.isLoaded(near)) {
+			if (this.tickCount % 20 == 0) {
+				JobChunks.preload(destination, near);
+			}
+			return false;
+		}
+		return toLevel(destination, near, false);
 	}
 
 	private void hopTo(ServerLevel level, BlockPos spot) {
@@ -3794,6 +3859,7 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		output.storeNullable("TargetBlock", BlockPos.CODEC, targetBlock);
 		output.putBoolean("AutoRefill", autoRefill);
+		output.putBoolean("FarTeleport", farTeleport);
 		output.storeNullable("RecoverPos", BlockPos.CODEC, recoverPos);
 		ValueOutput.TypedOutputList<ItemStack> recovered = output.list("Recovered", ItemStack.CODEC);
 		recoveredItems.forEach(recovered::add);
@@ -3880,6 +3946,7 @@ public class ButterBotEntity extends PathfinderMob {
 		setNeko(input.getBooleanOr("Neko", true));
 
 		autoRefill = input.getBooleanOr("AutoRefill", true);
+		farTeleport = input.getBooleanOr("FarTeleport", true);
 		recoverPos = input.read("RecoverPos", BlockPos.CODEC).orElse(null);
 		recoveredItems.clear();
 		input.listOrEmpty("Recovered", ItemStack.CODEC).forEach(recoveredItems::add);

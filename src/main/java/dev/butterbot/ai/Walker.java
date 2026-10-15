@@ -26,6 +26,9 @@ public final class Walker {
 	private static final int MAX_BLOCKS_PLACED = 64;
 	/** Walking this far without building starts a fresh building budget (long trips meet many obstacles). */
 	private static final double FREE_WALK_SQ = 32.0D * 32.0D;
+	/** Not getting a block closer to the goal for this long counts as stuck (the caller's limit, within these). */
+	private static final int MIN_PROGRESS_TICKS = 20 * 15;
+	private static final int MAX_PROGRESS_TICKS = 20 * 30;
 	/** Dig routes tried per walk before falling back to poking at the obstacle step by step. */
 	private static final int MAX_PLANS = 3;
 
@@ -43,6 +46,11 @@ public final class Walker {
 	/** A dig route around whatever the bot got stuck on. */
 	private final PathFollower follower = new PathFollower();
 	private int failedPlans;
+	/** The goal progress is measured against, the closest the bot has come to it, and how long since. */
+	@Nullable
+	private Vec3 progressGoal;
+	private double bestDistance;
+	private int noProgressTicks;
 
 	public void reset(ButterBotEntity bot) {
 		repathCooldown = 0;
@@ -52,6 +60,8 @@ public final class Walker {
 		lastBuildPos = null;
 		stepTicks = 0;
 		failedPlans = 0;
+		progressGoal = null;
+		noProgressTicks = 0;
 		follower.clear();
 		lastPosition = bot.position();
 	}
@@ -66,7 +76,17 @@ public final class Walker {
 	 * bot has been stuck for longer than {@code maxStuckTicks}.
 	 */
 	public boolean walk(ButterBotEntity bot, Vec3 target, double speed, boolean digWhenStuck, int maxStuckTicks) {
+		return walk(bot, target, target, false, speed, digWhenStuck, maxStuckTicks);
+	}
+
+	/** {@link #walk}, measuring progress against {@code goal} (only across the ground with {@code flat}). */
+	private boolean walk(ButterBotEntity bot, Vec3 target, Vec3 goal, boolean flat, double speed, boolean digWhenStuck,
+						 int maxStuckTicks) {
 		refreshBudget(bot);
+		if (!makingProgress(bot, goal, flat, maxStuckTicks)) {
+			// Wiggling in place (against a wall, bobbing in water...) for that long is being stuck too.
+			return false;
+		}
 		if (follower.isActive()) {
 			PathFollower.Status status = follower.tick(bot);
 			if (status == PathFollower.Status.RUNNING) {
@@ -115,8 +135,8 @@ public final class Walker {
 
 		if (--repathCooldown <= 0) {
 			repathCooldown = REPATH_INTERVAL;
-			Vec3 goal = waypoint(bot, target);
-			bot.getNavigation().moveTo(goal.x, goal.y, goal.z, speed);
+			Vec3 next = waypoint(bot, target);
+			bot.getNavigation().moveTo(next.x, next.y, next.z, speed);
 		}
 
 		// Pathfinding treats anything within about one block as "arrived", which leaves the bot
@@ -182,7 +202,31 @@ public final class Walker {
 				step = new Vec3(step.x, ground, step.z);
 			}
 		}
-		return walk(bot, step, speed, digWhenStuck, maxStuckTicks);
+		return walk(bot, step, new Vec3(x, 0.0D, z), true, speed, digWhenStuck, maxStuckTicks);
+	}
+
+	/**
+	 * False once the bot hasn't come a block closer to {@code goal} for about {@code maxStuckTicks},
+	 * however much it moves about. A goal that moved (someone walking) starts the count again.
+	 */
+	private boolean makingProgress(ButterBotEntity bot, Vec3 goal, boolean flat, int maxStuckTicks) {
+		double dx = goal.x - bot.getX();
+		double dy = flat ? 0.0D : goal.y - bot.getY();
+		double dz = goal.z - bot.getZ();
+		double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+		if (progressGoal == null || progressGoal.distanceToSqr(goal) > 4.0D * 4.0D) {
+			progressGoal = goal;
+			bestDistance = distance;
+			noProgressTicks = 0;
+			return true;
+		}
+		if (distance < bestDistance - 1.0D) {
+			bestDistance = distance;
+			noProgressTicks = 0;
+			return true;
+		}
+		// At least 15 s (a way round a pen to its gate takes a while), at most 30 s.
+		return ++noProgressTicks <= Math.clamp(maxStuckTicks, MIN_PROGRESS_TICKS, MAX_PROGRESS_TICKS);
 	}
 
 	/** The building budget starts again once the bot has walked a good stretch without building. */

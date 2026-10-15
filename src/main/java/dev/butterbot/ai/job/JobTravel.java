@@ -38,10 +38,10 @@ public final class JobTravel {
 	 */
 	public Result moveTo(ButterBotEntity bot, ServerLevel level, BlockPos pos, double reach, boolean surface) {
 		if (bot.level() != level) {
-			if (Travel.towards(bot, walker, level.dimension(), null)) {
+			if (!bot.teleportsFar() && Travel.towards(bot, walker, level.dimension(), null)) {
 				return Result.MOVING;
 			}
-			// No portal it knows leads there: the job can't wait forever, so it hops over as a last resort.
+			// Teleport mode "far", or no portal it knows leads there: it hops over (as a last resort in the other mode).
 			bot.getNavigation().stop();
 			if (waitTicks % 20 == 0) {
 				JobChunks.preload(level, pos);
@@ -50,13 +50,20 @@ public final class JobTravel {
 				return ++waitTicks > LOAD_TIMEOUT_TICKS ? Result.NO_WAY : Result.MOVING;
 			}
 			waitTicks = 0;
-			return bot.lastResortToLevel(level, surface ? ground(level, pos) : pos) ? Result.MOVING : Result.NO_WAY;
+			BlockPos destination = surface ? ground(level, pos) : pos;
+			boolean hopped = bot.teleportsFar() ? bot.shortcutToLevel(level, destination) : bot.lastResortToLevel(level, destination);
+			return hopped ? Result.MOVING : Result.NO_WAY;
 		}
 		boolean loaded = level.isLoaded(pos);
 		BlockPos target = surface && loaded ? ground(level, pos) : pos;
 		if (loaded && bot.distanceToSqr(Vec3.atBottomCenterOf(target)) <= reach * reach) {
 			bot.getNavigation().stop();
 			return Result.ARRIVED;
+		}
+		// Teleport mode "far": a long trip is one hop (a spot that isn't loaded is loaded first).
+		if (bot.shortcutTo(target, ButterBotEntity.SHORTCUT_DISTANCE)) {
+			walker.reset(bot);
+			return Result.MOVING;
 		}
 		// Only miners and gatherers dig and build their way when stuck. The others walk (round fences,
 		// through gates): digging or building could open a pen or a wall of the base.

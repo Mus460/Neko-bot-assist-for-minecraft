@@ -186,6 +186,10 @@ public class FarmTaskAction implements BotAction {
 		if (distanceSq > BASE_REACH_SQ) {
 			// A far chest isn't loaded yet: head that way over the ground; it loads as the bot gets near.
 			// Walking only: digging or building could open the field's fences.
+			if (bot.shortcutTo(pos, ButterBotEntity.SHORTCUT_DISTANCE)) {
+				walker.reset(bot);
+				return;
+			}
 			if (!walker.walkTo(bot, pos, 1.1D, false, MAX_STUCK_TICKS)) {
 				if (!bot.lastResortTeleport(pos)) {
 					storageFailed(bot, level, pos, false);

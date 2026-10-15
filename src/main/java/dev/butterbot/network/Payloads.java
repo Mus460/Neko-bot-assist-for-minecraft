@@ -119,6 +119,8 @@ public final class Payloads {
 		public static final int JOB_SMELT = 38;
 		/** Bodyguard: guards the bot with the UUID in {@code text} (empty: no one). */
 		public static final int JOB_WARD = 39;
+		/** Teleport mode: {@code args[0]} 1 "far" (long trips by teleport), 0 "emergencies only". */
+		public static final int TELEPORT = 40;
 
 		public static final Type<BotCommand> TYPE = typeOf("bot_command");
 		public static final StreamCodec<RegistryFriendlyByteBuf, BotCommand> CODEC = StreamCodec.of(
@@ -366,7 +368,7 @@ public final class Payloads {
 						   String script, int deliveryMode, int itemCount, BlockPos pos, boolean hasBase, float health,
 						   int level, int workXp, int storedXp, boolean guard, boolean autoTorch, boolean feedOwner,
 						   int smeltMode, boolean autoRefill, int skinVariant, JobView jobView, float maxHealth, int backpackSlots,
-						   int[] skills, int[] mastery, int[] lifetime) {
+						   int[] skills, int[] mastery, int[] lifetime, boolean farTeleport) {
 
 		private static final int MAX_ARRAY = 64;
 
@@ -398,6 +400,7 @@ public final class Payloads {
 			buf.writeVarIntArray(e.skills);
 			buf.writeVarIntArray(e.mastery);
 			buf.writeVarIntArray(e.lifetime);
+			buf.writeBoolean(e.farTeleport);
 		}
 
 		static BotEntry read(RegistryFriendlyByteBuf buf) {
@@ -406,7 +409,7 @@ public final class Payloads {
 					buf.readVarInt(), buf.readVarInt(), buf.readBlockPos(), buf.readBoolean(), buf.readFloat(),
 					buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readBoolean(), buf.readBoolean(), buf.readBoolean(),
 					buf.readVarInt(), buf.readBoolean(), buf.readVarInt(), JobView.read(buf), buf.readFloat(), buf.readVarInt(),
-					buf.readVarIntArray(MAX_ARRAY), buf.readVarIntArray(MAX_ARRAY), buf.readVarIntArray(MAX_ARRAY));
+					buf.readVarIntArray(MAX_ARRAY), buf.readVarIntArray(MAX_ARRAY), buf.readVarIntArray(MAX_ARRAY), buf.readBoolean());
 		}
 	}
 

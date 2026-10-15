@@ -605,6 +605,8 @@ public class BotControlScreen extends Screen {
 		toggle(cx, y + 22, "feed", Items.BREAD, () -> live(Payloads.BotEntry::feedOwner), Payloads.BotCommand.FEED, "butterbot.gui.feed_tooltip");
 		toggle(cx + 121, y + 22, "refill", Items.ARROW, () -> live(Payloads.BotEntry::autoRefill), Payloads.BotCommand.REFILL,
 				"butterbot.gui.refill_tooltip");
+		toggle(cx, y + 66, "teleport", Items.ENDER_PEARL, () -> live(Payloads.BotEntry::farTeleport), Payloads.BotCommand.TELEPORT,
+				"butterbot.gui.teleport_tooltip");
 		addRenderableWidget(McButton.icon(cx, y + 44, 118, 20, Component.empty(), new ItemStack(Items.FURNACE), b -> {
 			Payloads.BotEntry current = selected();
 			if (current != null) {
@@ -645,7 +647,8 @@ public class BotControlScreen extends Screen {
 	private void renderHome(GuiGraphicsExtractor g) {
 		g.text(font, Component.translatable("butterbot.ui.orders"), cx, cy + 2, McStyle.TEXT, false);
 		g.text(font, Component.translatable("butterbot.ui.settings"), cx, cy + 94, McStyle.TEXT, false);
-		g.text(font, Component.translatable("butterbot.ui.wheel_hint", BotKeys.panelKeyName()), cx, cy + 174, McStyle.TEXT_DIM, false);
+		g.textWithWordWrap(font, Component.translatable("butterbot.ui.wheel_hint", BotKeys.panelKeyName()), cx + 123, cy + 171, CW - 123,
+				McStyle.TEXT_DIM, false);
 	}
 
 	// ---------------------------------------------------------------- Mining tab
