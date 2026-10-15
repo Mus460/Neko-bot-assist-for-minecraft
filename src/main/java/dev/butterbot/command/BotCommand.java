@@ -58,7 +58,7 @@ public final class BotCommand {
 
 	private static final int DEFAULT_COUNT = 64;
 	/** How many bots one player may have loaded at the same time. */
-	public static final int MAX_BOTS_PER_PLAYER = 5;
+	public static final int MAX_BOTS_PER_PLAYER = 10;
 
 	public static void register(CommandDispatcher<CommandSourceStack> dispatcher, CommandBuildContext buildContext) {
 		LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("butterbot");

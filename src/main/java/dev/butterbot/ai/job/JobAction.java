@@ -1,6 +1,7 @@
 package dev.butterbot.ai.job;
 
 import dev.butterbot.ai.BotAction;
+import dev.butterbot.ai.Travel;
 import dev.butterbot.ai.Walker;
 import dev.butterbot.block.BotBaseBlockEntity;
 import dev.butterbot.entity.BotState;
@@ -72,9 +73,7 @@ public class JobAction implements BotAction {
 	private static final double OWNER_ITEM_DISTANCE_SQ = 5.0D * 5.0D;
 	/** Rancher: close enough to feed, shear or milk an animal (over a fence too). */
 	private static final double ANIMAL_REACH_SQ = 3.0D * 3.0D;
-	private static final int CHORE_TIMEOUT = 20 * 15;
-	/** Into a pen it can't walk into, the bot hops over the fence (only when this close). */
-	private static final double HOP_RANGE_SQ = 24.0D * 24.0D;
+	private static final int CHORE_TIMEOUT = 20 * 25;
 	private static final long UNREACHABLE_ANIMAL_TICKS = 20L * 60L * 2L;
 	private static final long FEED_RETRY_TICKS = 20L * 60L * 2L;
 	/** A kind with no feed in the chest is looked for again after 2, 4, then 8 minutes. */
@@ -115,7 +114,6 @@ public class JobAction implements BotAction {
 	private long depositBlockedUntil;
 	/** Loot the guard couldn't get to, by entity id, with the time it may try again. */
 	private final Map<Integer, Long> unreachableLoot = new HashMap<>();
-	private boolean pickupHopped;
 
 	@Nullable
 	private Animal choreAnimal;
@@ -125,7 +123,6 @@ public class JobAction implements BotAction {
 	@Nullable
 	private Chore chore;
 	private int choreTicks;
-	private boolean choreHopped;
 	/** Animals the rancher couldn't get to (or kill), by entity id, with the time it may try again. */
 	private final Map<Integer, Long> unreachableAnimals = new HashMap<>();
 	/** Cows milked lately, by entity id. */
@@ -339,7 +336,9 @@ public class JobAction implements BotAction {
 			return;
 		}
 		JobTravel.Result result = travel.moveTo(bot, home, site, 3.0D, !jobs.isSiteExact());
-		if (result == JobTravel.Result.FAILED) {
+		if (result == JobTravel.Result.NO_WAY) {
+			noWay(bot, jobs, home);
+		} else if (result == JobTravel.Result.FAILED) {
 			bot.onJobSiteFailed(entry.item());
 			step = Step.CHECK;
 		}
@@ -350,6 +349,10 @@ public class JobAction implements BotAction {
 		jobs.setPhase(JobConfig.Phase.DEPOSIT);
 		bot.setBotState(BotState.RETURNING);
 		JobTravel.Result result = travel.moveTo(bot, home, chest, CHEST_REACH, false);
+		if (result == JobTravel.Result.NO_WAY) {
+			noWay(bot, jobs, home);
+			return;
+		}
 		if (result == JobTravel.Result.FAILED) {
 			problem(bot, jobs, Component.translatable("butterbot.msg.job_chest_unreachable", chest.toShortString()));
 			return;
@@ -370,7 +373,10 @@ public class JobAction implements BotAction {
 		BlockPos chest = jobs.chest();
 		bot.setBotState(BotState.IDLE);
 		if (bot.level() != home || bot.distanceToSqr(Vec3.atCenterOf(chest)) > 6.0D * 6.0D) {
-			if (travel.moveTo(bot, home, chest, 4.0D, false) == JobTravel.Result.FAILED) {
+			JobTravel.Result result = travel.moveTo(bot, home, chest, 4.0D, false);
+			if (result == JobTravel.Result.NO_WAY) {
+				noWay(bot, jobs, home);
+			} else if (result == JobTravel.Result.FAILED) {
 				step = Step.WAIT;
 				timer = WAIT_AFTER_PROBLEM;
 			}
@@ -381,6 +387,18 @@ public class JobAction implements BotAction {
 			timer = 0;
 			step = Step.CHECK;
 		}
+	}
+
+	/** The job is in another dimension and the bot knows no portal there: say so and wait to be brought back. */
+	private void noWay(ButterBotEntity bot, JobConfig jobs, ServerLevel home) {
+		warnNoWay(bot, home);
+		bot.getNavigation().stop();
+		step = Step.WAIT;
+		timer = WAIT_AFTER_PROBLEM;
+	}
+
+	private static void warnNoWay(ButterBotEntity bot, ServerLevel home) {
+		warn(bot, Component.translatable("butterbot.msg.job_other_dimension", Travel.dimensionName(home.dimension())));
 	}
 
 	private void problem(ButterBotEntity bot, JobConfig jobs, Component message) {
@@ -499,7 +517,10 @@ public class JobAction implements BotAction {
 		int radius = jobs.radius();
 		if (bot.level() != home || Walker.horizontalDistSq(bot, center) > (radius + 16.0D) * (radius + 16.0D)) {
 			jobs.setPhase(working);
-			if (travel.moveTo(bot, home, center, Math.max(3.0D, radius * 0.5D), false) == JobTravel.Result.FAILED) {
+			JobTravel.Result result = travel.moveTo(bot, home, center, Math.max(3.0D, radius * 0.5D), false);
+			if (result == JobTravel.Result.NO_WAY) {
+				warnNoWay(bot, home);
+			} else if (result == JobTravel.Result.FAILED) {
 				warn(bot, Component.translatable("butterbot.msg.job_cant_reach_area", center.toShortString()));
 			}
 			return;
@@ -589,7 +610,6 @@ public class JobAction implements BotAction {
 			return false;
 		}
 		pickup = found;
-		pickupHopped = false;
 		patrolStep = PatrolStep.PICKUP;
 		walker.reset(bot);
 		return true;
@@ -611,13 +631,8 @@ public class JobAction implements BotAction {
 			patrolStep = PatrolStep.WALK;
 			return;
 		}
-		if (!walker.walk(bot, item.position(), 1.1D, false, 60)) {
-			if (ranch && !pickupHopped && bot.distanceToSqr(item) < HOP_RANGE_SQ && bot.teleportNear(item.blockPosition(), false)) {
-				// An egg or some wool inside a pen: hop over the fence.
-				pickupHopped = true;
-				walker.reset(bot);
-				return;
-			}
+		// Inside a pen the walker finds the gate (it opens and closes it again).
+		if (!walker.walk(bot, item.position(), 1.1D, false, ranch ? 120 : 60)) {
 			// Down a pit, behind a fence, on a roof: leave it for a while instead of trying again and again.
 			unreachableLoot.put(item.getId(), bot.level().getGameTime() + UNREACHABLE_LOOT_TICKS);
 			pickup = null;
@@ -646,7 +661,7 @@ public class JobAction implements BotAction {
 		}
 		lastDeposit = now;
 		patrolStep = PatrolStep.WALK;
-		if (result == JobTravel.Result.FAILED) {
+		if (result != JobTravel.Result.ARRIVED) {
 			warn(bot, Component.translatable("butterbot.msg.job_chest_unreachable", chestPos.toShortString()));
 			blockDeposit(now);
 			if (ranch) {
@@ -848,7 +863,6 @@ public class JobAction implements BotAction {
 		chorePartner = pick.partner;
 		chore = pick.chore;
 		choreTicks = 0;
-		choreHopped = false;
 		walker.reset(bot);
 		patrolStep = PatrolStep.CHORE;
 		return true;
@@ -866,14 +880,9 @@ public class JobAction implements BotAction {
 		}
 		if (bot.distanceToSqr(animal) > ANIMAL_REACH_SQ) {
 			bot.setBotState(BotState.MOVING_TO_TARGET);
-			if (++choreTicks > CHORE_TIMEOUT || !walker.walk(bot, animal.position(), 1.0D, false, 50)) {
-				// Behind a fence: hop into the pen once; if even that doesn't help, leave the animal for a while.
-				if (!choreHopped && bot.distanceToSqr(animal) < HOP_RANGE_SQ && bot.teleportNear(animal.blockPosition(), false)) {
-					choreHopped = true;
-					choreTicks = 0;
-					walker.reset(bot);
-					return;
-				}
+			// In a pen the walker finds the gate (it opens it, and closes it once through).
+			if (++choreTicks > CHORE_TIMEOUT || !walker.walk(bot, animal.position(), 1.0D, false, 120)) {
+				// Even that didn't get it there: leave the animal for a while.
 				unreachableAnimals.put(animal.getId(), now + UNREACHABLE_ANIMAL_TICKS);
 				endChore();
 			}
@@ -890,7 +899,6 @@ public class JobAction implements BotAction {
 					// Straight on to its partner, before anything else: half a pair only wastes the feed.
 					choreAnimal = partner;
 					choreTicks = 0;
-					choreHopped = false;
 					walker.reset(bot);
 					return;
 				}
@@ -1213,7 +1221,10 @@ public class JobAction implements BotAction {
 		int radius = jobs.radius();
 		jobs.setPhase(JobConfig.Phase.FARMING);
 		if (bot.level() != home || Walker.horizontalDistSq(bot, center) > (radius + 8.0D) * (radius + 8.0D)) {
-			if (travel.moveTo(bot, home, center, 4.0D, false) == JobTravel.Result.FAILED) {
+			JobTravel.Result result = travel.moveTo(bot, home, center, 4.0D, false);
+			if (result == JobTravel.Result.NO_WAY) {
+				warnNoWay(bot, home);
+			} else if (result == JobTravel.Result.FAILED) {
 				warn(bot, Component.translatable("butterbot.msg.job_cant_reach_area", center.toShortString()));
 			}
 			return;

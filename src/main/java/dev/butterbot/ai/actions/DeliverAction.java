@@ -1,6 +1,7 @@
 package dev.butterbot.ai.actions;
 
 import dev.butterbot.ai.BotAction;
+import dev.butterbot.ai.Travel;
 import dev.butterbot.ai.Walker;
 import dev.butterbot.ai.job.JobAction;
 import dev.butterbot.ai.job.JobTravel;
@@ -28,8 +29,6 @@ public class DeliverAction implements BotAction {
 	private static final double BASE_DISTANCE_SQ_ROOT = 2.8D;
 	private static final double BASE_DISTANCE_SQ = BASE_DISTANCE_SQ_ROOT * BASE_DISTANCE_SQ_ROOT;
 	private static final int MAX_STUCK_TICKS = 20 * 45;
-	/** Farther than this the bot takes a shortcut instead of walking (it could leave the loaded area). */
-	private static final double SHORTCUT_DISTANCE_SQ = 64.0D * 64.0D;
 
 	private final Walker walker = new Walker();
 	private final JobTravel jobTravel = new JobTravel();
@@ -100,6 +99,11 @@ public class DeliverAction implements BotAction {
 		if (result == JobTravel.Result.MOVING) {
 			return;
 		}
+		if (result == JobTravel.Result.NO_WAY) {
+			// The job chest is in another dimension and the bot knows no portal: bring it to the owner instead.
+			deliverToOwner(bot);
+			return;
+		}
 		if (result == JobTravel.Result.ARRIVED) {
 			bot.getLookControl().setLookAt(Vec3.atCenterOf(chest));
 			JobAction.depositAtChest(bot, home, chest);
@@ -113,13 +117,10 @@ public class DeliverAction implements BotAction {
 	private void deliverToBase(ButterBotEntity bot, BotBaseBlockEntity base) {
 		BlockPos pos = base.getBlockPos();
 		double distanceSq = bot.distanceToSqr(Vec3.atCenterOf(pos));
-		if (distanceSq > SHORTCUT_DISTANCE_SQ && bot.teleportNear(pos)) {
-			walker.reset(bot);
-			return;
-		}
 		if (distanceSq > BASE_DISTANCE_SQ) {
 			if (!walker.walk(bot, Vec3.atBottomCenterOf(pos), 1.1D, true, MAX_STUCK_TICKS)) {
-				if (!bot.teleportNear(pos)) {
+				// Stuck even digging and building: hop there as a last resort, or bring it to the owner.
+				if (!bot.lastResortTeleport(pos)) {
 					bot.tellOwner(Component.translatable("butterbot.msg.cant_reach_base"));
 					bot.setDeliveryMode(DeliveryMode.OWNER);
 				}
@@ -145,6 +146,13 @@ public class DeliverAction implements BotAction {
 				deliverToBase(bot, base);
 				return;
 			}
+			Player away = bot.level() instanceof ServerLevel level && bot.getOwnerUuid() != null
+					? level.getServer().getPlayerList().getPlayer(bot.getOwnerUuid()) : null;
+			if (away != null && !away.isSpectator() && away.level() != bot.level()
+					&& Travel.towards(bot, walker, away.level().dimension(), bot.getLastOwnerPos())) {
+				// In another dimension: go after them through the portal.
+				return;
+			}
 			if (waitTicks++ % 600 == 0) {
 				bot.say(Component.translatable("butterbot.msg.waiting_for_owner"));
 			}
@@ -153,13 +161,12 @@ public class DeliverAction implements BotAction {
 		}
 
 		double distanceSq = bot.distanceToSqr(owner);
-		if (distanceSq > SHORTCUT_DISTANCE_SQ && (owner.onGround() || owner.isPassenger()) && bot.teleportNear(owner.blockPosition())) {
-			walker.reset(bot);
-			return;
-		}
 		if (distanceSq > OWNER_DISTANCE_SQ) {
-			if (!walker.walk(bot, owner.position(), 1.15D, true, MAX_STUCK_TICKS)) {
-				bot.teleportNear(owner.blockPosition());
+			boolean ownerStanding = owner.onGround() || owner.isPassenger() || owner.isInWater();
+			if (!walker.walk(bot, owner.position(), 1.15D, ownerStanding, MAX_STUCK_TICKS)) {
+				if (!ownerStanding || !bot.lastResortTeleport(owner.blockPosition())) {
+					bot.sayStuck();
+				}
 				walker.reset(bot);
 			}
 			return;

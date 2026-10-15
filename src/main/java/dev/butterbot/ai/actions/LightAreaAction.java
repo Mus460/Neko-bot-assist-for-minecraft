@@ -180,12 +180,7 @@ public class LightAreaAction implements BotAction {
 		}
 		double distanceSq = bot.getEyePosition().distanceToSqr(Vec3.atCenterOf(target));
 		if (distanceSq > REACH_SQ) {
-			if (distanceSq > SHORTCUT_SQ) {
-				bot.teleportNear(target);
-				walker.reset(bot);
-				return;
-			}
-			if (!walker.walk(bot, Vec3.atBottomCenterOf(target), 1.1D, false, 60)) {
+			if (!walker.walk(bot, Vec3.atBottomCenterOf(target), 1.1D, false, distanceSq > SHORTCUT_SQ ? 200 : 60)) {
 				// Unreachable (a closed cave, a roof...): leave it rather than digging into builds.
 				plan.removeFirst();
 				skipped++;

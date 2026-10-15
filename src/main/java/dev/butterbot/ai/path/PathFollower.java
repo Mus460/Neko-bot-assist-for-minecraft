@@ -113,6 +113,17 @@ public final class PathFollower {
 		Level level = bot.level();
 		for (BlockPos cell : step.dig()) {
 			BlockState state = level.getBlockState(cell);
+			if (TunnelHelper.isGateway(state)) {
+				if (TunnelHelper.isClosedGateway(state)) {
+					// Open it like a player would (it is closed again once the bot is through).
+					if (!bot.openGate(cell)) {
+						return Status.FAILED;
+					}
+					stepTicks = 0;
+					return Status.RUNNING;
+				}
+				continue;
+			}
 			if (state.getCollisionShape(level, cell).isEmpty() && !TunnelHelper.isTrap(state)) {
 				continue;
 			}

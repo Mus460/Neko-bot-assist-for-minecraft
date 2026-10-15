@@ -46,6 +46,8 @@ public final class DigPlanner {
 	private static final double WATER = 10.0D;
 	private static final double NEXT_TO_LAVA = 40.0D;
 	private static final double UNDER_GRAVEL = 20.0D;
+	/** Opening a fence gate or door on the way. */
+	private static final double GATE = 6.0D;
 	/** A partial route must get at least this much closer (estimate units) to be worth walking. */
 	private static final double MIN_PARTIAL_GAIN = WALK * 2.0D;
 
@@ -98,8 +100,11 @@ public final class DigPlanner {
 		};
 	}
 
-	/** UNKNOWN: not loaded or outside the world, never stood on or walked through. */
-	private enum Kind {OPEN, WATER, DIG, SOLID, LAVA, HAZARD, UNKNOWN}
+	/**
+	 * UNKNOWN: not loaded or outside the world, never stood on or walked through. GATE: a closed fence
+	 * gate or door, opened on the way. WALL: taller than a block (fences, walls), never stood on.
+	 */
+	private enum Kind {OPEN, WATER, DIG, SOLID, LAVA, HAZARD, UNKNOWN, GATE, WALL}
 
 	private record Cell(Kind kind, double digCost) {
 		boolean passable() {
@@ -135,13 +140,16 @@ public final class DigPlanner {
 	@Nullable
 	private final BlockPos target;
 	private final BlockPos start;
+	/** False: walk, climb, drop, swim and open gates only (no digging, bridging or pillaring). */
+	private final boolean dig;
 	private final Map<Long, Cell> cells = new HashMap<>();
 
-	private DigPlanner(ButterBotEntity bot, @Nullable BlockPos target) {
+	private DigPlanner(ButterBotEntity bot, @Nullable BlockPos target, boolean dig) {
 		this.bot = bot;
 		this.level = bot.level();
 		this.target = target;
 		this.start = PathFollower.feetOf(bot);
+		this.dig = dig;
 	}
 
 	/**
@@ -150,7 +158,13 @@ public final class DigPlanner {
 	 */
 	@Nullable
 	public static DigPath plan(ButterBotEntity bot, Goal goal, @Nullable BlockPos target) {
-		return new DigPlanner(bot, target).search(goal);
+		return new DigPlanner(bot, target, true).search(goal);
+	}
+
+	/** A route that only walks (and opens gates): for places where nothing may be dug or built, like a ranch. */
+	@Nullable
+	public static DigPath planWalking(ButterBotEntity bot, Goal goal) {
+		return new DigPlanner(bot, null, false).search(goal);
 	}
 
 	@Nullable
@@ -240,7 +254,9 @@ public final class DigPlanner {
 				} else if (floor.passable()) {
 					// An edge: drop down a little, or bridge the gap.
 					addDrop(out, front, bodyCost);
-					out.add(new Candidate(front, WALK + bodyCost + PLACE, step(front, DigPath.Move.BRIDGE, front.below(), front.above(), front)));
+					if (dig) {
+						out.add(new Candidate(front, WALK + bodyCost + PLACE, step(front, DigPath.Move.BRIDGE, front.below(), front.above(), front)));
+					}
 				}
 				if (floor.kind == Kind.DIG) {
 					// A stair step down: dig the block in front at foot level too and step into it.
@@ -270,7 +286,7 @@ public final class DigPlanner {
 		}
 		// Pillar up: jump and put a block where the feet were.
 		Cell aboveHead = cell(p.above(2));
-		if (clearable(aboveHead) && cell(p).passable()) {
+		if (dig && clearable(aboveHead) && cell(p).passable()) {
 			out.add(new Candidate(p.above(), PILLAR + enter(aboveHead), step(p.above(), DigPath.Move.PILLAR, null, p.above(2))));
 		}
 		return out;
@@ -309,9 +325,9 @@ public final class DigPlanner {
 		return cell(feet).kind != Kind.WATER || cell(feet.above()).kind != Kind.WATER;
 	}
 
-	/** Open, or something the bot may dig away. */
+	/** Open, something the bot may dig away, or a gate it opens. */
 	private static boolean clearable(Cell cell) {
-		return cell.passable() || cell.kind == Kind.DIG;
+		return cell.passable() || cell.kind == Kind.DIG || cell.kind == Kind.GATE;
 	}
 
 	/** Extra cost of moving through a cell: digging it, or wading through water. */
@@ -319,6 +335,7 @@ public final class DigPlanner {
 		return switch (cell.kind) {
 			case DIG -> cell.digCost;
 			case WATER -> WATER;
+			case GATE -> GATE;
 			default -> 0.0D;
 		};
 	}
@@ -349,17 +366,25 @@ public final class DigPlanner {
 		if (fluid.is(FluidTags.LAVA)) {
 			return new Cell(Kind.LAVA, 0.0D);
 		}
+		if (TunnelHelper.isGateway(state)) {
+			// Open ones are walked through as they are (an open door's frame is in the way only a little).
+			return new Cell(TunnelHelper.isClosedGateway(state) ? Kind.GATE : Kind.OPEN, 0.0D);
+		}
 		if (state.getCollisionShape(level, pos).isEmpty()) {
 			if (TunnelHelper.isTrap(state)) {
-				return TunnelHelper.canClear(bot, pos, state) ? new Cell(Kind.DIG, digCost(pos, state)) : new Cell(Kind.HAZARD, 0.0D);
+				return dig && TunnelHelper.canClear(bot, pos, state) ? new Cell(Kind.DIG, digCost(pos, state)) : new Cell(Kind.HAZARD, 0.0D);
 			}
 			if (state.is(BlockTags.FIRE) || state.is(Blocks.SWEET_BERRY_BUSH) || state.is(Blocks.WITHER_ROSE)) {
 				return new Cell(Kind.HAZARD, 0.0D);
 			}
 			return new Cell(fluid.isEmpty() ? Kind.OPEN : Kind.WATER, 0.0D);
 		}
-		if (pos.equals(target) || TunnelHelper.canClear(bot, pos, state)) {
+		if (dig && (pos.equals(target) || TunnelHelper.canClear(bot, pos, state))) {
 			return new Cell(Kind.DIG, digCost(pos, state));
+		}
+		if (state.getCollisionShape(level, pos).max(Direction.Axis.Y) > 1.0D) {
+			// Fences and walls: too tall to step onto.
+			return new Cell(Kind.WALL, 0.0D);
 		}
 		return new Cell(Kind.SOLID, 0.0D);
 	}

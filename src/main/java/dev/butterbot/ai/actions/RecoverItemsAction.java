@@ -1,6 +1,7 @@
 package dev.butterbot.ai.actions;
 
 import dev.butterbot.ai.BotAction;
+import dev.butterbot.ai.Travel;
 import dev.butterbot.ai.Walker;
 import dev.butterbot.entity.BotState;
 import dev.butterbot.entity.ButterBotEntity;
@@ -33,7 +34,6 @@ public class RecoverItemsAction implements BotAction {
 	/** Keep sweeping a little after arriving: items may still be flying or bouncing. */
 	private static final int SWEEP_TICKS = 60;
 	private static final int GIVE_UP_TICKS = 20 * 90;
-	private static final double OWNER_TELEPORT_SQ = 24.0D * 24.0D;
 	private static final double HAND_OVER_SQ = 2.5D * 2.5D;
 	private static final int DIMENSION_FOLLOW_DELAY = 40;
 
@@ -85,18 +85,28 @@ public class RecoverItemsAction implements BotAction {
 			return;
 		}
 		if (distanceSq > SHORTCUT_SQ) {
-			if (!bot.teleportNear(spot)) {
-				bot.finishCollecting();
+			// Urgent: the owner's things vanish after five minutes on the ground, too soon to walk far.
+			if (!level.isLoaded(spot)) {
+				if (ticks % 20 == 1) {
+					dev.butterbot.ai.job.JobChunks.preload(level, spot);
+				}
+				return;
 			}
-			walker.reset(bot);
-			return;
+			if (bot.lastResortTeleport(spot)) {
+				walker.reset(bot);
+				return;
+			}
 		}
 		if (distanceSq < ARRIVED_SQ * 4.0D) {
 			sweep(bot, level, center);
 		}
 		if (distanceSq > ARRIVED_SQ) {
-			if (!walker.walk(bot, center, 1.3D, true, 200)) {
-				bot.teleportNear(spot);
+			// Far away the spot isn't loaded yet: head that way; it loads as the bot gets near.
+			Vec3 goal = level.isLoaded(spot) ? center : new Vec3(center.x, bot.getY(), center.z);
+			if (!walker.walk(bot, goal, 1.3D, true, 200)) {
+				if (!bot.lastResortTeleport(spot)) {
+					bot.sayStuck();
+				}
 				walker.reset(bot);
 			}
 			return;
@@ -135,14 +145,12 @@ public class RecoverItemsAction implements BotAction {
 			return;
 		}
 		double distanceSq = bot.distanceToSqr(owner);
-		if (distanceSq > OWNER_TELEPORT_SQ && (owner.onGround() || owner.isPassenger())) {
-			bot.teleportNear(owner.blockPosition());
-			walker.reset(bot);
-			return;
-		}
 		if (distanceSq > HAND_OVER_SQ) {
-			if (!walker.walk(bot, owner.position(), 1.25D, true, 200)) {
-				bot.teleportNear(owner.blockPosition());
+			boolean ownerStanding = owner.onGround() || owner.isPassenger() || owner.isInWater();
+			if (!walker.walk(bot, owner.position(), 1.25D, ownerStanding, 400)) {
+				if (!ownerStanding || !bot.lastResortTeleport(owner.blockPosition())) {
+					bot.sayStuck();
+				}
 				walker.reset(bot);
 			}
 			return;
@@ -152,18 +160,30 @@ public class RecoverItemsAction implements BotAction {
 		bot.returnRecoveredTo(owner);
 	}
 
-	/** The owner respawned in another dimension (for example died in the Nether, woke up at home). */
+	/**
+	 * The owner respawned in another dimension (for example died in the Nether, woke up at home): the
+	 * bot walks back through the portal it came by. Without one it says so, and after a while hops
+	 * over as a last resort (it carries the owner's things).
+	 */
 	private void followAcrossDimensions(ButterBotEntity bot, ServerLevel level) {
 		UUID ownerId = bot.getOwnerUuid();
-		if (ownerId == null || ++awayTicks < DIMENSION_FOLLOW_DELAY) {
+		if (ownerId == null) {
 			return;
 		}
 		ServerPlayer owner = level.getServer().getPlayerList().getPlayer(ownerId);
-		if (owner == null || !owner.isAlive() || owner.isSpectator() || owner.level() == level || !owner.onGround()) {
+		if (owner == null || !owner.isAlive() || owner.isSpectator() || owner.level() == level) {
 			return;
 		}
-		awayTicks = 0;
-		bot.followToLevel(owner.level(), owner.blockPosition());
+		if (Travel.towards(bot, walker, owner.level().dimension(), bot.getLastOwnerPos())) {
+			awayTicks = 0;
+			return;
+		}
+		if (++awayTicks == DIMENSION_FOLLOW_DELAY) {
+			bot.tellOwner(Component.translatable("butterbot.msg.follow_no_way", Travel.dimensionName(owner.level().dimension())));
+		}
+		if (awayTicks > DIMENSION_FOLLOW_DELAY * 5 && owner.onGround() && bot.lastResortToLevel(owner.level(), owner.blockPosition())) {
+			awayTicks = 0;
+		}
 	}
 
 	@Override
