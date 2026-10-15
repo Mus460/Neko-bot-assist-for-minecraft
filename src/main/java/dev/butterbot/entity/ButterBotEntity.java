@@ -112,7 +112,9 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.ItemStackWithSlot;
 import net.minecraft.world.item.component.Consumable;
+import net.minecraft.world.item.component.ItemAttributeModifiers;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.item.component.Tool;
 import net.minecraft.world.item.component.Weapon;
@@ -200,8 +202,10 @@ public class ButterBotEntity extends PathfinderMob {
 	private static final int SWING_INTERVAL_TICKS = 5;
 	/** Shortest pause between two voice lines. */
 	private static final int VOICE_GAP_TICKS = 25;
-	/** How long the bot tries to get into a portal before it gives up on it (and on portals for as long). */
-	private static final int PORTAL_PATIENCE_TICKS = 20 * 60 * 3;
+	/** How long the bot stands at a portal that doesn't take it before it gives up on it. */
+	private static final int PORTAL_PATIENCE_TICKS = 20 * 45;
+	/** After giving up on a portal, portals are left alone this long (the caller falls back meanwhile). */
+	private static final int PORTAL_GIVE_UP_TICKS = 20 * 60 * 3;
 	private static final String[] DEFAULT_NAMES = {
 			"Mochi", "Kuro", "Shiro", "Momo", "Yuki", "Hana", "Sora", "Neko", "Miko", "Tama",
 			"Kiki", "Luna", "Coco", "Nana", "Rin", "Mimi", "Suzu", "Haru", "Nori", "Kinako"
@@ -645,10 +649,19 @@ public class ButterBotEntity extends PathfinderMob {
 		return given.isEmpty() ? ownTool(slot, BotLevels.toolTier(getBotLevel())) : given.copy();
 	}
 
-	/** The sword the bot fights with: a given one (the real stack), else its own. */
+	/**
+	 * The sword the bot fights with: a given one (the real stack) when it is enchanted or hits at least
+	 * as hard as the bot's own, else its own.
+	 */
 	private ItemStack weapon() {
+		ItemStack own = ownTool(GearSlot.SWORD, BotLevels.toolTier(getBotLevel()));
 		ItemStack sword = usableTool(GearSlot.SWORD);
-		return sword.isEmpty() ? ownTool(GearSlot.SWORD, BotLevels.toolTier(getBotLevel())) : sword;
+		return sword.isEmpty() || !sword.isEnchanted() && attackBonus(sword) < attackBonus(own) ? own : sword;
+	}
+
+	private static double attackBonus(ItemStack stack) {
+		return stack.getOrDefault(DataComponents.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.EMPTY)
+				.compute(Attributes.ATTACK_DAMAGE, 0.0D, EquipmentSlot.MAINHAND);
 	}
 
 	/** How fast the bot digs {@code state}: never slower than with its own tool; a given one can be faster (Efficiency counts). */
@@ -772,7 +785,10 @@ public class ButterBotEntity extends PathfinderMob {
 			ItemStack stack = getGear(slot);
 			if (!stack.isEmpty()) {
 				setGear(slot, ItemStack.EMPTY);
-				this.spawnAtLocation(level, stack);
+				// Curse of Vanishing: gone, as with a player.
+				if (!EnchantmentHelper.has(stack, EnchantmentEffectComponents.PREVENT_EQUIPMENT_DROP)) {
+					this.spawnAtLocation(level, stack);
+				}
 			}
 		}
 	}
@@ -2835,9 +2851,10 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/**
 	 * Lets the bot use a portal to {@code dimension} for a moment (it never wanders through one by
-	 * accident). False once it has been trying for too long: the caller falls back to its last resort.
+	 * accident). Only the time spent {@code atPortal} counts against its patience, never the walk
+	 * there. False once it has given up: the caller falls back to its last resort.
 	 */
-	public boolean wantPortal(ResourceKey<Level> dimension) {
+	public boolean wantPortal(ResourceKey<Level> dimension, boolean atPortal) {
 		long now = this.level().getGameTime();
 		if (now < portalGiveUpUntil) {
 			return false;
@@ -2845,15 +2862,20 @@ public class ButterBotEntity extends PathfinderMob {
 		if (portalWish == null || now > portalWishUntil || !portalWish.equals(dimension)) {
 			portalTicks = 0;
 		}
-		if (++portalTicks > PORTAL_PATIENCE_TICKS) {
-			portalWish = null;
-			portalTicks = 0;
-			portalGiveUpUntil = now + PORTAL_PATIENCE_TICKS;
+		if (atPortal && ++portalTicks > PORTAL_PATIENCE_TICKS) {
+			giveUpPortal();
 			return false;
 		}
 		portalWish = dimension;
 		portalWishUntil = now + 40L;
 		return true;
+	}
+
+	/** The portal can't be reached, or doesn't take the bot: portals are left alone for a while. */
+	public void giveUpPortal() {
+		portalWish = null;
+		portalTicks = 0;
+		portalGiveUpUntil = this.level().getGameTime() + PORTAL_GIVE_UP_TICKS;
 	}
 
 	/**
@@ -3024,19 +3046,14 @@ public class ButterBotEntity extends PathfinderMob {
 	 * walk everywhere), but not while they only wait: never a free chunk loader.
 	 */
 	public boolean keepsChunksLoaded() {
-		if (jobs.isActive() || recoverPos != null) {
-			// Jobs run wherever the bot is; the owner's dropped things vanish if nobody fetches them.
+		if (jobs.hasJob() || recoverPos != null || returnRequested || !recoveredItems.isEmpty()) {
+			// Jobs run wherever the bot is (a paused one stays loaded, or it couldn't be found to resume
+			// it). A bot bringing things back stays loaded too, so it can still find an owner who logged
+			// off once they are back.
 			return true;
 		}
 		boolean ownerOnline = this.level() instanceof ServerLevel level && ownerUuid != null
 				&& level.getServer().getPlayerList().getPlayer(ownerUuid) != null;
-		if (returnRequested) {
-			// Bringing things to an owner who logged off: wait where it is.
-			return ownerOnline || deliveryMode != DeliveryMode.OWNER;
-		}
-		if (!recoveredItems.isEmpty()) {
-			return ownerOnline;
-		}
 		return switch (task) {
 			// A plain farm order works while the owner is around, like the rest of the world.
 			case NONE, LUA, FARM -> false;
@@ -3729,11 +3746,12 @@ public class ButterBotEntity extends PathfinderMob {
 		output.storeNullable("FarmCenter", BlockPos.CODEC, farmCenter);
 		output.putInt("Harvested", harvestedCount);
 		inventory.storeAsItemList(output.list("BotInventory", ItemStack.CODEC));
-		List<ItemStack> tools = new ArrayList<>();
+		ValueOutput.TypedOutputList<ItemStackWithSlot> tools = output.list("Tools", ItemStackWithSlot.CODEC);
 		for (int i = 0; i < toolbox.getContainerSize(); i++) {
-			tools.add(toolbox.getItem(i));
+			if (!toolbox.getItem(i).isEmpty()) {
+				tools.add(new ItemStackWithSlot(i, toolbox.getItem(i)));
+			}
 		}
-		output.store("BotTools", ItemStack.OPTIONAL_CODEC.listOf(), tools);
 
 		if (tunnelDirection != null && tunnelOrigin != null) {
 			output.putString("TunnelDir", tunnelDirection.getName());
@@ -3806,9 +3824,17 @@ public class ButterBotEntity extends PathfinderMob {
 		harvestedCount = input.getIntOr("Harvested", 0);
 		inventory.fromItemList(input.listOrEmpty("BotInventory", ItemStack.CODEC));
 		toolbox.clearContent();
+		for (ItemStackWithSlot tool : input.listOrEmpty("Tools", ItemStackWithSlot.CODEC)) {
+			if (tool.isValidInContainer(toolbox.getContainerSize())) {
+				toolbox.setItem(tool.slot(), tool.stack());
+			}
+		}
+		// The first version with gear saved one list, empty slots included.
 		input.read("BotTools", ItemStack.OPTIONAL_CODEC.listOf()).ifPresent(tools -> {
 			for (int i = 0; i < Math.min(tools.size(), toolbox.getContainerSize()); i++) {
-				toolbox.setItem(i, tools.get(i));
+				if (toolbox.getItem(i).isEmpty()) {
+					toolbox.setItem(i, tools.get(i));
+				}
 			}
 		});
 
@@ -3968,7 +3994,7 @@ public class ButterBotEntity extends PathfinderMob {
 			this.setItemSlot(EquipmentSlot.MAINHAND, held.copy());
 		}
 		boolean hit = super.doHurtTarget(level, target);
-		if (hit && !usableTool(GearSlot.SWORD).isEmpty()) {
+		if (hit && !held.isEmpty() && held == getGear(GearSlot.SWORD)) {
 			Weapon weaponData = held.get(DataComponents.WEAPON);
 			wearTool(GearSlot.SWORD, weaponData == null ? 1 : weaponData.itemDamagePerAttack());
 		}

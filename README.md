@@ -172,13 +172,14 @@ Buka tas bot (tombol **Buka tas** di panel, atau `V`). Baris paling atas adalah 
   - **Efficiency** mempercepat menggali; bot tidak pernah lebih lambat dari alat bawaannya.
   - **Fortune**: yang dipakai yang lebih tinggi antara Fortune alat dan Fortune dari level bot.
   - **Silk Touch** berlaku di luar penambangan. Saat menambang, bot tidak memakainya supaya bijih tetap keluar sebagai bijih mentah yang dihitung.
-  - **Sharpness, Smite, Fire Aspect, Knockback, Looting** berlaku saat bertarung.
+  - **Sharpness, Smite, Fire Aspect, Knockback, Looting** berlaku saat bertarung. Pedang tanpa enchant yang lebih lemah dari pedang bawaan bot tidak dipakai.
 - **Ketahanan**: alat aus setiap kali dipakai seperti di tangan pemain (Unbreaking berlaku, tanaman tidak membuat alat aus). Bot memberi tahu saat alat hampir rusak.
   - Alat **ber-enchant tidak pernah dibiarkan rusak**: saat tinggal 10 pemakaian, bot menyimpannya di slot dan memakai alat bawaannya sampai alat itu diperbaiki.
   - Alat tanpa enchant dipakai sampai rusak, lalu bot kembali ke alat bawaannya.
 - **Mending**: XP yang dipungut bot dipakai dulu untuk memperbaiki perlengkapan ber-Mending, sisanya disimpan untukmu.
 - Slot kosong berarti bot memakai alat bawaannya (besi, lalu berlian dan netherite sesuai level).
-- Perlengkapan tetap milikmu: dikembalikan saat bot dikemas atau dipulangkan, dan jatuh utuh di tempat bot hancur.
+- Slot baju zirah hanya menerima baju zirah (bukan labu atau kepala).
+- Perlengkapan tetap milikmu: dikembalikan saat bot dikemas atau dipulangkan, dan jatuh utuh di tempat bot hancur (kecuali yang terkena Curse of Vanishing).
 
 ### Anti nyangkut
 
@@ -202,7 +203,7 @@ Bot **berjalan kaki** ke mana pun, sejauh apa pun, dan tidak teleport hanya kare
 
 Pencegahan lain:
 
-- Saat mengikutimu, bot ikut **pindah dimensi** (Nether atau End) dengan **berjalan masuk ke portal yang kamu pakai**. Bot mengingat portal yang dilewatinya, jadi job atau barang yang harus dibawa pulang tetap bisa ditempuh lewat portal yang sama. Kalau bot tidak tahu portalnya, ia bilang dan menunggu dijemput.
+- Saat mengikutimu, bot ikut **pindah dimensi** (Nether atau End) dengan **berjalan masuk ke portal yang kamu pakai**. Bot mengingat portal yang dilewatinya, jadi job atau barang yang harus dibawa pulang tetap bisa ditempuh lewat portal yang sama. Kalau bot tidak tahu portalnya (atau portalnya tidak bisa dicapai), ia bilang, menunggu sebentar, lalu menyusul dengan teleport darurat.
 - Bot **tidak pernah masuk portal tanpa sengaja**, dan **tidak pernah terbawa perahu atau minecart**.
 - Kalau ada block yang menimpanya (kerikil, pasir), bot memecahkannya, atau terdorong keluar pelan-pelan kalau block itu tidak boleh digali.
 - Saat menambang, kalau bot terkurung block yang tidak bisa digali (bedrock, obsidian), ia naik satu block lalu mencari arah lain.
