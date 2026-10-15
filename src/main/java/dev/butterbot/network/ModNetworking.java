@@ -14,6 +14,7 @@ import net.minecraft.world.entity.animal.Animal;
 import dev.butterbot.entity.DeliveryMode;
 import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
+import dev.butterbot.registry.ModSounds;
 import dev.butterbot.skin.ServerSkinStore;
 import dev.butterbot.skin.SkinLimits;
 import dev.butterbot.util.Msg;
@@ -22,11 +23,13 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
@@ -283,6 +286,11 @@ public final class ModNetworking {
 				bot.setFarTeleport(payload.arg(0, 1) != 0);
 				bot.say(Component.translatable(bot.teleportsFar() ? "butterbot.msg.teleport_far" : "butterbot.msg.teleport_emergency"));
 			}
+			case Payloads.BotCommand.PING -> {
+				ping(bot);
+				// The panel closed itself, so no fresh list is needed.
+				return;
+			}
 			case Payloads.BotCommand.REFILL -> {
 				bot.setAutoRefill(payload.arg(0, 1) != 0);
 				bot.say(Component.translatable(bot.refillsHotbar() ? "butterbot.msg.refill_on" : "butterbot.msg.refill_off"));
@@ -370,6 +378,19 @@ public final class ModNetworking {
 			}
 		}
 		sendBotList(player, payload.base());
+	}
+
+	/** "Show me": the bot says where it is, out loud, with a few notes above its head. */
+	private static void ping(ButterBotEntity bot) {
+		bot.say(Component.translatable("butterbot.msg.here"));
+		bot.speak(ModSounds.VOICE_HELLO);
+		if (!bot.isNeko()) {
+			// The classic Butter Bot has no voice line: a bell instead.
+			bot.playSound(SoundEvents.NOTE_BLOCK_BELL.value(), 1.0F, 1.2F);
+		}
+		if (bot.level() instanceof ServerLevel level) {
+			level.sendParticles(ParticleTypes.NOTE, bot.getX(), bot.getY() + 2.2D, bot.getZ(), 6, 0.4D, 0.3D, 0.4D, 1.0D);
+		}
 	}
 
 	private static void handleScript(ServerPlayer player, Payloads.SaveScript payload) {

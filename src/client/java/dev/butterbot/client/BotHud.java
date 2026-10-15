@@ -19,6 +19,7 @@ import net.minecraft.util.ARGB;
 import net.minecraft.util.Mth;
 import net.minecraft.util.Util;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -36,7 +37,8 @@ import java.util.UUID;
  * icon for the job, the level and name, what it is doing and how far away it is ("Full" when its bag
  * is nearly full), with a thin line under it for how far along its work is. Trouble shows at a glance:
  * a blinking amber "!" when a bot is stuck or had to skip something, a red pulse while it is hurt or
- * low on health. Toggled with a key (default ]); the choice is remembered.
+ * low on health. A key (default ]) switches between the list plus a marker on each bot out in the world
+ * (see {@link BotMarkers}), the list alone, and nothing; the choice is remembered.
  */
 public final class BotHud implements HudElement {
 
@@ -57,10 +59,25 @@ public final class BotHud implements HudElement {
 	private static final float LOST_FADE_MILLIS = 600.0F;
 	/** The health strip is drawn in quarter pixels, so it slides smoothly. */
 	private static final int STRIP_STEPS = 32;
+	/** Updates come once a second; a bot's last known spot slides to the new one over this long. */
+	private static final float POSITION_BLEND_MILLIS = 1000.0F;
+	/** A bigger jump than this between two updates (a teleport) is not slid across. */
+	private static final float POSITION_JUMP_SQ = 48.0F * 48.0F;
+
+	/** What the key shows: the list and the markers on the bots, only the list, or nothing. */
+	private enum Mode {
+		ALL("all"), LIST("list"), HIDDEN("hidden");
+
+		final String id;
+
+		Mode(String id) {
+			this.id = id;
+		}
+	}
 
 	private static List<Payloads.HudBot> bots = List.of();
 	private static long receivedAt;
-	private static boolean visible = loadVisible();
+	private static Mode mode = loadMode();
 	/** What each line showed last frame, so a change slides and fades instead of jumping. */
 	private static final Map<UUID, RowAnim> anims = new HashMap<>();
 	private static long lastFrame;
@@ -74,11 +91,21 @@ public final class BotHud implements HudElement {
 		long lostAt = Long.MIN_VALUE / 2;
 		float progress = -1.0F;
 		int flags;
+		/** The spot of the update before (where the slide starts) and of the last one. */
+		float fromX;
+		float fromY;
+		float fromZ;
+		float toX;
+		float toY;
+		float toZ;
+		boolean hasPosition;
 	}
 
 	public static void update(Payloads.HudUpdate update) {
+		long now = Util.getMillis();
+		float blend = positionBlend(now);
 		bots = List.copyOf(update.bots());
-		receivedAt = Util.getMillis();
+		receivedAt = now;
 		boolean newlyStuck = false;
 		Set<UUID> present = new HashSet<>();
 		for (Payloads.HudBot bot : bots) {
@@ -88,10 +115,11 @@ public final class BotHud implements HudElement {
 				newlyStuck = true;
 			}
 			anim.flags = bot.flags();
+			rememberPosition(anim, bot, blend);
 		}
 		anims.keySet().retainAll(present);
 		Minecraft minecraft = Minecraft.getInstance();
-		if (newlyStuck && visible && minecraft.player != null) {
+		if (newlyStuck && mode != Mode.HIDDEN && minecraft.player != null) {
 			// One soft ding when a bot gets stuck, not on every update while it stays stuck.
 			minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_BELL, 1.5F));
 		}
@@ -110,26 +138,79 @@ public final class BotHud implements HudElement {
 		return (int) bots.stream().filter(bot -> bot.distance() >= 0).count();
 	}
 
-	public static void toggle() {
-		visible = !visible;
+	/** The key: list and markers, then only the list, then nothing, then both again. */
+	public static void cycleMode() {
+		mode = Mode.values()[(mode.ordinal() + 1) % Mode.values().length];
 		Minecraft minecraft = Minecraft.getInstance();
 		if (minecraft.player != null) {
-			minecraft.player.sendOverlayMessage(Component.translatable(visible ? "butterbot.hud.shown" : "butterbot.hud.hidden"));
+			minecraft.player.sendOverlayMessage(Component.translatable("butterbot.hud.mode." + mode.id));
 		}
 		try {
 			Files.createDirectories(SETTINGS.getParent());
-			Files.writeString(SETTINGS, visible ? "visible" : "hidden", StandardCharsets.UTF_8);
+			Files.writeString(SETTINGS, mode.id, StandardCharsets.UTF_8);
 		} catch (IOException exception) {
 			ButterBot.LOGGER.warn("Could not save the Butter Bot HUD setting", exception);
 		}
 	}
 
-	private static boolean loadVisible() {
+	private static Mode loadMode() {
 		try {
-			return !Files.exists(SETTINGS) || !Files.readString(SETTINGS, StandardCharsets.UTF_8).trim().equals("hidden");
+			if (!Files.exists(SETTINGS)) {
+				return Mode.ALL;
+			}
+			String saved = Files.readString(SETTINGS, StandardCharsets.UTF_8).trim();
+			for (Mode candidate : Mode.values()) {
+				if (candidate.id.equals(saved)) {
+					return candidate;
+				}
+			}
+			// Older versions saved "visible" (the list was all there was).
+			return Mode.ALL;
 		} catch (IOException exception) {
-			return true;
+			return Mode.ALL;
 		}
+	}
+
+	/** True while the markers on the bots are switched on (focused bots get one either way). */
+	static boolean showsMarkers() {
+		return mode == Mode.ALL;
+	}
+
+	/** The bots of the last update, or none when it is too old to trust. */
+	static List<Payloads.HudBot> liveBots() {
+		return Util.getMillis() - receivedAt > STALE_MILLIS ? List.of() : bots;
+	}
+
+	/**
+	 * Where a bot is by the updates: the last reported spot, slid to from the one before over a second.
+	 * For bots too far away for this computer to know them as entities.
+	 */
+	static Vec3 reportedPosition(Payloads.HudBot bot) {
+		RowAnim anim = anims.get(bot.id());
+		if (anim == null || !anim.hasPosition) {
+			return new Vec3(bot.x(), bot.y(), bot.z());
+		}
+		float t = positionBlend(Util.getMillis());
+		return new Vec3(Mth.lerp(t, anim.fromX, anim.toX), Mth.lerp(t, anim.fromY, anim.toY), Mth.lerp(t, anim.fromZ, anim.toZ));
+	}
+
+	private static float positionBlend(long now) {
+		return Mth.clamp((now - receivedAt) / POSITION_BLEND_MILLIS, 0.0F, 1.0F);
+	}
+
+	/** The new spot becomes the target; the slide starts where the bot is drawn right now (so it never jumps). */
+	private static void rememberPosition(RowAnim anim, Payloads.HudBot bot, float blend) {
+		float x = anim.hasPosition ? Mth.lerp(blend, anim.fromX, anim.toX) : bot.x();
+		float y = anim.hasPosition ? Mth.lerp(blend, anim.fromY, anim.toY) : bot.y();
+		float z = anim.hasPosition ? Mth.lerp(blend, anim.fromZ, anim.toZ) : bot.z();
+		boolean jumped = Mth.lengthSquared(bot.x() - x, bot.y() - y, bot.z() - z) > POSITION_JUMP_SQ;
+		anim.fromX = jumped ? bot.x() : x;
+		anim.fromY = jumped ? bot.y() : y;
+		anim.fromZ = jumped ? bot.z() : z;
+		anim.toX = bot.x();
+		anim.toY = bot.y();
+		anim.toZ = bot.z();
+		anim.hasPosition = true;
 	}
 
 	@Override
@@ -138,7 +219,7 @@ public final class BotHud implements HudElement {
 		float seconds = lastFrame == 0L ? 0.0F : Mth.clamp((now - lastFrame) / 1000.0F, 0.0F, 0.25F);
 		lastFrame = now;
 		Minecraft minecraft = Minecraft.getInstance();
-		if (!visible || bots.isEmpty() || minecraft.player == null
+		if (mode == Mode.HIDDEN || bots.isEmpty() || minecraft.player == null
 				|| minecraft.getDebugOverlay().showDebugScreen() || now - receivedAt > STALE_MILLIS) {
 			return;
 		}

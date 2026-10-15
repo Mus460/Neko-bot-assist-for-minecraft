@@ -3,6 +3,7 @@ package dev.butterbot.client.screen;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.ItemStack;
 
 /** Drawing helpers that copy the look of vanilla inventories: grey windows, sunken boxes and slots. */
 final class McStyle {
@@ -59,6 +60,15 @@ final class McStyle {
 	/** One inventory slot (18x18). */
 	static void slot(GuiGraphicsExtractor g, int x, int y) {
 		g.blitSprite(RenderPipelines.GUI_TEXTURED, SLOT_SPRITE, x, y, 18, 18);
+	}
+
+	/** An item drawn {@code size} pixels wide (smaller than the usual 16) at {@code x, y}. */
+	static void smallItem(GuiGraphicsExtractor g, ItemStack stack, float x, float y, float size) {
+		g.pose().pushMatrix();
+		g.pose().translate(x, y);
+		g.pose().scale(size / 16.0F, size / 16.0F);
+		g.item(stack, 0, 0);
+		g.pose().popMatrix();
 	}
 
 	/** A thin progress bar in a dark groove. */

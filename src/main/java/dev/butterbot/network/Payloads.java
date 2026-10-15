@@ -121,6 +121,8 @@ public final class Payloads {
 		public static final int JOB_WARD = 39;
 		/** Teleport mode: {@code args[0]} 1 "far" (long trips by teleport), 0 "emergencies only". */
 		public static final int TELEPORT = 40;
+		/** "Show me": the bot calls out and sends up notes, so the player can spot it (the glow is drawn on the client). */
+		public static final int PING = 41;
 
 		public static final Type<BotCommand> TYPE = typeOf("bot_command");
 		public static final StreamCodec<RegistryFriendlyByteBuf, BotCommand> CODEC = StreamCodec.of(

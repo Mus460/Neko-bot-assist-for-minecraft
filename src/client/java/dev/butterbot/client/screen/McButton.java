@@ -178,8 +178,15 @@ public class McButton extends Button {
 				g.text(font, s, textX, y + (h - 8) / 2, color, true);
 			}
 			case SLOT -> {
-				if (icon != null) {
+				if (icon == null) {
+					break;
+				}
+				if (w >= 18 && h >= 18) {
 					g.item(icon, x + (w - 16) / 2, y + (h - 16) / 2);
+				} else {
+					// A small square button: the icon shrinks to fit inside the frame.
+					float size = Math.min(w, h) - 3.0F;
+					McStyle.smallItem(g, icon, x + (w - size) / 2.0F, y + (h - size) / 2.0F, size);
 				}
 			}
 			case TAB -> {

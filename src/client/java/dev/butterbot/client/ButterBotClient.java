@@ -47,12 +47,14 @@ public class ButterBotClient implements ClientModInitializer {
 		ClientPlayNetworking.registerGlobalReceiver(Payloads.HudUpdate.TYPE, (payload, context) -> BotHud.update(payload));
 
 		BotKeys.init();
+		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, ButterBot.id("bot_markers"), new BotMarkers());
 		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, ButterBot.id("bot_list"), new BotHud());
 
 		ClientLifecycleEvents.CLIENT_STARTED.register(client -> ClientSkinManager.ensureSetup());
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
 			ClientSkinManager.onDisconnect();
 			BotHud.clear();
+			BotFocus.clear();
 		});
 	}
 }

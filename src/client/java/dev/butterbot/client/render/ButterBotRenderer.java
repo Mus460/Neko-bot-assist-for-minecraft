@@ -3,6 +3,7 @@ package dev.butterbot.client.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import dev.butterbot.ButterBot;
+import dev.butterbot.client.BotFocus;
 import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.entity.BotTier;
 import dev.butterbot.entity.ButterBotEntity;
@@ -12,6 +13,8 @@ import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.blockentity.BeaconRenderer;
+import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.HumanoidMobRenderer;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
@@ -32,6 +35,7 @@ import java.util.Map;
 /**
  * Renders the bot as a person with a normal Minecraft player skin (wide or slim arms), optional cat
  * ears and tail, the armor and tool it is using, and a name line plus speech bubble above its head.
+ * A bot being shown ("Show" in the panel) glows in its hair colour through walls under a beacon beam.
  */
 public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, ButterBotRenderState, PlayerModel> {
 
@@ -39,6 +43,9 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 	private static final int SPEECH_WRAP_WIDTH = 140;
 	/** Same proportions as real players. */
 	private static final float PLAYER_SCALE = 0.9375F;
+	/** The "Show" beam starts just over the head and reaches this far up. */
+	private static final int BEAM_START = 2;
+	private static final int BEAM_HEIGHT = 320;
 
 	private final PlayerModel wideModel;
 	private final PlayerModel slimModel;
@@ -57,6 +64,12 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 	@Override
 	public ButterBotRenderState createRenderState() {
 		return new ButterBotRenderState();
+	}
+
+	/** A bot being shown keeps its beam even while it is out of sight or far away. */
+	@Override
+	public boolean shouldRender(ButterBotEntity entity, Frustum culler, double camX, double camY, double camZ, float partialTicks) {
+		return BotFocus.isFocused(entity.getUUID()) || super.shouldRender(entity, culler, camX, camY, camZ, partialTicks);
 	}
 
 	@Override
@@ -110,6 +123,13 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		state.working = entity.isWorkingClient();
 		state.tier = BotTier.of(entity.getBotLevel());
 		state.levelUpTime = entity.levelUpAnimTime(partialTicks);
+		state.focused = BotFocus.isFocused(entity.getUUID());
+		if (state.focused) {
+			// The vanilla glowing outline, drawn through walls.
+			state.focusColor = BotFocus.glowColor(skin.hairColor());
+			state.outlineColor = state.focusColor;
+			state.beamTime = entity.tickCount % 40 + partialTicks;
+		}
 
 		boolean close = state.distanceToCameraSq < INFO_DISTANCE_SQ && !entity.isInvisible();
 		if (close) {
@@ -150,9 +170,23 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 	public void submit(ButterBotRenderState state, PoseStack poseStack, SubmitNodeCollector collector, CameraRenderState camera) {
 		this.model = state.slim ? slimModel : wideModel;
 		super.submit(state, poseStack, collector, camera);
+		if (state.focused) {
+			submitBeam(state, poseStack, collector);
+		}
 		if (state.infoLine != null) {
 			submitLabels(state, poseStack, collector, camera);
 		}
+	}
+
+	/** A beacon beam in the glow colour from just over the head up to the sky, wider far away like a beacon's. */
+	private static void submitBeam(ButterBotRenderState state, PoseStack poseStack, SubmitNodeCollector collector) {
+		float width = Math.max(1.0F, (float) Math.sqrt(state.distanceToCameraSq) / 96.0F);
+		poseStack.pushPose();
+		// The beam centres itself on a block (+0.5): take that back so it comes out of the bot.
+		poseStack.translate(-0.5F, 0.0F, -0.5F);
+		BeaconRenderer.submitBeaconBeam(poseStack, collector, BeaconRenderer.BEAM_LOCATION, 1.0F, state.beamTime, BEAM_START,
+				BEAM_HEIGHT, state.focusColor, 0.2F * width, 0.25F * width);
+		poseStack.popPose();
 	}
 
 	private void submitLabels(ButterBotRenderState state, PoseStack poseStack, SubmitNodeCollector collector, CameraRenderState camera) {
