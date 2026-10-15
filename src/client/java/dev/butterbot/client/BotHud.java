@@ -49,6 +49,14 @@ public final class BotHud implements HudElement {
 		bots = List.of();
 	}
 
+	/** Bots in this dimension (which the "all bots" orders reach) by the last update, or -1 if there is none lately. */
+	public static int botsInReach() {
+		if (Util.getMillis() - receivedAt > STALE_MILLIS) {
+			return -1;
+		}
+		return (int) bots.stream().filter(bot -> bot.distance() >= 0).count();
+	}
+
 	public static void toggle() {
 		visible = !visible;
 		Minecraft minecraft = Minecraft.getInstance();
