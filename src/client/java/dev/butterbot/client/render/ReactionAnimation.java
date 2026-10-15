@@ -13,19 +13,21 @@ final class ReactionAnimation {
 	private ReactionAnimation() {
 	}
 
-	/** 0 to 1: in over four ticks, held, and out over the last ten. */
-	static float strength(float time) {
+	/**
+	 * 0 to 1: in over four ticks, held, and out over the last ten ({@code left} ticks before the end). A pat
+	 * while one plays only pushes the end out, so the reaction stays held instead of starting over.
+	 */
+	static float strength(float time, float left) {
 		if (time < 0.0F) {
 			return 0.0F;
 		}
 		float in = Mth.clamp(time / 4.0F, 0.0F, 1.0F);
-		float out = Mth.clamp((ButterBotEntity.REACTION_TICKS - time) / 10.0F, 0.0F, 1.0F);
+		float out = Mth.clamp(left / 10.0F, 0.0F, 1.0F);
 		return smooth(Math.min(in, out));
 	}
 
 	/** Degrees the ears fold outwards. */
-	static float earFold(int reaction, float time) {
-		float s = strength(time);
+	static float earFold(int reaction, float time, float s) {
 		return switch (reaction) {
 			case ButterBotEntity.REACTION_PET -> 45.0F * s;
 			case ButterBotEntity.REACTION_POUT -> 38.0F * s;
@@ -36,8 +38,7 @@ final class ReactionAnimation {
 	}
 
 	/** Degrees the head tips forward (negative: chin up). */
-	static float headPitch(int reaction, float time) {
-		float s = strength(time);
+	static float headPitch(int reaction, float time, float s) {
 		return switch (reaction) {
 			case ButterBotEntity.REACTION_PET -> 12.0F * s;
 			case ButterBotEntity.REACTION_POUT -> -15.0F * s;
@@ -47,13 +48,13 @@ final class ReactionAnimation {
 	}
 
 	/** Degrees the head turns aside (a pout's "hmph!"). */
-	static float headTurn(int reaction, float time) {
-		return reaction == ButterBotEntity.REACTION_POUT ? 50.0F * strength(time) : 0.0F;
+	static float headTurn(int reaction, float s) {
+		return reaction == ButterBotEntity.REACTION_POUT ? 50.0F * s : 0.0F;
 	}
 
 	/** Degrees the whole body turns away. */
-	static float bodyTurn(int reaction, float time) {
-		return reaction == ButterBotEntity.REACTION_POUT ? 35.0F * strength(time) : 0.0F;
+	static float bodyTurn(int reaction, float s) {
+		return reaction == ButterBotEntity.REACTION_POUT ? 35.0F * s : 0.0F;
 	}
 
 	/** How much faster than usual the tail sways. */

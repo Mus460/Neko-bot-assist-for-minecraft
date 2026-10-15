@@ -385,6 +385,8 @@ public final class ModNetworking {
 
 	/** "Show me": the bot says where it is, out loud, with a few notes above its head. */
 	private static void ping(ButterBotEntity bot) {
+		// However far away it is, the owner's on-screen list now carries it, so it gets its marker.
+		HudSync.markShown(bot);
 		bot.say(Component.translatable("butterbot.msg.here"));
 		bot.speak(ModSounds.VOICE_HELLO);
 		if (!bot.isNeko()) {

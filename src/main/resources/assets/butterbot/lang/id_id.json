@@ -359,7 +359,7 @@
   "butterbot.bond.tier_up": "Kita makin dekat: %s ♥",
   "butterbot.bond.hug": "Bertahanlah, aku di sini! ♥",
   "butterbot.ui.bond": "♥ %s",
-  "butterbot.ui.bond_tip": "Kedekatan naik kalau kamu mengelus kepalanya (klik bagian paling atas kepala), memberinya ikan atau kue, dan menghabiskan waktu bersama. Memukulnya sambil jongkok menurunkannya.",
+  "butterbot.ui.bond_tip": "Kedekatan naik kalau kamu mengelus kepalanya (klik dahinya, sedikit di atas mata), memberinya ikan atau kue, dan menghabiskan waktu bersama. Memukulnya sambil jongkok menurunkannya.",
   "butterbot.stats.bond": "♥ %s · %s",
   "butterbot.stats.favorite": "Camilan favorit: %s",
   "butterbot.stats.favorite_unknown": "Camilan favorit: ??? (beri camilan untuk tahu)",

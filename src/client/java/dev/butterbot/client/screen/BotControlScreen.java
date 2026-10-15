@@ -501,8 +501,13 @@ public class BotControlScreen extends Screen {
 		// The bond sits at the right end of the health row, in pink.
 		Component bond = Component.translatable("butterbot.ui.bond", bot.bond());
 		int bondX = cardX + CARD_W - 5 - font.width(bond);
-		String healthText = font.plainSubstrByWidth(Component.translatable("butterbot.ui.health", health, maxHealth).getString(),
-				bondX - 4 - (cardX + 5));
+		int healthRoom = bondX - 4 - (cardX + 5);
+		String healthText = Component.translatable("butterbot.ui.health", health, maxHealth).getString();
+		if (font.width(healthText) > healthRoom) {
+			// Cutting "Health 30/30" down to "Health 30/3" would misread: the bar right below says what it is.
+			healthText = health + "/" + maxHealth;
+		}
+		healthText = font.plainSubstrByWidth(healthText, healthRoom);
 		g.text(font, healthText, cardX + 5, cardY + 113, McStyle.TEXT_LIGHT, true);
 		g.text(font, bond, bondX, cardY + 113, BOND_LIGHT, true);
 		if (inside(mouseX, mouseY, bondX - 1, cardY + 112, font.width(bond) + 2, 10)) {
@@ -587,7 +592,7 @@ public class BotControlScreen extends Screen {
 					SHOW_SIZE, SHOW_SIZE);
 			McStyle.smallItem(g, SHOW_ICON, showX() + 1.5F, showY(y) + 1.5F, SHOW_SIZE - 3.0F);
 			if (showHovered) {
-				g.setTooltipForNextFrame(Component.translatable("butterbot.ui.show_bot_tip"), mouseX, mouseY);
+				g.setTooltipForNextFrame(font.split(Component.translatable("butterbot.ui.show_bot_tip"), 170), mouseX, mouseY);
 			}
 		}
 	}
@@ -1685,8 +1690,12 @@ public class BotControlScreen extends Screen {
 		int x = cx + BOND_METER_X;
 		int slotX = cx + CW - 18;
 		int w = slotX - 3 - x;
-		Component line = Component.translatable("butterbot.stats.bond", bot.bond(), BotBond.tierName(bot.bond()));
-		g.text(font, font.plainSubstrByWidth(line.getString(), w), x, cy + 1, BOND_DARK, false);
+		String line = Component.translatable("butterbot.stats.bond", bot.bond(), BotBond.tierName(bot.bond())).getString();
+		if (font.width(line) > w) {
+			// A long tier name ("Belahan Jiwa") goes without the number: the bar below shows it.
+			line = Component.translatable("butterbot.ui.bond", BotBond.tierName(bot.bond())).getString();
+		}
+		g.text(font, font.plainSubstrByWidth(line, w), x, cy + 1, BOND_DARK, false);
 		McStyle.bar(g, x, cy + 11, w, 4, bot.bond() / (float) BotBond.MAX, BOND_LIGHT);
 		McStyle.slot(g, slotX, cy - 1);
 		if (BotBond.isValidFavorite(bot.favorite())) {

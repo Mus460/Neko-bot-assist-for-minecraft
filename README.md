@@ -208,8 +208,8 @@ Buka tas bot (tombol **Buka tas** di panel, atau `V`). Baris paling atas adalah 
 
 Kalau bot milikmu hancur, ia meninggalkan **Inti Memori** yang berkilau. Inti ini menyimpan nama, skin, telinga neko, level, skill, mastery, job, program Lua, kedekatan dan camilan favoritnya, serta semua pengaturannya.
 
-- Inti masuk ke **Bot Base**-nya kalau masih ada tempat, kalau tidak ke **inventory-mu** (juga saat kamu di dimensi lain). Kalau dua-duanya tidak bisa, inti jatuh di tempat bot hancur, **bersinar menembus tembok dan tidak pernah hilang**. Chat memberi tahu letaknya, beserta koordinat tempat perlengkapan bot jatuh.
-- Inti tahan api, lava, ledakan dan kaktus. Bot yang jatuh ke void meninggalkan intinya di dekat Bot Base atau di dekatmu.
+- Inti masuk ke **Bot Base**-nya kalau masih ada tempat, kalau tidak ke **inventory-mu** (juga saat kamu di dimensi lain), asal kamu masih hidup dan ada slot kosong. Kalau dua-duanya tidak bisa, inti jatuh di tempat bot hancur, **bersinar menembus tembok dan tidak pernah hilang**. Chat memberi tahu letaknya, beserta koordinat tempat perlengkapan bot jatuh.
+- Inti tahan api, lava, ledakan dan kaktus. Bot yang jatuh ke void meninggalkan intinya di dekat Bot Base (kalau base ada di dimensi yang sama) atau di dekatmu.
 - **Rakit Inti Memori dengan 4 Iron Ingot** (tanpa pola) untuk mendapat item Butter Bot lagi. Taruh, dan bot kembali sambil berkata "Aku kembali, Tuan! Aku masih ingat semuanya~".
 - Harganya kecil: XP di dalam level yang sedang berjalan hilang (levelnya tetap), dan XP simpanan untukmu sudah jatuh sebagai orb di tempat bot hancur.
 - Bot yang sudah dilepas (tanpa pemilik) tidak meninggalkan inti. **Second Wind** (level 25) tetap menyelamatkan bot lebih dulu.
@@ -257,7 +257,7 @@ Pencegahan lain:
 
 Setiap bot punya meter **Kedekatan ♥** (0–100) denganmu. Bot baru, dan bot dari versi lama, mulai dari 20. Kedekatan tidak pernah turun sendiri.
 
-- **Elus**: dengan tangan kosong, arahkan ke **puncak kepala** bot (atau kupingnya) lalu klik kanan. Bot mendengkur (bot non-neko bersenandung pelan), muncul hati, kupingnya melipat, ekornya bergoyang cepat dan kepalanya menunduk ke tanganmu. Kerjanya tidak terganggu. Klik bagian badan atau wajah tetap membuka panel, begitu juga `B` atau `Z`. +2 kedekatan, paling sering sekali per menit (mengelus lagi tetap ada animasinya).
+- **Elus**: dengan tangan kosong, arahkan ke **bagian atas kepala** bot (dahinya, sedikit di atas mata) lalu klik kanan. Kuping dan ubun-ubunnya tidak bisa diklik. Bot mendengkur (bot non-neko bersenandung pelan), muncul hati, kupingnya melipat, ekornya bergoyang cepat dan kepalanya menunduk ke tanganmu. Kerjanya tidak terganggu. Klik di bawah mata (wajah atau badan) tetap membuka panel, begitu juga `B` atau `Z`. +2 kedekatan, paling sering sekali per menit (mengelus lagi tetap ada animasinya).
 - **Camilan**: klik kanan bot sambil memegang ikan (mentah atau matang), kue kering, pai labu, beri manis, beri bercahaya atau kue. Bot memakannya, sembuh seperti makan dari tasnya, lalu mendengkur. +3 kedekatan (ikan +4), paling sering sekali per 2 menit. Ikan buntal ditolak dan tetap di tanganmu.
 - **Camilan favorit**: setiap bot punya satu favorit di antara kue kering, ikan kod matang, salmon matang, beri manis, pai labu dan beri bercahaya. Favoritnya memberi kedekatan dua kali lipat dan bot berseru "Ini favoritku!". Panel baru menampilkannya setelah kamu pernah memberikannya.
 - **Waktu bersama**: +1 untuk setiap 10 menit bot berada dalam 16 blok darimu, dan +1 setiap kali bot naik level.

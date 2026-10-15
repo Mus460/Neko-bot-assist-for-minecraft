@@ -309,8 +309,9 @@ public class ButterBotEntity extends PathfinderMob {
 	private BotStats cachedStats;
 	/** Client side: the tick the last level-up cheer started. */
 	private int levelUpAnimStart = Integer.MIN_VALUE / 2;
-	/** Client side: the tick the last bond reaction started, and which one it is. */
+	/** Client side: the ticks the bond reaction playing started and ends, and which one it is. */
 	private int reactionStart = Integer.MIN_VALUE / 2;
+	private int reactionEnd = Integer.MIN_VALUE / 2;
 	private int reactionType = REACTION_NONE;
 
 	// Bond with the owner (see BotBond).
@@ -646,6 +647,10 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/** After defeating a monster: keep its loot and experience, and learn from the fight. */
 	public void onDefeated(LivingEntity victim) {
+		if (this.isDeadOrDying()) {
+			// Killed by the blow's recoil (thorns, a guardian's spikes): its own drops and Memory Core stay on the ground.
+			return;
+		}
 		if (this.level() instanceof ServerLevel serverLevel) {
 			storedXp += mendGear(Math.max(1, victim.getExperienceReward(serverLevel, this)));
 		}
@@ -1052,7 +1057,8 @@ public class ButterBotEntity extends PathfinderMob {
 	public void pickUp(ServerPlayer player) {
 		dropInventoryAt(player);
 		ItemStack stack = ButterBotItem.createFrom(this);
-		if (!player.getInventory().add(stack)) {
+		// A full inventory in creative would swallow the bot instead of refusing it.
+		if (player.getInventory().getFreeSlot() < 0 || !player.getInventory().add(stack)) {
 			this.spawnAtLocation((ServerLevel) this.level(), stack);
 		}
 		this.playSound(SoundEvents.ITEM_PICKUP, 0.8F, 0.8F);
@@ -1415,7 +1421,12 @@ public class ButterBotEntity extends PathfinderMob {
 	/** Ticks since the bond reaction started (with the partial tick), or -1 when none is playing. Client side. */
 	public float reactionTime(float partialTicks) {
 		float time = this.tickCount - reactionStart + partialTicks;
-		return time >= 0.0F && time < REACTION_TICKS ? time : -1.0F;
+		return time >= 0.0F && reactionLeft(partialTicks) > 0.0F ? time : -1.0F;
+	}
+
+	/** Ticks until the bond reaction ends (with the partial tick). Client side. */
+	public float reactionLeft(float partialTicks) {
+		return reactionEnd - this.tickCount - partialTicks;
 	}
 
 	@Override
@@ -1425,8 +1436,13 @@ public class ButterBotEntity extends PathfinderMob {
 			// The event comes before the new level is synced, so it carries the new tier itself.
 			spawnLevelUpBurst(BotTier.byIndex(id - LEVEL_UP_EVENT));
 		} else if (id == PET_EVENT || id == POUT_EVENT || id == TREAT_EVENT) {
-			reactionStart = this.tickCount;
-			reactionType = id == PET_EVENT ? REACTION_PET : id == POUT_EVENT ? REACTION_POUT : REACTION_TREAT;
+			int type = id == PET_EVENT ? REACTION_PET : id == POUT_EVENT ? REACTION_POUT : REACTION_TREAT;
+			// The same reaction again while it plays (a held pat) only lasts longer, so it never snaps back to the start.
+			if (type != reactionType()) {
+				reactionStart = this.tickCount;
+			}
+			reactionType = type;
+			reactionEnd = this.tickCount + REACTION_TICKS;
 		} else {
 			super.handleEntityEvent(id);
 		}
@@ -1642,7 +1658,7 @@ public class ButterBotEntity extends PathfinderMob {
 		Vec3 ownerPos = owner.position();
 		ownerStillSeconds = ownerStillPos != null && ownerPos.distanceToSqr(ownerStillPos) < 0.01D ? ownerStillSeconds + 1 : 0;
 		ownerStillPos = ownerPos;
-		if (bond >= BotBond.SOULMATE && now >= nextHugAt && distanceSq < 8.0D * 8.0D
+		if (bond >= BotBond.SOULMATE && now >= nextHugAt && distanceSq < 8.0D * 8.0D && !owner.isCreative()
 				&& owner.getHealth() < owner.getMaxHealth() * 0.3F) {
 			nextHugAt = now + HUG_COOLDOWN;
 			hug(owner);
@@ -3936,6 +3952,9 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/** Picks up item entities lying around {@code center} (monster loot, things knocked loose...). */
 	public void collectNearbyDrops(Vec3 center, double radius) {
+		if (this.isDeadOrDying()) {
+			return;
+		}
 		List<ItemEntity> drops = this.level().getEntitiesOfClass(ItemEntity.class, new AABB(center, center).inflate(radius));
 		for (ItemEntity drop : drops) {
 			if (!drop.isAlive() || drop.getOwner() instanceof Player) {
@@ -4259,10 +4278,15 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 
 		Player owner = getOwner();
-		if (owner == null || !owner.isAlive() || owner.isSpectator() || owner.isCreative()) {
+		if (owner == null || !owner.isAlive() || owner.isSpectator()) {
 			return;
 		}
 		double distanceSq = this.distanceToSqr(owner);
+		// Time together counts in creative too; feeding the owner and filling their hotbar doesn't.
+		tickBond(owner, distanceSq);
+		if (owner.isCreative()) {
+			return;
+		}
 		if (feedOwner && feedCooldown == 0 && distanceSq < 6.0D * 6.0D
 				&& owner.getFoodData().getFoodLevel() <= OWNER_FEED_FOOD_LEVEL) {
 			feedCooldown = 60;
@@ -4274,7 +4298,6 @@ public class ButterBotEntity extends PathfinderMob {
 		if (autoRefill && distanceSq < 8.0D * 8.0D) {
 			hotbarRefill.tick(this, owner);
 		}
-		tickBond(owner, distanceSq);
 	}
 
 	public boolean placeBlockFromInventory(BlockPos pos, Item item) {
@@ -4361,6 +4384,10 @@ public class ButterBotEntity extends PathfinderMob {
 		output.putInt("BondFav", getFavoriteTreat());
 		output.putBoolean("BondFavKnown", favoriteKnown);
 		output.putInt("BondNear", nearOwnerSeconds);
+		// What is left of the pat and treat cooldowns, so reloading or a portal doesn't reset them.
+		long now = this.level().getGameTime();
+		output.putInt("BondPetCd", (int) Mth.clamp(nextPetBondAt - now, 0L, PET_BOND_COOLDOWN));
+		output.putInt("BondTreatCd", (int) Mth.clamp(nextTreatBondAt - now, 0L, TREAT_BOND_COOLDOWN));
 		output.storeNullable("RecoverPos", BlockPos.CODEC, recoverPos);
 		ValueOutput.TypedOutputList<ItemStack> recovered = output.list("Recovered", ItemStack.CODEC);
 		recoveredItems.forEach(recovered::add);
@@ -4454,6 +4481,9 @@ public class ButterBotEntity extends PathfinderMob {
 		favoriteTreat = input.getIntOr("BondFav", -1);
 		favoriteKnown = input.getBooleanOr("BondFavKnown", false);
 		nearOwnerSeconds = input.getIntOr("BondNear", 0);
+		long now = this.level().getGameTime();
+		nextPetBondAt = now + input.getIntOr("BondPetCd", 0);
+		nextTreatBondAt = now + input.getIntOr("BondTreatCd", 0);
 		recoverPos = input.read("RecoverPos", BlockPos.CODEC).orElse(null);
 		recoveredItems.clear();
 		input.listOrEmpty("Recovered", ItemStack.CODEC).forEach(recoveredItems::add);
@@ -4592,7 +4622,7 @@ public class ButterBotEntity extends PathfinderMob {
 			wearTool(GearSlot.SWORD, weaponData == null ? 1 : weaponData.itemDamagePerAttack());
 		}
 		float sweep = stats().sweepFraction();
-		if (!hit || sweep <= 0.0F) {
+		if (!hit || sweep <= 0.0F || this.isDeadOrDying()) {
 			return hit;
 		}
 		List<Mob> near = level.getEntitiesOfClass(Mob.class, target.getBoundingBox().inflate(2.0D, 0.5D, 2.0D),
@@ -4645,7 +4675,7 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/**
 	 * An owned bot leaves a Memory Core holding everything it remembers: in its Bot Base if there is
-	 * room, else in the owner's inventory (from any dimension), else on the ground, glowing and never
+	 * room, else in a living owner's free inventory slot (from any dimension), else on the ground, glowing and never
 	 * despawning. One that falls out of the world drops it near its base or its owner instead.
 	 * Released bots leave nothing, and Second Wind, packing and dismissing never get here.
 	 */
@@ -4660,7 +4690,8 @@ public class ButterBotEntity extends PathfinderMob {
 		BotBaseBlockEntity base = getBase();
 		if (base != null && base.insert(core).isEmpty()) {
 			key = "butterbot.msg.core_base";
-		} else if (owner != null && owner.getInventory().add(core)) {
+		} else if (owner != null && owner.isAlive() && owner.getInventory().getFreeSlot() >= 0 && owner.getInventory().add(core)) {
+			// A dead owner's inventory is thrown away on respawn, and a full creative one swallows the core.
 			key = "butterbot.msg.core_inventory";
 		} else {
 			key = "butterbot.msg.core_dropped";
@@ -4668,7 +4699,9 @@ public class ButterBotEntity extends PathfinderMob {
 			boolean inVoid = source.is(DamageTypes.FELL_OUT_OF_WORLD) || this.getY() < level.getMinY();
 			if (inVoid) {
 				dropAt = null;
-				for (BlockPos near : new BlockPos[]{basePos, owner != null && owner.level() == level ? owner.blockPosition() : null, lastSafeGround}) {
+				// The base spot only counts in its own dimension (the position alone doesn't say which).
+				BlockPos baseHere = base != null ? basePos : null;
+				for (BlockPos near : new BlockPos[]{baseHere, owner != null && owner.level() == level ? owner.blockPosition() : null, lastSafeGround}) {
 					BlockPos spot = near == null ? null : findSafeSpot(level, near, 1, 3);
 					if (spot != null) {
 						dropAt = Vec3.atBottomCenterOf(spot).add(0.0D, 0.5D, 0.0D);
