@@ -118,6 +118,10 @@ public class DeliverAction implements BotAction {
 		BlockPos pos = base.getBlockPos();
 		double distanceSq = bot.distanceToSqr(Vec3.atCenterOf(pos));
 		if (distanceSq > BASE_DISTANCE_SQ) {
+			if (bot.shortcutTo(pos, ButterBotEntity.SHORTCUT_DISTANCE)) {
+				walker.reset(bot);
+				return;
+			}
 			if (!walker.walk(bot, Vec3.atBottomCenterOf(pos), 1.1D, true, MAX_STUCK_TICKS)) {
 				// Stuck even digging and building: hop there as a last resort, or bring it to the owner.
 				if (!bot.lastResortTeleport(pos)) {
@@ -148,6 +152,10 @@ public class DeliverAction implements BotAction {
 			}
 			Player away = bot.level() instanceof ServerLevel level && bot.getOwnerUuid() != null
 					? level.getServer().getPlayerList().getPlayer(bot.getOwnerUuid()) : null;
+			if (away != null && !away.isSpectator() && away.level() != bot.level() && away.onGround()
+					&& away.level() instanceof ServerLevel there && bot.shortcutToLevel(there, away.blockPosition())) {
+				return;
+			}
 			if (away != null && !away.isSpectator() && away.level() != bot.level()
 					&& Travel.towards(bot, walker, away.level().dimension(), bot.getLastOwnerPos())) {
 				// In another dimension: go after them through the portal.
@@ -163,6 +171,10 @@ public class DeliverAction implements BotAction {
 		double distanceSq = bot.distanceToSqr(owner);
 		if (distanceSq > OWNER_DISTANCE_SQ) {
 			boolean ownerStanding = owner.onGround() || owner.isPassenger() || owner.isInWater();
+			if (ownerStanding && bot.shortcutTo(owner.blockPosition(), ButterBotEntity.SHORTCUT_DISTANCE)) {
+				walker.reset(bot);
+				return;
+			}
 			if (!walker.walk(bot, owner.position(), 1.15D, ownerStanding, MAX_STUCK_TICKS)) {
 				if (!ownerStanding || !bot.lastResortTeleport(owner.blockPosition())) {
 					bot.sayStuck();

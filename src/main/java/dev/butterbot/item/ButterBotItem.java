@@ -92,6 +92,7 @@ public class ButterBotItem extends Item {
 		bot.setAutoTorch(tag.getBooleanOr("AutoTorch", true));
 		bot.setFeedOwner(tag.getBooleanOr("FeedOwner", true));
 		bot.setAutoRefill(tag.getBooleanOr("AutoRefill", true));
+		bot.setFarTeleport(tag.getBooleanOr("FarTeleport", true));
 		bot.setSmeltMode(SmeltMode.byOrdinal(tag.getIntOr("SmeltMode", SmeltMode.ORES.ordinal())));
 		tag.getLong("Base").ifPresent(base -> bot.setBasePos(BlockPos.of(base)));
 		tag.read("Job", JobConfig.Data.CODEC).ifPresent(job -> bot.getJobs().load(job));
@@ -119,6 +120,7 @@ public class ButterBotItem extends Item {
 		tag.putBoolean("AutoTorch", bot.placesTorchesWhileMining());
 		tag.putBoolean("FeedOwner", bot.feedsOwner());
 		tag.putBoolean("AutoRefill", bot.refillsHotbar());
+		tag.putBoolean("FarTeleport", bot.teleportsFar());
 		tag.putInt("SmeltMode", bot.getSmeltMode().ordinal());
 		if (bot.getBasePos() != null) {
 			tag.putLong("Base", bot.getBasePos().asLong());

@@ -75,6 +75,11 @@ public class FollowOwnerAction implements BotAction {
 		}
 		// Dig or build towards an owner standing somewhere, never up into the air after one who is flying.
 		boolean ownerStanding = owner.onGround() || owner.isPassenger() || owner.isInWater();
+		if (ownerStanding && bot.shortcutTo(owner.blockPosition(), ButterBotEntity.FOLLOW_SHORTCUT_DISTANCE)) {
+			// Teleport mode "far": left behind, it catches up at once.
+			walker.reset(bot);
+			return;
+		}
 		if (!walker.walk(bot, owner.position(), distanceSq > RUN_SQ ? 1.3D : 1.1D, ownerStanding, MAX_STUCK_TICKS)) {
 			walker.reset(bot);
 			// Stuck for a good while even digging and building: hop to them as a last resort.
@@ -94,6 +99,10 @@ public class FollowOwnerAction implements BotAction {
 		ServerPlayer owner = level.getServer().getPlayerList().getPlayer(ownerId);
 		if (owner == null || owner.isSpectator() || owner.level() == bot.level()) {
 			bot.getNavigation().stop();
+			return;
+		}
+		if (owner.onGround() && bot.shortcutToLevel(owner.level(), owner.blockPosition())) {
+			awayTicks = 0;
 			return;
 		}
 		if (Travel.towards(bot, walker, owner.level().dimension(), bot.getLastOwnerPos())) {

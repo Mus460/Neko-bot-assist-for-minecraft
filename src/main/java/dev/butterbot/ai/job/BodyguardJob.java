@@ -83,6 +83,11 @@ final class BodyguardJob {
 		// Digs or builds its way only towards a bot standing somewhere (down its tunnel, say), and never
 		// into the pen or field of a bot that farms, ranches or guards an area.
 		boolean wardStanding = ward.onGround() || ward.isInWater();
+		if (wardStanding && bot.shortcutTo(ward.blockPosition(), ButterBotEntity.FOLLOW_SHORTCUT_DISTANCE)) {
+			// Teleport mode "far": left behind, it catches up at once.
+			walker.reset(bot);
+			return;
+		}
 		boolean dig = wardStanding && !ward.getJobs().job().usesArea();
 		if (!walker.walk(bot, ward.position(), distanceSq > RUN_SQ ? 1.3D : 1.1D, dig, MAX_STUCK_TICKS)) {
 			walker.reset(bot);
@@ -95,6 +100,10 @@ final class BodyguardJob {
 
 	/** The other bot went to another dimension: walk into the portal it took (or one this bot knows). */
 	private void followAcross(ButterBotEntity bot, ButterBotEntity ward) {
+		if (ward.onGround() && ward.level() instanceof ServerLevel there && bot.shortcutToLevel(there, ward.blockPosition())) {
+			awayTicks = 0;
+			return;
+		}
 		if (Travel.towards(bot, walker, ward.level().dimension(), bot.getLastWardPos())) {
 			awayTicks = 0;
 			return;

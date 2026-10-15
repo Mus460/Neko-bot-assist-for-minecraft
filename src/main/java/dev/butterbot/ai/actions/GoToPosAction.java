@@ -52,6 +52,10 @@ public class GoToPosAction implements BotAction {
 				bot.getNavigation().moveTo(spot.x, spot.y, spot.z, 1.0D);
 				return;
 			}
+			if (bot.shortcutTo(target, ButterBotEntity.SHORTCUT_DISTANCE)) {
+				walker.reset(bot);
+				return;
+			}
 			if (!walker.walk(bot, spot, 1.15D, true, 400)) {
 				// No way there even digging and building: hop there as a last resort, or say so and wait.
 				if (bot.lastResortTeleport(target)) {

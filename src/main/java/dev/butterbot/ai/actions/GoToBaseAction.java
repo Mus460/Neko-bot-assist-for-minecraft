@@ -64,6 +64,10 @@ public class GoToBaseAction implements BotAction {
 			return;
 		}
 
+		if (bot.shortcutTo(base, ButterBotEntity.SHORTCUT_DISTANCE)) {
+			walker.reset(bot);
+			return;
+		}
 		// Far away the base isn't loaded yet: head that way over the ground; it loads as the bot gets near.
 		if (!walker.walkTo(bot, base, 1.1D, true, MAX_STUCK_TICKS)) {
 			// Stuck even digging and building: hop home as a last resort.

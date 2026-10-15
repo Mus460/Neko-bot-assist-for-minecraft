@@ -110,7 +110,8 @@ public final class ModNetworking {
 					bot.getInventory().getContainerSize(),
 					bot.getProgress().ranks(),
 					bot.getProgress().mastery(),
-					bot.getProgress().stats()));
+					bot.getProgress().stats(),
+					bot.teleportsFar()));
 		}
 		Optional<BlockPos> validBase = BotAccess.isValidBase(player, base) ? base : Optional.empty();
 		ServerPlayNetworking.send(player, new Payloads.BotList(validBase, entries));
@@ -277,6 +278,10 @@ public final class ModNetworking {
 			case Payloads.BotCommand.SMELT_MODE -> {
 				bot.setSmeltMode(SmeltMode.byOrdinal(payload.arg(0, 1)));
 				bot.say(Component.translatable("butterbot.msg.smelt_mode", Component.translatable(bot.getSmeltMode().key())));
+			}
+			case Payloads.BotCommand.TELEPORT -> {
+				bot.setFarTeleport(payload.arg(0, 1) != 0);
+				bot.say(Component.translatable(bot.teleportsFar() ? "butterbot.msg.teleport_far" : "butterbot.msg.teleport_emergency"));
 			}
 			case Payloads.BotCommand.REFILL -> {
 				bot.setAutoRefill(payload.arg(0, 1) != 0);

@@ -104,6 +104,7 @@ public final class BotCommand {
 		skill.then(Commands.literal("reset").executes(ctx -> simple(ctx.getSource(), ButterBotEntity::resetSkills)));
 		root.then(skill);
 		root.then(toggle("refill", ButterBotEntity::setAutoRefill, "butterbot.msg.refill_on", "butterbot.msg.refill_off"));
+		root.then(toggle("teleport", ButterBotEntity::setFarTeleport, "butterbot.msg.teleport_far", "butterbot.msg.teleport_emergency"));
 		root.then(Commands.literal("light")
 				.executes(ctx -> light(ctx.getSource(), LightAreaAction.DEFAULT_RADIUS))
 				.then(Commands.argument("radius", IntegerArgumentType.integer(4, LightAreaAction.MAX_RADIUS))

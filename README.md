@@ -182,9 +182,18 @@ Buka tas bot (tombol **Buka tas** di panel, atau `V`). Baris paling atas adalah 
 - Slot baju zirah hanya menerima baju zirah (bukan labu atau kepala).
 - Perlengkapan tetap milikmu: dikembalikan saat bot dikemas atau dipulangkan, dan jatuh utuh di tempat bot hancur (kecuali yang terkena Curse of Vanishing).
 
+### Mode teleport
+
+Tiap bot punya tombol **Teleport jauh** di tab Kontrol (atau `/butterbot teleport <true|false>`):
+
+- **Nyala** (bawaan): seperti versi awal. Perjalanan lebih dari **64 blok** (ke peti, base, lokasi kerja, ke kamu) langsung teleport, bot menyusulmu kalau tertinggal lebih dari **24 blok**, dan langsung ikut ke dimensi lain. Tempat tujuan yang belum dimuat dimuat dulu, sementara itu bot berjalan.
+- **Mati**: bot jalan kaki ke mana pun (juga lewat portal), dan hanya teleport sebagai jalan terakhir (lihat di bawah).
+
+Di kedua mode, bot yang **tidak makin dekat ke tujuannya** selama 15–30 detik dianggap tersangkut, walaupun ia masih bergerak di tempat (menabrak tembok, mengapung di air), lalu teleport darurat.
+
 ### Anti nyangkut
 
-Bot **berjalan kaki** ke mana pun, sejauh apa pun, dan tidak teleport hanya karena tujuannya jauh. Area di sekitar bot yang sedang bekerja atau dalam perjalanan tetap dimuat game, jadi perjalanan jauh tidak berhenti di tengah jalan walaupun kamu tidak ada di dekatnya. Kalau bot tidak bisa maju, ia merencanakan rute (pathfinding A*) dan mencoba cara berikut:
+Dengan **Teleport jauh** mati, bot **berjalan kaki** ke mana pun, sejauh apa pun, dan tidak teleport hanya karena tujuannya jauh. Di kedua mode, untuk jarak dekat bot selalu berjalan. Area di sekitar bot yang sedang bekerja atau dalam perjalanan tetap dimuat game, jadi perjalanan jauh tidak berhenti di tengah jalan walaupun kamu tidak ada di dekatnya. Kalau bot tidak bisa maju, ia merencanakan rute (pathfinding A*) dan mencoba cara berikut:
 
 1. **Memotong jaring laba-laba dan powder snow** yang menahannya.
 2. **Menggali tanah alami** yang menghalangi: batu, deepslate, tanah, pasir, kerikil, netherrack, daun, bijih, dan cobblestone. Bangunan pemain (papan, kaca, pagar, batu bata, pintu, wol, dan lainnya) **tidak pernah digali**.
@@ -195,8 +204,8 @@ Bot **berjalan kaki** ke mana pun, sejauh apa pun, dan tidak teleport hanya kare
 
    Satu perjalanan paling banyak menaruh 64 block. Tumpukan block yang dibuatnya tetap tertinggal. Menara dibuat seperti pemain: bot melompat lalu menaruh block di bawah kakinya.
 4. **Membuka pintu pagar dan pintu kayu** yang ada di rute, lalu menutupnya lagi setelah lewat.
-5. **Teleport hanya sebagai jalan terakhir**, dengan pesan "Aku nyangkut, jadi aku lewat jalan pintas!":
-   - **tersangkut**: semua cara di atas sudah dicoba dan bot tetap tidak maju selama 20–45 detik;
+5. **Teleport sebagai jalan terakhir** (di mode Teleport jauh mati), dengan pesan "Aku nyangkut, jadi aku lewat jalan pintas!":
+   - **tersangkut**: semua cara di atas sudah dicoba dan bot tetap tidak makin dekat ke tujuannya selama 15–30 detik;
    - **genting**: tercebur lava sebelum kebal api, jatuh ke void, atau terjepit block yang tidak boleh digali; bot menyelamatkan diri ke tempat aman terdekat;
    - **penting**: barang yang jatuh saat kamu mati diambil cepat sebelum hilang (lebih dari 64 blok), atau bot harus menyusulmu/pulang ke job di dimensi lain tapi tidak tahu portalnya (setelah menunggu sebentar).
 

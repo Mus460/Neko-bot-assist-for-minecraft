@@ -92,7 +92,7 @@ public class RecoverItemsAction implements BotAction {
 				}
 				return;
 			}
-			if (bot.lastResortTeleport(spot)) {
+			if (bot.shortcutTo(spot, ButterBotEntity.SHORTCUT_DISTANCE) || bot.lastResortTeleport(spot)) {
 				walker.reset(bot);
 				return;
 			}
@@ -149,6 +149,10 @@ public class RecoverItemsAction implements BotAction {
 		double distanceSq = bot.distanceToSqr(owner);
 		if (distanceSq > HAND_OVER_SQ) {
 			boolean ownerStanding = owner.onGround() || owner.isPassenger() || owner.isInWater();
+			if (ownerStanding && bot.shortcutTo(owner.blockPosition(), ButterBotEntity.FOLLOW_SHORTCUT_DISTANCE)) {
+				walker.reset(bot);
+				return;
+			}
 			if (!walker.walk(bot, owner.position(), 1.25D, ownerStanding, 400)) {
 				if (!ownerStanding || !bot.lastResortTeleport(owner.blockPosition())) {
 					bot.sayStuck();
@@ -175,6 +179,10 @@ public class RecoverItemsAction implements BotAction {
 		ServerPlayer owner = level.getServer().getPlayerList().getPlayer(ownerId);
 		if (owner == null || !owner.isAlive() || owner.isSpectator() || owner.level() == level) {
 			return false;
+		}
+		if (owner.onGround() && bot.shortcutToLevel(owner.level(), owner.blockPosition())) {
+			awayTicks = 0;
+			return true;
 		}
 		if (Travel.towards(bot, walker, owner.level().dimension(), bot.getLastOwnerPos())) {
 			awayTicks = 0;
