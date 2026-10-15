@@ -5,6 +5,7 @@ import dev.butterbot.ai.BotSmelter;
 import dev.butterbot.ai.HotbarRefill;
 import dev.butterbot.ai.MiningController;
 import dev.butterbot.ai.TreeFeller;
+import dev.butterbot.ai.Travel;
 import dev.butterbot.ai.TunnelHelper;
 import dev.butterbot.ai.actions.CraftTaskAction;
 import dev.butterbot.ai.actions.DeliverAction;
@@ -82,6 +83,12 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.animal.Animal;
+import com.mojang.serialization.Codec;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.SpawnGroupData;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
@@ -263,6 +270,28 @@ public class ButterBotEntity extends PathfinderMob {
 	private long lastLavaWarning;
 	private long lastLavaSealed;
 	private long lastUnstuckMessage;
+	/** Portals the bot came through, by "dimension it is in>dimension the portal leads to": its way back. */
+	private final Map<String, BlockPos> portalExits = new HashMap<>();
+	@Nullable
+	private ResourceKey<Level> lastDimension;
+	/** Where the owner was last seen in the bot's dimension (the portal, when they went through one). */
+	@Nullable
+	private BlockPos lastOwnerPos;
+	/** The dimension the bot is walking into a portal for, and until when it may use one. */
+	@Nullable
+	private ResourceKey<Level> portalWish;
+	private long portalWishUntil;
+	/** Pillaring: the block to put under the bot once its jump has lifted it high enough. */
+	@Nullable
+	private BlockPos pillarBase;
+	private int pillarTicks;
+	/** Fence gates and doors it opened on its way, closed again once it is through. */
+	private final List<BlockPos> openedGates = new ArrayList<>();
+	/** Where it last stood on firm ground (somewhere to go back to if it falls out of the world). */
+	@Nullable
+	private BlockPos lastSafeGround;
+	private int wallTicks;
+	private long nextRescue;
 	private int ambientSoundTimer = 400;
 	private int speechTicks;
 	private int toolHoldTicks;
@@ -431,10 +460,19 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		tickCare();
 		tickAbilities();
+		tickPillar();
+		if (this.level() instanceof ServerLevel travelLevel) {
+			tickTravelMemory(travelLevel);
+			tickDanger(travelLevel);
+			if (this.tickCount % 5 == 0 && !openedGates.isEmpty()) {
+				closeGates(travelLevel);
+			}
+		}
 		if (this.tickCount % 20 == 0 && this.level() instanceof ServerLevel serverLevel) {
 			sealHoles(serverLevel);
 		}
-		if (this.tickCount % 10 == 0 && this.isInWall()) {
+		if (this.isInWall()) {
+			// Every tick: being pushed out of a block takes a few small nudges.
 			escapeWall();
 		}
 		updateHeldTool();
@@ -2008,9 +2046,13 @@ public class ButterBotEntity extends PathfinderMob {
 		return jobSiteSpent;
 	}
 
-	/** Job mining never digs within the no-dig zone around the base (orders given by hand may). */
+	/**
+	 * Miners and gatherers never dig within the no-dig zone around the base: not on their mining runs
+	 * and not to get through it on the way to work (orders given by hand may).
+	 */
 	public boolean isJobZoneBlocked(BlockPos pos) {
-		return mineFilter != null && jobs.isInsideZone(this.level(), basePos, pos);
+		boolean jobWork = mineFilter != null || (task == BotTask.NONE && jobs.isActive() && jobs.job().usesList());
+		return jobWork && jobs.isInsideZone(this.level(), basePos, pos);
 	}
 
 	/** The Y level a mining run digs down to. */
@@ -2393,31 +2435,26 @@ public class ButterBotEntity extends PathfinderMob {
 
 	// ------------------------------------------------------------------ getting unstuck
 
-	/**
-	 * Last resort when no way can be found: hops to a safe spot next to {@code target} in the same
-	 * dimension. Returns false if there is no such spot (or it is not loaded).
-	 */
-	public boolean teleportNear(BlockPos target) {
-		return teleportNear(target, true);
-	}
+	// The bot walks everywhere (digging and building its way when it has to) and goes to other
+	// dimensions through portals, like a player. It only teleports as a last resort: when walking has
+	// failed for a good while, when it is in danger, or when it must reach another dimension and knows
+	// no portal there.
 
-	/** {@link #teleportNear(BlockPos)}; without {@code announce} the bot doesn't say it got stuck (planned trips). */
-	public boolean teleportNear(BlockPos target, boolean announce) {
-		if (!(this.level() instanceof ServerLevel serverLevel)) {
+	/**
+	 * Last resort only: hops to a safe spot next to {@code target} in this dimension (and says so).
+	 * False if there is no safe spot there or it isn't loaded.
+	 */
+	public boolean lastResortTeleport(BlockPos target) {
+		if (!(this.level() instanceof ServerLevel serverLevel) || !serverLevel.isLoaded(target)) {
 			return false;
 		}
 		BlockPos spot = findSafeSpot(serverLevel, target, 1, 3);
 		if (spot == null) {
 			return false;
 		}
-		serverLevel.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
-		this.getNavigation().stop();
-		this.miner.cancel();
-		this.teleportTo(spot.getX() + 0.5D, spot.getY(), spot.getZ() + 0.5D);
-		this.playSound(SoundEvents.CHORUS_FRUIT_TELEPORT, 0.6F, 1.2F);
-		serverLevel.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
+		hopTo(serverLevel, spot);
 		long now = serverLevel.getGameTime();
-		if (announce && now - lastUnstuckMessage > 600L) {
+		if (now - lastUnstuckMessage > 600L) {
 			lastUnstuckMessage = now;
 			say(Component.translatable("butterbot.msg.unstuck"));
 			speak(ModSounds.VOICE_STUCK);
@@ -2425,8 +2462,8 @@ public class ButterBotEntity extends PathfinderMob {
 		return true;
 	}
 
-	/** Follows the owner into another dimension (only while following). */
-	public boolean followToLevel(ServerLevel destination, BlockPos near) {
+	/** Last resort only: goes to {@code destination} without a portal (it knows none that leads there). */
+	public boolean lastResortToLevel(ServerLevel destination, BlockPos near) {
 		BlockPos spot = findSafeSpot(destination, near, 1, 3);
 		if (spot == null || !(this.level() instanceof ServerLevel)) {
 			return false;
@@ -2434,10 +2471,228 @@ public class ButterBotEntity extends PathfinderMob {
 		this.getNavigation().stop();
 		this.miner.cancel();
 		brain.reset(this);
+		say(Component.translatable("butterbot.msg.unstuck"));
 		this.teleport(new net.minecraft.world.level.portal.TeleportTransition(destination,
 				new Vec3(spot.getX() + 0.5D, spot.getY(), spot.getZ() + 0.5D), Vec3.ZERO, this.getYRot(), this.getXRot(),
 				net.minecraft.world.level.portal.TeleportTransition.DO_NOTHING));
 		return true;
+	}
+
+	private void hopTo(ServerLevel level, BlockPos spot) {
+		level.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
+		this.getNavigation().stop();
+		this.miner.cancel();
+		this.pillarBase = null;
+		this.teleportTo(spot.getX() + 0.5D, spot.getY(), spot.getZ() + 0.5D);
+		this.playSound(SoundEvents.CHORUS_FRUIT_TELEPORT, 0.6F, 1.2F);
+		level.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
+	}
+
+	/**
+	 * Danger: in lava without fire immunity, fallen out of the world, or wedged in a block it can't dig
+	 * for a while. Gets to safety (the last firm ground, or near the owner) instead of dying.
+	 */
+	private void tickDanger(ServerLevel level) {
+		if (this.onGround() && !this.isInWater() && !this.isInLava() && this.tickCount % 20 == 0) {
+			lastSafeGround = this.blockPosition();
+		}
+		wallTicks = this.isInWall() ? wallTicks + 1 : 0;
+		long now = level.getGameTime();
+		if (now < nextRescue) {
+			return;
+		}
+		boolean burning = this.isInLava() && !this.fireImmune();
+		boolean fallingOut = this.getY() < level.getMinY() - 4;
+		boolean wedged = wallTicks > 40;
+		if (!burning && !fallingOut && !wedged) {
+			return;
+		}
+		BlockPos spot = wedged ? findSafeSpot(level, this.blockPosition(), 0, 3) : findSafeSpot(level, this.blockPosition(), 1, 6);
+		if (spot == null && lastSafeGround != null && level.isLoaded(lastSafeGround)) {
+			spot = findSafeSpot(level, lastSafeGround, 0, 2);
+		}
+		Player owner = getOwner();
+		if (spot == null && owner != null && owner.level() == level) {
+			spot = findSafeSpot(level, owner.blockPosition(), 1, 3);
+		}
+		if (spot == null) {
+			return;
+		}
+		nextRescue = now + 100L;
+		wallTicks = 0;
+		hopTo(level, spot);
+		this.clearFire();
+		say(Component.translatable("butterbot.msg.escape_danger"));
+		speak(ModSounds.VOICE_STUCK);
+	}
+
+	/** Says now and then that it can't find a way somewhere (instead of hopping there). */
+	public void sayStuck() {
+		long now = this.level().getGameTime();
+		if (now - lastUnstuckMessage > 600L) {
+			lastUnstuckMessage = now;
+			say(Component.translatable("butterbot.msg.stuck"));
+			speak(ModSounds.VOICE_STUCK);
+		}
+	}
+
+	private static String portalKey(ResourceKey<Level> from, ResourceKey<Level> to) {
+		return from.identifier() + ">" + to.identifier();
+	}
+
+	/** A portal in this dimension the bot came through from {@code dimension} (so it leads back there), or null. */
+	@Nullable
+	public BlockPos portalTowards(ResourceKey<Level> dimension) {
+		return portalExits.get(portalKey(this.level().dimension(), dimension));
+	}
+
+	public void forgetPortal(ResourceKey<Level> dimension) {
+		portalExits.remove(portalKey(this.level().dimension(), dimension));
+	}
+
+	@Nullable
+	public BlockPos getLastOwnerPos() {
+		return lastOwnerPos;
+	}
+
+	/** Lets the bot use a portal to {@code dimension} for a moment (it never wanders through one by accident). */
+	public void wantPortal(ResourceKey<Level> dimension) {
+		portalWish = dimension;
+		portalWishUntil = this.level().getGameTime() + 40L;
+	}
+
+	@Override
+	public boolean canUsePortal(boolean ignorePassenger) {
+		return portalWish != null && this.level().getGameTime() <= portalWishUntil && super.canUsePortal(ignorePassenger);
+	}
+
+	/** Notices when it came through a portal (that portal is its way back) and where the owner was last seen. */
+	private void tickTravelMemory(ServerLevel level) {
+		ResourceKey<Level> here = level.dimension();
+		if (lastDimension != null && !lastDimension.equals(here)) {
+			BlockPos portal = Travel.portalNear(level, this.blockPosition());
+			if (portal != null) {
+				portalExits.put(portalKey(here, lastDimension), portal);
+			}
+			lastOwnerPos = null;
+			portalWish = null;
+		}
+		lastDimension = here;
+		if (this.tickCount % 5 == 0) {
+			Player owner = getOwner();
+			if (owner != null && owner.level() == level) {
+				lastOwnerPos = owner.blockPosition();
+			}
+		}
+	}
+
+	/**
+	 * Pillars up like a player: jumps, and once its feet are above {@code base} a block goes there (from
+	 * the bot's own tick, whatever action asked for it). False while a jump is already under way.
+	 */
+	public boolean startPillarJump(BlockPos base) {
+		if (pillarBase != null) {
+			return false;
+		}
+		pillarBase = base.immutable();
+		pillarTicks = 0;
+		this.getNavigation().stop();
+		this.getJumpControl().jump();
+		return true;
+	}
+
+	public boolean isPillaring() {
+		return pillarBase != null;
+	}
+
+	private void tickPillar() {
+		BlockPos base = pillarBase;
+		if (base == null) {
+			return;
+		}
+		boolean swimming = this.isInWater() || this.isInLava();
+		if (swimming) {
+			// Swims up slowly instead of jumping.
+			this.getJumpControl().jump();
+		}
+		if (this.getY() >= base.getY() + 1.0D - 1.0E-3D) {
+			pillarBase = null;
+			if (this.level().getBlockState(base).canBeReplaced()) {
+				placeFillerAt(base);
+			}
+			return;
+		}
+		if (++pillarTicks > (swimming ? 60 : 20)) {
+			// The jump didn't get high enough (a ceiling): the caller tries again.
+			pillarBase = null;
+		}
+	}
+
+	/** Opens a closed fence gate or wooden door at {@code pos} to walk through; it is closed again behind the bot. */
+	public boolean openGate(BlockPos pos) {
+		Level level = this.level();
+		BlockState state = level.getBlockState(pos);
+		if (state.getBlock() instanceof FenceGateBlock) {
+			if (!state.getValue(FenceGateBlock.OPEN)) {
+				level.setBlock(pos, state.setValue(FenceGateBlock.OPEN, true), 10);
+				level.playSound(null, pos, SoundEvents.FENCE_GATE_OPEN, SoundSource.BLOCKS, 1.0F, 1.0F);
+				level.gameEvent(this, GameEvent.BLOCK_OPEN, pos);
+			}
+		} else if (state.getBlock() instanceof DoorBlock door && state.is(BlockTags.WOODEN_DOORS)) {
+			door.setOpen(this, level, state, pos, true);
+		} else {
+			return false;
+		}
+		this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+		BlockPos key = pos.immutable();
+		if (!openedGates.contains(key)) {
+			openedGates.add(key);
+		}
+		return true;
+	}
+
+	/** Closes the gates and doors it opened once it is through and nobody stands in them, so animals stay in. */
+	private void closeGates(ServerLevel level) {
+		for (java.util.Iterator<BlockPos> it = openedGates.iterator(); it.hasNext(); ) {
+			BlockPos pos = it.next();
+			if (!level.isLoaded(pos)) {
+				it.remove();
+				continue;
+			}
+			BlockState state = level.getBlockState(pos);
+			boolean gate = state.getBlock() instanceof FenceGateBlock;
+			if (!gate && !(state.getBlock() instanceof DoorBlock) || !state.getValue(BlockStateProperties.OPEN)) {
+				it.remove();
+				continue;
+			}
+			AABB space = new AABB(pos).expandTowards(0.0D, gate ? 0.0D : 1.0D, 0.0D);
+			if (this.getBoundingBox().intersects(space.inflate(0.4D))
+					|| !level.getEntitiesOfClass(LivingEntity.class, space, LivingEntity::isAlive).isEmpty()) {
+				continue;
+			}
+			if (gate) {
+				level.setBlock(pos, state.setValue(FenceGateBlock.OPEN, false), 10);
+				level.playSound(null, pos, SoundEvents.FENCE_GATE_CLOSE, SoundSource.BLOCKS, 1.0F, 1.0F);
+				level.gameEvent(this, GameEvent.BLOCK_CLOSE, pos);
+			} else if (state.getBlock() instanceof DoorBlock door) {
+				door.setOpen(this, level, state, pos, false);
+			}
+			it.remove();
+		}
+	}
+
+	/** Bots that are working or on their way somewhere keep the area around them running (they walk everywhere). */
+	public boolean keepsChunksLoaded() {
+		if (jobs.hasJob() || returnRequested || recoverPos != null || !recoveredItems.isEmpty()) {
+			return true;
+		}
+		return switch (task) {
+			case NONE, LUA -> false;
+			// Following someone who logged off: just wait where it is.
+			case FOLLOW -> this.level() instanceof ServerLevel level && ownerUuid != null
+					&& level.getServer().getPlayerList().getPlayer(ownerUuid) != null;
+			default -> true;
+		};
 	}
 
 	/** A spot with solid ground, room for the bot and no liquid, between {@code minRadius} and {@code maxRadius} of {@code center}. */
@@ -2473,7 +2728,7 @@ public class ButterBotEntity extends PathfinderMob {
 				&& !level.getBlockState(below).is(Blocks.MAGMA_BLOCK);
 	}
 
-	/** Breaks free when a block ends up inside the bot (falling gravel, sand...), or moves out of it. */
+	/** Breaks free when a block ends up inside the bot (falling gravel, sand...), or is pushed out of it bit by bit. */
 	private void escapeWall() {
 		if (!(this.level() instanceof ServerLevel serverLevel)) {
 			return;
@@ -2489,10 +2744,8 @@ public class ButterBotEntity extends PathfinderMob {
 				return;
 			}
 		}
-		BlockPos spot = findSafeSpot(serverLevel, this.blockPosition(), 0, 3);
-		if (spot != null) {
-			this.teleportTo(spot.getX() + 0.5D, spot.getY(), spot.getZ() + 0.5D);
-		}
+		// Something it may not dig (a build): slides out to the nearest free side, as players are pushed out.
+		this.moveTowardsClosestSpace(this.getX(), (this.getBoundingBox().minY + this.getBoundingBox().maxY) / 2.0D, this.getZ());
 	}
 
 	/** Blocks the bot happily uses to plug lava. */
@@ -3160,6 +3413,8 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		output.storeNullable("GotoPos", BlockPos.CODEC, gotoPos);
 		output.store("Job", JobConfig.Data.CODEC, jobs.save());
+		output.storeNullable("LastDimension", Level.RESOURCE_KEY_CODEC, lastDimension);
+		output.store("PortalExits", Codec.unboundedMap(Codec.STRING, BlockPos.CODEC), Map.copyOf(portalExits));
 		output.putBoolean("JobMining", mineFilter != null);
 	}
 
@@ -3229,6 +3484,9 @@ public class ButterBotEntity extends PathfinderMob {
 		});
 		gotoPos = input.read("GotoPos", BlockPos.CODEC).orElse(null);
 		input.read("Job", JobConfig.Data.CODEC).ifPresent(jobs::load);
+		lastDimension = input.read("LastDimension", Level.RESOURCE_KEY_CODEC).orElse(null);
+		portalExits.clear();
+		input.read("PortalExits", Codec.unboundedMap(Codec.STRING, BlockPos.CODEC)).ifPresent(portalExits::putAll);
 		if (input.getBooleanOr("JobMining", false) && task == BotTask.MINE) {
 			// The job picks its mining run up again by itself (back at its saved dig site).
 			task = BotTask.NONE;
@@ -3269,12 +3527,6 @@ public class ButterBotEntity extends PathfinderMob {
 	@Override
 	public boolean canBreatheUnderwater() {
 		return true;
-	}
-
-	/** Never wanders through a portal on its own (it follows its owner across dimensions instead). */
-	@Override
-	public boolean canUsePortal(boolean allowPassengers) {
-		return false;
 	}
 
 	/** Never gets trapped in a boat or minecart it bumps into. */

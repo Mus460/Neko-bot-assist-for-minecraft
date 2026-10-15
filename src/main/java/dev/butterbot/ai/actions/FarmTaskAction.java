@@ -3,7 +3,6 @@ package dev.butterbot.ai.actions;
 import dev.butterbot.ai.BotAction;
 import dev.butterbot.ai.TreeFeller;
 import dev.butterbot.ai.Walker;
-import dev.butterbot.ai.job.JobChunks;
 import dev.butterbot.ai.job.JobStorage;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotState;
@@ -58,9 +57,6 @@ public class FarmTaskAction implements BotAction {
 	private static final int GROWTH_CROPS = 3;
 	/** After a harvest, the next work is looked for this close by first (no full scan of the field). */
 	private static final int NEARBY = 4;
-	/** Farther than this the bot hops to its storage instead of walking. */
-	private static final double FAR_STORAGE_SQ = 48.0D * 48.0D;
-	private static final int STORAGE_LOAD_TICKS = 20 * 30;
 	private static final long WARN_TICKS = 20L * 60L * 5L;
 
 	private enum Work {CROP, WART, COCOA, BERRY, CANE, FRUIT, TREE, SOW}
@@ -73,7 +69,6 @@ public class FarmTaskAction implements BotAction {
 	private int scanCooldown;
 	private int workTicks;
 	private boolean unloading;
-	private int storageLoadTicks;
 	private long lastWarning = JobConfig.NEVER;
 	/** Game time until which a full base is not tried again. */
 	private long baseFullUntil;
@@ -188,28 +183,16 @@ public class FarmTaskAction implements BotAction {
 		bot.setBotState(BotState.RETURNING);
 		double distanceSq = bot.distanceToSqr(Vec3.atCenterOf(pos));
 		if (distanceSq > BASE_REACH_SQ) {
-			if (!level.isLoaded(pos)) {
-				// A far job chest: load its spot first, then hop there.
-				JobChunks.preload(level, pos);
-				if (++storageLoadTicks > STORAGE_LOAD_TICKS) {
-					storageFailed(bot, level, pos, false);
-				}
-				return;
-			}
-			storageLoadTicks = 0;
-			if (distanceSq > FAR_STORAGE_SQ && bot.teleportNear(pos, false)) {
-				walker.reset(bot);
-				return;
-			}
-			if (!walker.walk(bot, Vec3.atBottomCenterOf(pos), 1.1D, true, MAX_STUCK_TICKS)) {
-				if (!bot.teleportNear(pos)) {
+			// A far chest isn't loaded yet: head that way; it loads as the bot gets near.
+			Vec3 goal = level.isLoaded(pos) ? Vec3.atBottomCenterOf(pos) : new Vec3(pos.getX() + 0.5D, bot.getY(), pos.getZ() + 0.5D);
+			if (!walker.walk(bot, goal, 1.1D, true, MAX_STUCK_TICKS)) {
+				if (!bot.lastResortTeleport(pos)) {
 					storageFailed(bot, level, pos, false);
 				}
 				walker.reset(bot);
 			}
 			return;
 		}
-		storageLoadTicks = 0;
 		bot.getNavigation().stop();
 		bot.getLookControl().setLookAt(Vec3.atCenterOf(pos));
 		Container storage = JobStorage.open(level, pos);
@@ -228,7 +211,6 @@ public class FarmTaskAction implements BotAction {
 	/** Storage full or out of reach: say so (now and then, not every minute) and try again later. */
 	private void storageFailed(ButterBotEntity bot, ServerLevel level, BlockPos pos, boolean full) {
 		unloading = false;
-		storageLoadTicks = 0;
 		walker.reset(bot);
 		long now = level.getGameTime();
 		baseFullUntil = now + BASE_FULL_RETRY_TICKS;

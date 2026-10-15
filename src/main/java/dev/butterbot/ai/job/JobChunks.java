@@ -10,9 +10,9 @@ import net.minecraft.world.level.ChunkPos;
 
 /**
  * Keeps working bots running when no player is around. Normally the world stops a few chunks away
- * from the player, which would freeze a miner 300 blocks from the base. Bots with an active job keep
- * the chunks right around them loaded (like an ender pearl in flight does), and a bot about to
- * travel far loads the spot it is going to first.
+ * from the player, which would freeze a miner 300 blocks from the base. Bots with a job, and bots on
+ * their way somewhere, keep the chunks right around them loaded (like an ender pearl in flight does),
+ * so a long walk never stops halfway.
  */
 public final class JobChunks {
 
@@ -30,7 +30,8 @@ public final class JobChunks {
 		timer = 0;
 		for (ServerLevel level : server.getAllLevels()) {
 			// Paused jobs too: a bot paused far away must stay loaded, or it couldn't be found to resume it.
-			for (ButterBotEntity bot : level.getEntities(ModEntities.BUTTER_BOT, bot -> bot.isAlive() && bot.hasJob())) {
+			// Bots walk everywhere now, however far: one on its way somewhere keeps going without the player near.
+			for (ButterBotEntity bot : level.getEntities(ModEntities.BUTTER_BOT, bot -> bot.isAlive() && bot.keepsChunksLoaded())) {
 				keepLoaded(level, bot.blockPosition());
 			}
 		}

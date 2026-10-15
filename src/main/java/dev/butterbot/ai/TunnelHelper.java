@@ -94,10 +94,14 @@ public final class TunnelHelper {
 	}
 
 	/**
-	 * Climbs one block straight up: hops up and puts a block under its feet, like a player pillaring.
+	 * Climbs one block straight up: jumps and puts a block under its feet, like a player pillaring.
 	 * Works while standing on the ground or swimming in water or lava.
 	 */
 	public static StepResult pillarUp(ButterBotEntity bot) {
+		if (bot.isPillaring()) {
+			// Mid-jump: the block goes in as soon as the bot is high enough.
+			return StepResult.MOVING;
+		}
 		Level level = bot.level();
 		BlockPos feet = bot.blockPosition();
 		BlockPos base = level.getBlockState(feet).canBeReplaced() ? feet : feet.above();
@@ -114,9 +118,18 @@ public final class TunnelHelper {
 		if (!level.getBlockState(base).canBeReplaced()) {
 			return StepResult.BLOCKED;
 		}
-		bot.getNavigation().stop();
-		bot.teleportTo(base.getX() + 0.5D, base.getY() + 1.0D, base.getZ() + 0.5D);
-		return bot.placeFillerAt(base) ? StepResult.BUILDING : StepResult.BLOCKED;
+		return bot.startPillarJump(base) ? StepResult.BUILDING : StepResult.MOVING;
+	}
+
+	/** A fence gate or wooden door, which the bot opens to walk through. */
+	public static boolean isGateway(BlockState state) {
+		return state.getBlock() instanceof net.minecraft.world.level.block.FenceGateBlock
+				|| (state.getBlock() instanceof net.minecraft.world.level.block.DoorBlock && state.is(BlockTags.WOODEN_DOORS));
+	}
+
+	/** A closed fence gate or wooden door. */
+	public static boolean isClosedGateway(BlockState state) {
+		return isGateway(state) && !state.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.OPEN);
 	}
 
 	/** Natural ground the bot may dig through when it needs a way out (never player builds). */

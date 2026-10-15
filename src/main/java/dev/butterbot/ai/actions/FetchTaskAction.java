@@ -121,16 +121,10 @@ public class FetchTaskAction implements BotAction {
 			return;
 		}
 		double distanceSq = bot.distanceToSqr(Vec3.atCenterOf(current));
-		if (distanceSq > SHORTCUT_SQ) {
-			if (!bot.teleportNear(current)) {
-				toVisit.removeFirst();
-			}
-			walker.reset(bot);
-			return;
-		}
 		if (distanceSq > REACH_SQ) {
-			if (!walker.walk(bot, Vec3.atBottomCenterOf(current), 1.15D, true, 200)) {
-				if (!bot.teleportNear(current)) {
+			if (!walker.walk(bot, Vec3.atBottomCenterOf(current), 1.15D, true, 400)) {
+				// Can't get to that chest even digging and building: hop there, or try the next one.
+				if (!bot.lastResortTeleport(current)) {
 					toVisit.removeFirst();
 				}
 				walker.reset(bot);
@@ -175,14 +169,12 @@ public class FetchTaskAction implements BotAction {
 		}
 		waitTicks = 0;
 		double distanceSq = bot.distanceToSqr(owner);
-		if (distanceSq > SHORTCUT_SQ && (owner.onGround() || owner.isPassenger())) {
-			bot.teleportNear(owner.blockPosition());
-			walker.reset(bot);
-			return;
-		}
 		if (distanceSq > HAND_OVER_SQ) {
-			if (!walker.walk(bot, owner.position(), 1.2D, true, 200)) {
-				bot.teleportNear(owner.blockPosition());
+			boolean ownerStanding = owner.onGround() || owner.isPassenger() || owner.isInWater();
+			if (!walker.walk(bot, owner.position(), 1.2D, ownerStanding, 400)) {
+				if (!ownerStanding || !bot.lastResortTeleport(owner.blockPosition())) {
+					bot.sayStuck();
+				}
 				walker.reset(bot);
 			}
 			return;

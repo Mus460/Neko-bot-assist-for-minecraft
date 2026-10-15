@@ -12,7 +12,6 @@ import net.minecraft.world.phys.Vec3;
 /** "Go over there": walks to a spot and waits there (guarding it, if guard mode is on) until the next order. */
 public class GoToPosAction implements BotAction {
 
-	private static final double SHORTCUT_SQ = 64.0D * 64.0D;
 	private static final double ARRIVED_SQ = 1.5D * 1.5D;
 	/** How long a bot with a job waits at the spot before going back to work. */
 	private static final int JOB_WAIT_TICKS = 20 * 60;
@@ -47,10 +46,6 @@ public class GoToPosAction implements BotAction {
 		}
 		Vec3 spot = Vec3.atBottomCenterOf(target);
 		double distanceSq = bot.distanceToSqr(spot);
-		if (distanceSq > SHORTCUT_SQ && bot.teleportNear(target)) {
-			walker.reset(bot);
-			return;
-		}
 		if (distanceSq > ARRIVED_SQ) {
 			if (arrived && distanceSq < 4.0D * 4.0D) {
 				// Pushed around a little while waiting: no need to make a fuss.
@@ -58,8 +53,13 @@ public class GoToPosAction implements BotAction {
 				return;
 			}
 			if (!walker.walk(bot, spot, 1.15D, true, 400)) {
-				bot.teleportNear(target);
-				walker.reset(bot);
+				// No way there even digging and building: hop there as a last resort, or say so and wait.
+				if (bot.lastResortTeleport(target)) {
+					walker.reset(bot);
+				} else {
+					bot.tellOwner(Component.translatable("butterbot.msg.goto_unreachable", target.toShortString()));
+					bot.clearTask();
+				}
 			}
 			return;
 		}

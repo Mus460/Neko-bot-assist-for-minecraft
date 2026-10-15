@@ -23,7 +23,7 @@ import java.util.UUID;
 public final class HudSync {
 
 	private static final int INTERVAL_TICKS = 20;
-	private static final int MAX_LINES = 8;
+	private static final int MAX_LINES = 10;
 
 	/** Players who got a non-empty list last time, so they get one empty update when their bots are gone. */
 	private static final Set<UUID> hadBots = new HashSet<>();

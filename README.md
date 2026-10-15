@@ -23,7 +23,7 @@ Tidak perlu crafting dan tidak ada baterai. Cukup ketik di chat:
 /butterbot summon Mochi      panggil bot baru dengan nama "Mochi"
 ```
 
-- Bot langsung jadi milikmu. Setiap pemain boleh punya maksimal **5 bot** sekaligus.
+- Bot langsung jadi milikmu. Setiap pemain boleh punya maksimal **10 bot** sekaligus.
 - **Klik kanan bot** (tangan kosong) atau ketik `/butterbot menu` untuk membuka panel kontrol.
 - `/butterbot dismiss` memulangkan bot terdekat. Isi tasnya diberikan ke kamu.
 
@@ -98,7 +98,7 @@ Setiap bot bisa diberi **job**: pekerjaan tetap yang terus dikerjakan selama kam
 
 **Zona larangan**: Penambang dan Pengumpul **tidak pernah menggali atau menebang dalam 200 blok dari Bot Base** (dari peti job kalau bot belum punya base). Jaraknya bisa diubah per 25 blok (0–1000). Bot memilih lokasi kerja di luar zona itu, sebisa mungkin di biome yang cocok (misalnya hutan birch untuk kayu birch, gurun untuk pasir dan kaktus, gunung untuk zamrud). Lokasi yang ternyata kosong tidak didatangi lagi; kalau 6 lokasi berturut-turut kosong, barang itu dilewati dulu selama 10 menit. Perintah manual (misalnya `Z` ke bijih) tetap boleh dipakai dekat base.
 
-Bot yang punya job **tetap bekerja walaupun kamu jauh**: area kecil di sekitar bot tetap dimuat game, jadi penambang 300 blok dari base tidak berhenti. Lokasi yang jauh didatangi dengan teleport (lokasinya dimuat dulu). Setelah menyetor, bot kembali tepat ke terowongannya. Bot ber-job bisa diatur dari panel dan perintah dari jarak berapa pun (di dimensi yang sama), dan selalu muncul di HUD.
+Bot yang punya job **tetap bekerja walaupun kamu jauh**: area kecil di sekitar bot tetap dimuat game, jadi penambang 300 blok dari base tidak berhenti. Lokasi yang jauh didatangi dengan **jalan kaki** (teleport hanya kalau terpaksa, lihat Anti nyangkut), jadi perjalanan ke lokasi kerja di luar zona bisa makan waktu. Di dalam zona larangan bot hanya lewat, tidak menggali. Setelah menyetor, bot kembali tepat ke terowongannya. Bot ber-job bisa diatur dari panel dan perintah dari jarak berapa pun (di dimensi yang sama), dan selalu muncul di HUD.
 
 **Penjaga**: tekan **Di sini** (titik = tempatmu berdiri) atau **Pilih (Z)**. Peti loot bisa dipilih dengan **Peti (Z)**; dengan **Auto**, bot memakai peti terdekat di area patrolinya. Yang dipungut hanya barang yang tidak dibuang pemain (loot monster dan sejenisnya).
 
@@ -107,7 +107,7 @@ Bot yang punya job **tetap bekerja walaupun kamu jauh**: area kecil di sekitar b
 - **Batas per jenis**: tab Job menampilkan 7 kotak hewan dengan **jumlah di area / batas** (misalnya Domba `24/30`). Klik hewannya lalu atur batasnya dengan −10 / −1 / +1 / +10 (2–99, bawaan 10). Yang dihitung hanya hewan di dalam radius peternakan (misalnya 16 atau 32 blok).
 - **Kawin**: tiap jenis dikawinkan sampai batasnya. Bot memberi makan sepasang hewan dewasa yang berdekatan, langsung keduanya. Pakan diambil dari peti (sampai 32 per jenis): gandum untuk sapi, domba dan kambing, benih untuk ayam, wortel/kentang/bit untuk babi, wortel/dandelion untuk kelinci. Kalau pakannya tidak ada, bot memberitahumu.
 - **Cukur & perah**: domba yang berbulu dicukur (tanpa gunting), sapi diperah kalau ada **ember kosong** di peti (bot membawa sampai 4).
-- **Pungut**: telur, wol, bulu, daging dan kulit yang tergeletak di area dipungut. Kandang berpagar tidak masalah: kalau tidak bisa masuk, bot melompat ke dalam.
+- **Pungut**: telur, wol, bulu, daging dan kulit yang tergeletak di area dipungut. Kandang berpagar tidak masalah: bot masuk lewat **pintu pagar (fence gate)** atau pintu kayu, lalu menutupnya lagi supaya hewan tidak kabur.
 - **Potong lebih** (mati kalau tidak dinyalakan): kalau jumlah satu jenis di area melebihi batasnya (misalnya 34 domba dengan batas 30), hewan dewasa dipotong sampai kembali ke batas. Anak hewan, hewan bernama, yang diikat tali, babi berpelana dan yang sedang kawin tidak pernah disentuh, dan setiap jenis selalu disisakan minimal 2 ekor dewasa.
 - Malam hari bot melawan monster yang masuk area ternak.
 
@@ -149,7 +149,7 @@ Semua aktif sejak awal dan bisa dimatikan di tab **Level** atau lewat perintah c
 
 ### Anti nyangkut
 
-Kalau bot tidak bisa maju saat berjalan ke kamu, ke Bot Base, ke peti atau ke bijih, ia mencoba cara berikut secara berurutan:
+Bot **berjalan kaki** ke mana pun, sejauh apa pun, dan tidak teleport hanya karena tujuannya jauh. Area di sekitar bot yang sedang bekerja atau dalam perjalanan tetap dimuat game, jadi perjalanan jauh tidak berhenti di tengah jalan walaupun kamu tidak ada di dekatnya. Kalau bot tidak bisa maju, ia merencanakan rute (pathfinding A*) dan mencoba cara berikut:
 
 1. **Memotong jaring laba-laba dan powder snow** yang menahannya.
 2. **Menggali tanah alami** yang menghalangi: batu, deepslate, tanah, pasir, kerikil, netherrack, daun, bijih, dan cobblestone. Bangunan pemain (papan, kaca, pagar, batu bata, pintu, wol, dan lainnya) **tidak pernah digali**.
@@ -158,14 +158,20 @@ Kalau bot tidak bisa maju saat berjalan ke kamu, ke Bot Base, ke peti atau ke bi
    - **menara (pillar)** lurus ke atas kalau tujuannya tepat di atas, juga untuk keluar dari air atau lava;
    - **jembatan** di atas celah atau jurang.
 
-   Satu perjalanan paling banyak menaruh 64 block. Tumpukan block yang dibuatnya tetap tertinggal.
-4. **Jalan pintas (teleport)** ke dekat tujuan kalau semua cara di atas gagal, dengan efek asap dan pesan "Aku nyangkut, jadi aku lewat jalan pintas!". Bot juga langsung memakai jalan pintas kalau tujuannya lebih dari 64 blok, supaya tidak berhenti di tengah jalan karena keluar dari area yang dimuat game.
+   Satu perjalanan paling banyak menaruh 64 block. Tumpukan block yang dibuatnya tetap tertinggal. Menara dibuat seperti pemain: bot melompat lalu menaruh block di bawah kakinya.
+4. **Membuka pintu pagar dan pintu kayu** yang ada di rute, lalu menutupnya lagi setelah lewat.
+5. **Teleport hanya sebagai jalan terakhir**, dengan pesan "Aku nyangkut, jadi aku lewat jalan pintas!":
+   - **tersangkut**: semua cara di atas sudah dicoba dan bot tetap tidak maju selama 20–45 detik;
+   - **genting**: tercebur lava sebelum kebal api, jatuh ke void, atau terjepit block yang tidak boleh digali; bot menyelamatkan diri ke tempat aman terdekat;
+   - **penting**: barang yang jatuh saat kamu mati diambil cepat sebelum hilang (lebih dari 64 blok), atau bot harus menyusulmu/pulang ke job di dimensi lain tapi tidak tahu portalnya (setelah menunggu sebentar).
+
+   Pekerjaan peternak (memberi makan, mencukur) dan memasang obor tidak pernah memakai teleport.
 
 Pencegahan lain:
 
-- Saat mengikutimu, bot ikut **pindah dimensi** (Nether atau End) sekitar 2 detik setelah kamu melewati portal.
-- Bot **tidak pernah masuk portal sendiri**, dan **tidak pernah terbawa perahu atau minecart**.
-- Kalau ada block yang menimpanya (kerikil, pasir), bot memecahkannya atau pindah ke tempat kosong.
+- Saat mengikutimu, bot ikut **pindah dimensi** (Nether atau End) dengan **berjalan masuk ke portal yang kamu pakai**. Bot mengingat portal yang dilewatinya, jadi job atau barang yang harus dibawa pulang tetap bisa ditempuh lewat portal yang sama. Kalau bot tidak tahu portalnya, ia bilang dan menunggu dijemput.
+- Bot **tidak pernah masuk portal tanpa sengaja**, dan **tidak pernah terbawa perahu atau minecart**.
+- Kalau ada block yang menimpanya (kerikil, pasir), bot memecahkannya, atau terdorong keluar pelan-pelan kalau block itu tidak boleh digali.
 - Saat menambang, kalau bot terkurung block yang tidak bisa digali (bedrock, obsidian), ia naik satu block lalu mencari arah lain.
 - Kalau kamu offline atau sedang di dimensi lain, bot mengantar barang ke Bot Base, tidak menunggu terus.
 - Powder snow tidak membekukannya, dan api serta lava tidak melukainya.

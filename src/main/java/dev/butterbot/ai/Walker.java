@@ -127,7 +127,7 @@ public final class Walker {
 			if (blocksPlaced >= MAX_BLOCKS_PLACED) {
 				return false;
 			}
-			if (failedPlans < MAX_PLANS && planAround(bot, target)) {
+			if (failedPlans < MAX_PLANS && planAround(bot, target, true)) {
 				stuckTicks = 0;
 				return true;
 			}
@@ -139,13 +139,21 @@ public final class Walker {
 			}
 		}
 
+		if (!digWhenStuck && stuckTicks >= UNSTICK_AFTER_TICKS && stuckTicks % UNSTICK_INTERVAL == 0
+				&& failedPlans < MAX_PLANS && planAround(bot, target, false)) {
+			// Not allowed to dig here: a walking route still finds the way round (through a gate, say).
+			stuckTicks = 0;
+			return true;
+		}
+
 		return stuckTicks <= maxStuckTicks;
 	}
 
-	/** Plans a dig route towards the target (or the next waypoint) and starts following it. */
-	private boolean planAround(ButterBotEntity bot, Vec3 target) {
+	/** Plans a route towards the target (or the next waypoint) and starts following it; {@code dig}: may dig and build. */
+	private boolean planAround(ButterBotEntity bot, Vec3 target, boolean dig) {
 		BlockPos goal = BlockPos.containing(waypoint(bot, target));
-		DigPath path = DigPlanner.plan(bot, DigPlanner.reach(goal, 2), null);
+		DigPlanner.Goal reach = DigPlanner.reach(goal, 2);
+		DigPath path = dig ? DigPlanner.plan(bot, reach, null) : DigPlanner.planWalking(bot, reach);
 		if (path == null || path.isEmpty()) {
 			failedPlans++;
 			return false;

@@ -16,7 +16,6 @@ public class GoToBaseAction implements BotAction {
 
 	private static final double ARRIVE_DISTANCE_SQ = 2.5D * 2.5D;
 	private static final int MAX_STUCK_TICKS = 20 * 45;
-	private static final double SHORTCUT_DISTANCE_SQ = 64.0D * 64.0D;
 
 	private final Walker walker = new Walker();
 
@@ -51,10 +50,6 @@ public class GoToBaseAction implements BotAction {
 		}
 
 		double distanceSq = bot.distanceToSqr(Vec3.atCenterOf(base));
-		if (distanceSq > SHORTCUT_DISTANCE_SQ && bot.teleportNear(base)) {
-			walker.reset(bot);
-			return;
-		}
 		if (distanceSq <= ARRIVE_DISTANCE_SQ) {
 			bot.getNavigation().stop();
 			BotBaseBlockEntity baseEntity = bot.getBase();
@@ -69,8 +64,11 @@ public class GoToBaseAction implements BotAction {
 			return;
 		}
 
-		if (!walker.walk(bot, Vec3.atBottomCenterOf(base), 1.1D, true, MAX_STUCK_TICKS)) {
-			if (bot.teleportNear(base)) {
+		// Far away the base isn't loaded yet: head that way; it loads as the bot gets near.
+		Vec3 goal = bot.level().isLoaded(base) ? Vec3.atBottomCenterOf(base) : new Vec3(base.getX() + 0.5D, bot.getY(), base.getZ() + 0.5D);
+		if (!walker.walk(bot, goal, 1.1D, true, MAX_STUCK_TICKS)) {
+			// Stuck even digging and building: hop home as a last resort.
+			if (bot.lastResortTeleport(base)) {
 				walker.reset(bot);
 			} else {
 				bot.tellOwner(Component.translatable("butterbot.msg.cant_reach_base"));

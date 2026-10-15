@@ -32,7 +32,7 @@ public final class BotHud implements HudElement {
 	private static final long STALE_MILLIS = 5000L;
 	private static final int WIDTH = 136;
 	private static final int ROW_HEIGHT = 11;
-	private static final int MAX_ROWS = 6;
+	private static final int MAX_ROWS = 10;
 	private static final int NAME_WIDTH = 44;
 	private static final float FULL_BAG = 0.9F;
 
