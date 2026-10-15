@@ -1,5 +1,6 @@
 package dev.butterbot.item;
 
+import dev.butterbot.entity.BotBond;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.entity.DeliveryMode;
 import dev.butterbot.entity.JobConfig;
@@ -95,6 +96,10 @@ public class ButterBotItem extends Item {
 		bot.setAutoRefill(tag.getBooleanOr("AutoRefill", true));
 		bot.setFarTeleport(tag.getBooleanOr("FarTeleport", true));
 		bot.setSmeltMode(SmeltMode.byOrdinal(tag.getIntOr("SmeltMode", SmeltMode.ORES.ordinal())));
+		// Bots packed before the bond start friendly. The favourite treat is kept: the placed bot gets a new UUID.
+		bot.setBond(tag.getIntOr("Bond", BotBond.DEFAULT));
+		tag.getInt("BondFav").ifPresent(bot::setFavoriteTreat);
+		bot.setFavoriteKnown(tag.getBooleanOr("BondFavKnown", false));
 		tag.getLong("Base").ifPresent(base -> bot.setBasePos(BlockPos.of(base)));
 		tag.read("Job", JobConfig.Data.CODEC).ifPresent(job -> bot.getJobs().load(job));
 		String name = tag.getStringOr("Name", "");
@@ -136,6 +141,9 @@ public class ButterBotItem extends Item {
 		tag.putBoolean("AutoRefill", bot.refillsHotbar());
 		tag.putBoolean("FarTeleport", bot.teleportsFar());
 		tag.putInt("SmeltMode", bot.getSmeltMode().ordinal());
+		tag.putInt("Bond", bot.getBond());
+		tag.putInt("BondFav", bot.getFavoriteTreat());
+		tag.putBoolean("BondFavKnown", bot.isFavoriteKnown());
 		if (bot.getBasePos() != null) {
 			tag.putLong("Base", bot.getBasePos().asLong());
 		}
@@ -177,6 +185,8 @@ public class ButterBotItem extends Item {
 			return;
 		}
 		builder.accept(Component.translatable("butterbot.tooltip.level", tag.getIntOr("Level", 1)).withStyle(ChatFormatting.GOLD));
+		int bond = BotBond.clamp(tag.getIntOr("Bond", BotBond.DEFAULT));
+		builder.accept(Component.translatable("butterbot.tooltip.bond", bond, BotBond.tierName(bond)).withColor(BotBond.COLOR & 0xFFFFFF));
 		if (!tag.getStringOr("Skin", "").isEmpty()) {
 			builder.accept(Component.translatable("butterbot.tooltip.custom_skin").withStyle(ChatFormatting.LIGHT_PURPLE));
 		}

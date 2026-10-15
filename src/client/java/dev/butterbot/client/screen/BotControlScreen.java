@@ -12,6 +12,7 @@ import dev.butterbot.ai.job.Livestock;
 import dev.butterbot.client.BotFocus;
 import dev.butterbot.client.BotKeys;
 import dev.butterbot.client.skin.ClientSkinManager;
+import dev.butterbot.entity.BotBond;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
 import dev.butterbot.entity.BotTier;
@@ -105,6 +106,10 @@ public class BotControlScreen extends Screen {
 	private static final int SKILL_PITCH_Y = 37;
 	private static final int SKILL_TOP = 32;
 	private static final BotJob[] MASTERY_JOBS = {BotJob.MINER, BotJob.GATHERER, BotJob.GUARD, BotJob.FARMER, BotJob.RANCHER};
+	/** Bond pink on the dark card and on the light panel; where the bond meter starts on the statistics page. */
+	private static final int BOND_LIGHT = BotBond.COLOR;
+	private static final int BOND_DARK = 0xFFB0306A;
+	private static final int BOND_METER_X = 126;
 
 	// Job tab grid.
 	private static final int GRID_Y = 102;
@@ -457,7 +462,7 @@ public class BotControlScreen extends Screen {
 		}
 	}
 
-	private void renderCard(GuiGraphicsExtractor g) {
+	private void renderCard(GuiGraphicsExtractor g, int mouseX, int mouseY) {
 		Payloads.BotEntry bot = selected();
 		int middle = cardX + CARD_W / 2;
 		if (bot == null) {
@@ -493,7 +498,16 @@ public class BotControlScreen extends Screen {
 
 		int maxHealth = Math.round(bot.maxHealth());
 		int health = Math.round(bot.health() * maxHealth);
-		g.text(font, Component.translatable("butterbot.ui.health", health, maxHealth), cardX + 5, cardY + 113, McStyle.TEXT_LIGHT, true);
+		// The bond sits at the right end of the health row, in pink.
+		Component bond = Component.translatable("butterbot.ui.bond", bot.bond());
+		int bondX = cardX + CARD_W - 5 - font.width(bond);
+		String healthText = font.plainSubstrByWidth(Component.translatable("butterbot.ui.health", health, maxHealth).getString(),
+				bondX - 4 - (cardX + 5));
+		g.text(font, healthText, cardX + 5, cardY + 113, McStyle.TEXT_LIGHT, true);
+		g.text(font, bond, bondX, cardY + 113, BOND_LIGHT, true);
+		if (inside(mouseX, mouseY, bondX - 1, cardY + 112, font.width(bond) + 2, 10)) {
+			g.setComponentTooltipForNextFrame(font, bondTooltip(bot), mouseX, mouseY);
+		}
 		McStyle.bar(g, cardX + 5, cardY + 123, CARD_W - 10, 4, bot.health(), McStyle.HEALTH);
 		int capacity = bot.backpackSlots() * 64;
 		g.text(font, Component.translatable("butterbot.ui.bag", bot.itemCount(), capacity), cardX + 5, cardY + 131,
@@ -1583,6 +1597,7 @@ public class BotControlScreen extends Screen {
 
 	/** Everything the bot can do, its job mastery, the level abilities and lifetime counters. */
 	private void renderStats(GuiGraphicsExtractor g, Payloads.BotEntry bot, int mouseX, int mouseY) {
+		renderBondMeter(g, bot, mouseX, mouseY);
 		BotStats stats = statsOf(bot);
 		String attack = String.format(Locale.ROOT, "%.1f", stats.attackDamage() + 5 + BotLevels.toolTier(bot.level()));
 		Component[] left = {
@@ -1663,6 +1678,35 @@ public class BotControlScreen extends Screen {
 
 	private static int lifetimeAt(int[] lifetime, BotProgress.Stat stat) {
 		return stat.ordinal() < lifetime.length ? lifetime[stat.ordinal()] : 0;
+	}
+
+	/** The bond meter at the top right of the statistics page: tier, a pink bar and the favourite treat once it is found out. */
+	private void renderBondMeter(GuiGraphicsExtractor g, Payloads.BotEntry bot, int mouseX, int mouseY) {
+		int x = cx + BOND_METER_X;
+		int slotX = cx + CW - 18;
+		int w = slotX - 3 - x;
+		Component line = Component.translatable("butterbot.stats.bond", bot.bond(), BotBond.tierName(bot.bond()));
+		g.text(font, font.plainSubstrByWidth(line.getString(), w), x, cy + 1, BOND_DARK, false);
+		McStyle.bar(g, x, cy + 11, w, 4, bot.bond() / (float) BotBond.MAX, BOND_LIGHT);
+		McStyle.slot(g, slotX, cy - 1);
+		if (BotBond.isValidFavorite(bot.favorite())) {
+			g.item(new ItemStack(BotBond.favoriteItem(bot.favorite())), slotX + 1, cy);
+		} else {
+			g.text(font, "?", slotX + 9 - font.width("?") / 2, cy + 4, McStyle.WHITE, true);
+		}
+		if (inside(mouseX, mouseY, x, cy - 1, cx + CW - x, 18)) {
+			g.setComponentTooltipForNextFrame(font, bondTooltip(bot), mouseX, mouseY);
+		}
+	}
+
+	/** Bond, tier, the favourite treat (or "???") and how to grow it. */
+	private static List<Component> bondTooltip(Payloads.BotEntry bot) {
+		Component favorite = BotBond.isValidFavorite(bot.favorite())
+				? Component.translatable("butterbot.stats.favorite", new ItemStack(BotBond.favoriteItem(bot.favorite())).getHoverName()).withStyle(ChatFormatting.WHITE)
+				: Component.translatable("butterbot.stats.favorite_unknown").withStyle(ChatFormatting.GRAY);
+		return List.of(Component.translatable("butterbot.stats.bond", bot.bond(), BotBond.tierName(bot.bond())).withColor(BOND_LIGHT & 0xFFFFFF),
+				favorite,
+				Component.translatable("butterbot.ui.bond_tip").withStyle(ChatFormatting.GRAY));
 	}
 
 	// ---------------------------------------------------------------- More: crafting
@@ -2024,7 +2068,7 @@ public class BotControlScreen extends Screen {
 	}
 
 	private void renderForeground(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-		renderCard(g);
+		renderCard(g, mouseX, mouseY);
 		Payloads.BotEntry bot = selected();
 		if (!receivedList) {
 			g.text(font, Component.translatable("butterbot.gui.loading"), cx, cy + 4, McStyle.TEXT_DIM, false);

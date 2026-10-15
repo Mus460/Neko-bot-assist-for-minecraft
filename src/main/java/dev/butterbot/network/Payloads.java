@@ -399,7 +399,7 @@ public final class Payloads {
 						   String script, int deliveryMode, int itemCount, BlockPos pos, boolean hasBase, float health,
 						   int level, int workXp, int storedXp, boolean guard, boolean autoTorch, boolean feedOwner,
 						   int smeltMode, boolean autoRefill, int skinVariant, JobView jobView, float maxHealth, int backpackSlots,
-						   int[] skills, int[] mastery, int[] lifetime, boolean farTeleport) {
+						   int[] skills, int[] mastery, int[] lifetime, boolean farTeleport, int bond, int favorite) {
 
 		private static final int MAX_ARRAY = 64;
 
@@ -432,6 +432,8 @@ public final class Payloads {
 			buf.writeVarIntArray(e.mastery);
 			buf.writeVarIntArray(e.lifetime);
 			buf.writeBoolean(e.farTeleport);
+			buf.writeVarInt(e.bond);
+			buf.writeVarInt(e.favorite);
 		}
 
 		static BotEntry read(RegistryFriendlyByteBuf buf) {
@@ -440,7 +442,8 @@ public final class Payloads {
 					buf.readVarInt(), buf.readVarInt(), buf.readBlockPos(), buf.readBoolean(), buf.readFloat(),
 					buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readBoolean(), buf.readBoolean(), buf.readBoolean(),
 					buf.readVarInt(), buf.readBoolean(), buf.readVarInt(), JobView.read(buf), buf.readFloat(), buf.readVarInt(),
-					buf.readVarIntArray(MAX_ARRAY), buf.readVarIntArray(MAX_ARRAY), buf.readVarIntArray(MAX_ARRAY), buf.readBoolean());
+					buf.readVarIntArray(MAX_ARRAY), buf.readVarIntArray(MAX_ARRAY), buf.readVarIntArray(MAX_ARRAY), buf.readBoolean(),
+					buf.readVarInt(), buf.readVarInt());
 		}
 	}
 

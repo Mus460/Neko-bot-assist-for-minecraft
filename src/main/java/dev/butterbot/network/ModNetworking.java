@@ -114,7 +114,10 @@ public final class ModNetworking {
 					bot.getProgress().ranks(),
 					bot.getProgress().mastery(),
 					bot.getProgress().stats(),
-					bot.teleportsFar()));
+					bot.teleportsFar(),
+					bot.getBond(),
+					// The favourite treat stays a secret until the owner has fed it.
+					bot.isFavoriteKnown() ? bot.getFavoriteTreat() : -1));
 		}
 		Optional<BlockPos> validBase = BotAccess.isValidBase(player, base) ? base : Optional.empty();
 		ServerPlayNetworking.send(player, new Payloads.BotList(validBase, entries));

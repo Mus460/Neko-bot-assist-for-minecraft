@@ -87,10 +87,11 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		poseStack.scale(PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE);
 	}
 
-	/** The level-up cheer: a little hop with a twirl. */
+	/** The level-up cheer: a little hop with a twirl. A pout turns the bot away. */
 	@Override
 	protected void setupRotations(ButterBotRenderState state, PoseStack poseStack, float bodyRot, float entityScale) {
-		boolean cheering = state.levelUpTime >= 0.0F && state.deathTime <= 0.0F && !state.hasPose(Pose.SLEEPING);
+		boolean standing = state.deathTime <= 0.0F && !state.hasPose(Pose.SLEEPING);
+		boolean cheering = state.levelUpTime >= 0.0F && standing;
 		if (cheering) {
 			// Hop before the rotations, while up is still up (a bot named Dinnerbone is drawn upside down).
 			poseStack.translate(0.0F, LevelUpAnimation.hop(state.levelUpTime), 0.0F);
@@ -98,6 +99,10 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		super.setupRotations(state, poseStack, bodyRot, entityScale);
 		if (cheering) {
 			poseStack.rotateDegrees(Axis.YP, LevelUpAnimation.twirl(state.levelUpTime));
+		}
+		float turn = standing ? ReactionAnimation.bodyTurn(state.reaction, state.reactionTime) : 0.0F;
+		if (turn != 0.0F) {
+			poseStack.rotateDegrees(Axis.YP, turn);
 		}
 	}
 
@@ -129,6 +134,13 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 			state.focusColor = BotFocus.glowColor(skin.hairColor());
 			state.outlineColor = state.focusColor;
 			state.beamTime = entity.tickCount % 40 + partialTicks;
+		}
+		state.reactionTime = entity.reactionTime(partialTicks);
+		state.reaction = state.reactionTime >= 0.0F ? entity.reactionType() : ButterBotEntity.REACTION_NONE;
+		if (state.reaction != ButterBotEntity.REACTION_NONE) {
+			// Leaning into a pat, chewing nods, or a pout's head turned aside with the chin up.
+			state.xRot += ReactionAnimation.headPitch(state.reaction, state.reactionTime);
+			state.yRot += ReactionAnimation.headTurn(state.reaction, state.reactionTime);
 		}
 
 		boolean close = state.distanceToCameraSq < INFO_DISTANCE_SQ && !entity.isInvisible();

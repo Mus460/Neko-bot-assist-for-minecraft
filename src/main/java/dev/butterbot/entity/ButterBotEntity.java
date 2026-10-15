@@ -90,6 +90,8 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.animal.feline.CatSoundVariant;
+import net.minecraft.world.entity.animal.feline.CatSoundVariants;
 import com.mojang.serialization.Codec;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.block.DoorBlock;
@@ -184,6 +186,31 @@ public class ButterBotEntity extends PathfinderMob {
 	private static final byte LEVEL_UP_EVENT = 100;
 	/** How long the level-up cheer (hop, twirl, perked ears, raised tail) lasts, in ticks. */
 	public static final int LEVEL_UP_ANIM_TICKS = 40;
+	/** Entity events for the bond reactions: a head pat (or nuzzle), a pout after a hit, a treat. */
+	private static final byte PET_EVENT = 110;
+	private static final byte POUT_EVENT = 111;
+	private static final byte TREAT_EVENT = 112;
+	/** Reactions played on watching clients ({@link #reactionType()}). */
+	public static final int REACTION_NONE = 0;
+	public static final int REACTION_PET = 1;
+	public static final int REACTION_POUT = 2;
+	public static final int REACTION_TREAT = 3;
+	/** How long a reaction (folded ears, fast tail, head down into the pat...) lasts, in ticks. */
+	public static final int REACTION_TICKS = 40;
+	/**
+	 * A click this high on the bot (in blocks above its feet, at scale 1) pats its head instead of opening the
+	 * panel: only the top of the head counts, since a straight-ahead click from a player's eyes lands near 1.62.
+	 */
+	private static final double PET_MIN_Y = 1.66D;
+	private static final int PET_LINES = 6;
+	private static final int TREAT_LINES = 4;
+	private static final int POUT_LINES = 3;
+	private static final long PET_BOND_COOLDOWN = 20L * 60L;
+	private static final long TREAT_BOND_COOLDOWN = 20L * 120L;
+	private static final long POUT_COOLDOWN = 20L * 10L;
+	private static final long HUG_COOLDOWN = 20L * 60L * 5L;
+	/** Seconds near the owner (within 16 blocks) for one point of bond. */
+	private static final int NEAR_OWNER_BOND_SECONDS = 600;
 
 	/** Backpack size at level 1; it grows to {@link BotLevels#MAX_BACKPACK} with levels. */
 	public static final int INVENTORY_SIZE = BotLevels.BASE_BACKPACK;
@@ -282,6 +309,30 @@ public class ButterBotEntity extends PathfinderMob {
 	private BotStats cachedStats;
 	/** Client side: the tick the last level-up cheer started. */
 	private int levelUpAnimStart = Integer.MIN_VALUE / 2;
+	/** Client side: the tick the last bond reaction started, and which one it is. */
+	private int reactionStart = Integer.MIN_VALUE / 2;
+	private int reactionType = REACTION_NONE;
+
+	// Bond with the owner (see BotBond).
+	private int bond = BotBond.DEFAULT;
+	/** The favourite treat ({@link BotBond#favoriteItem}), or -1 until it is picked from the UUID. */
+	private int favoriteTreat = -1;
+	/** The owner has found out the favourite treat by feeding it. */
+	private boolean favoriteKnown;
+	private long nextPetBondAt;
+	private long nextTreatBondAt;
+	private long nextPoutAt;
+	private long nextNuzzleAt;
+	private long nextHugAt;
+	/** Ticks of the last pat and treat, so holding the use key doesn't pat or feed every few ticks. */
+	private int lastPetTick = -1000;
+	private int lastPetHealTick = -1000;
+	private int lastTreatTick = -1000;
+	private int nearOwnerSeconds;
+	/** How long the owner has been standing still (in seconds), for the nuzzle. */
+	private int ownerStillSeconds;
+	@Nullable
+	private Vec3 ownerStillPos;
 	/** Game time from which Second Wind can save the bot again. */
 	private long secondWindReadyAt;
 	/** What the bot is digging its way to and how (shown by the debug key). */
@@ -856,6 +907,28 @@ public class ButterBotEntity extends PathfinderMob {
 
 	// ------------------------------------------------------------------ interaction
 
+	/**
+	 * Reaching up and clicking the top of the head with an empty hand pats it; everything else (claiming, the
+	 * panel, packing, treats) goes on to {@link #mobInteract}. {@code location} is the clicked point relative to
+	 * the bot's feet.
+	 */
+	@Override
+	public InteractionResult interact(Player player, InteractionHand hand, Vec3 location) {
+		boolean pat = this.isAlive() && hand == InteractionHand.MAIN_HAND && player.getMainHandItem().isEmpty()
+				&& !player.isShiftKeyDown() && location.y / this.getScale() >= PET_MIN_Y;
+		if (pat) {
+			// The client doesn't know the owner; a stranger's pat ends up at "not yours" on the server.
+			if (this.level().isClientSide()) {
+				return InteractionResult.SUCCESS;
+			}
+			if (player instanceof ServerPlayer serverPlayer && isOwnedBy(player)) {
+				pet(serverPlayer);
+				return InteractionResult.SUCCESS_SERVER;
+			}
+		}
+		return super.interact(player, hand, location);
+	}
+
 	@Override
 	protected InteractionResult mobInteract(Player player, InteractionHand hand) {
 		if (hand != InteractionHand.MAIN_HAND) {
@@ -865,7 +938,8 @@ public class ButterBotEntity extends PathfinderMob {
 		ItemStack held = player.getItemInHand(hand);
 
 		if (this.level().isClientSide()) {
-			return held.isEmpty() ? InteractionResult.SUCCESS : InteractionResult.PASS;
+			// Treats go to the bot, so the player doesn't eat the cookie themselves.
+			return held.isEmpty() || BotBond.isTreat(held) || BotBond.isPuffer(held) ? InteractionResult.SUCCESS : InteractionResult.PASS;
 		}
 
 		ServerPlayer serverPlayer = (ServerPlayer) player;
@@ -884,6 +958,15 @@ public class ButterBotEntity extends PathfinderMob {
 			serverPlayer.sendSystemMessage(Component.translatable("butterbot.msg.not_yours",
 					ownerName == null ? "?" : ownerName).withStyle(ChatFormatting.RED));
 			return InteractionResult.FAIL;
+		}
+
+		if (BotBond.isPuffer(held)) {
+			refusePuffer();
+			return InteractionResult.SUCCESS_SERVER;
+		}
+		if (BotBond.isTreat(held)) {
+			feedTreat(serverPlayer, hand, held);
+			return InteractionResult.SUCCESS_SERVER;
 		}
 
 		if (!held.isEmpty()) {
@@ -1324,12 +1407,26 @@ public class ButterBotEntity extends PathfinderMob {
 		return time >= 0.0F && time < LEVEL_UP_ANIM_TICKS ? time : -1.0F;
 	}
 
+	/** The bond reaction playing now ({@link #REACTION_PET}, {@link #REACTION_POUT}, {@link #REACTION_TREAT}) or none. Client side. */
+	public int reactionType() {
+		return reactionTime(0.0F) >= 0.0F ? reactionType : REACTION_NONE;
+	}
+
+	/** Ticks since the bond reaction started (with the partial tick), or -1 when none is playing. Client side. */
+	public float reactionTime(float partialTicks) {
+		float time = this.tickCount - reactionStart + partialTicks;
+		return time >= 0.0F && time < REACTION_TICKS ? time : -1.0F;
+	}
+
 	@Override
 	public void handleEntityEvent(byte id) {
 		if (id >= LEVEL_UP_EVENT && id < LEVEL_UP_EVENT + BotTier.values().length) {
 			levelUpAnimStart = this.tickCount;
 			// The event comes before the new level is synced, so it carries the new tier itself.
 			spawnLevelUpBurst(BotTier.byIndex(id - LEVEL_UP_EVENT));
+		} else if (id == PET_EVENT || id == POUT_EVENT || id == TREAT_EVENT) {
+			reactionStart = this.tickCount;
+			reactionType = id == PET_EVENT ? REACTION_PET : id == POUT_EVENT ? REACTION_POUT : REACTION_TREAT;
 		} else {
 			super.handleEntityEvent(id);
 		}
@@ -1393,6 +1490,205 @@ public class ButterBotEntity extends PathfinderMob {
 		// Like the enchanting table: the letter falls 1.2 blocks on its way, so aim that much higher.
 		this.level().addParticle(ParticleTypes.ENCHANT, getX(), getY() + 2.3D, getZ(), (this.random.nextDouble() - 0.5D) * 2.0D,
 				this.random.nextDouble() * 0.8D - 1.2D, (this.random.nextDouble() - 0.5D) * 2.0D);
+	}
+
+	// ------------------------------------------------------------------ bond
+
+	public int getBond() {
+		return bond;
+	}
+
+	/** Restores the bond saved in an item or in the world (without the tier-up message). */
+	public void setBond(int bond) {
+		this.bond = BotBond.clamp(bond);
+	}
+
+	/** Grows (or lowers) the bond; reaching a new tier is told to the owner with a burst of hearts. */
+	public void addBond(int amount) {
+		int before = bond;
+		bond = BotBond.clamp(bond + amount);
+		if (BotBond.tier(bond) > BotBond.tier(before)) {
+			tellOwner(Component.translatable("butterbot.bond.tier_up", BotBond.tierName(bond)).withColor(BotBond.COLOR & 0xFFFFFF));
+			this.playSound(SoundEvents.AMETHYST_BLOCK_CHIME, 1.0F, 1.2F);
+			if (this.level() instanceof ServerLevel serverLevel) {
+				serverLevel.sendParticles(ParticleTypes.HEART, getX(), getY() + 1.2D, getZ(), 10, 0.5D, 0.6D, 0.5D, 0.0D);
+			}
+		}
+	}
+
+	/** Index of the favourite treat ({@link BotBond#favoriteItem}); picked from the UUID the first time it is asked for. */
+	public int getFavoriteTreat() {
+		if (!BotBond.isValidFavorite(favoriteTreat)) {
+			favoriteTreat = BotBond.favoriteFor(this.getUUID());
+		}
+		return favoriteTreat;
+	}
+
+	public void setFavoriteTreat(int index) {
+		if (BotBond.isValidFavorite(index)) {
+			this.favoriteTreat = index;
+		}
+	}
+
+	/** True once the owner has fed it its favourite treat (the panel shows it from then on). */
+	public boolean isFavoriteKnown() {
+		return favoriteKnown;
+	}
+
+	public void setFavoriteKnown(boolean favoriteKnown) {
+		this.favoriteKnown = favoriteKnown;
+	}
+
+	/**
+	 * A head pat: hearts, a purr, a happy line and (on watching clients) folded ears, a fast tail and the head
+	 * leaning into the hand. It never touches the brain or the task, so work goes on.
+	 */
+	private void pet(ServerPlayer player) {
+		// Holding the use key repeats the click every few ticks.
+		if (this.tickCount - lastPetTick < 15) {
+			return;
+		}
+		lastPetTick = this.tickCount;
+		ServerLevel serverLevel = (ServerLevel) this.level();
+		serverLevel.sendParticles(ParticleTypes.HEART, getX(), getY() + 2.0D, getZ(), 3, 0.3D, 0.1D, 0.3D, 0.0D);
+		serverLevel.broadcastEntityEvent(this, PET_EVENT);
+		this.getLookControl().setLookAt(player);
+		purr();
+		say(Component.translatable("butterbot.pet." + this.random.nextInt(PET_LINES)));
+		long now = serverLevel.getGameTime();
+		// From "fond" on a pat also heals a little (every 5 s at most, so patting isn't a way to heal in a fight).
+		if (bond >= BotBond.FOND && this.getHealth() < this.getMaxHealth() && this.tickCount - lastPetHealTick >= 100) {
+			lastPetHealTick = this.tickCount;
+			this.heal(2.0F);
+		}
+		if (now >= nextPetBondAt) {
+			nextPetBondAt = now + PET_BOND_COOLDOWN;
+			addBond(2);
+		}
+	}
+
+	/** Eats a treat from the owner's hand: heals like its own food, purrs, and grows the bond (twice as much for its favourite). */
+	private void feedTreat(ServerPlayer player, InteractionHand hand, ItemStack held) {
+		// Holding the use key would otherwise feed it a whole stack in seconds.
+		if (this.tickCount - lastTreatTick < 30) {
+			return;
+		}
+		lastTreatTick = this.tickCount;
+		ServerLevel serverLevel = (ServerLevel) this.level();
+		Item item = held.getItem();
+		FoodProperties food = held.get(DataComponents.FOOD);
+		boolean favorite = BotBond.isFavorite(held, getFavoriteTreat());
+		int gain = BotBond.treatGain(held) * (favorite ? 2 : 1);
+		usePlayerItem(player, hand, held);
+		// A cake has no food component: a whole one is a feast.
+		this.heal(food == null ? 8.0F : food.nutrition() * 1.5F + food.saturation());
+		serverLevel.sendParticles(new ItemParticleOption(ParticleTypes.ITEM, item), getX(), getEyeY() - 0.2D, getZ(),
+				8, 0.2D, 0.1D, 0.2D, 0.05D);
+		serverLevel.sendParticles(ParticleTypes.HEART, getX(), getY() + 2.0D, getZ(), favorite ? 5 : 2, 0.3D, 0.1D, 0.3D, 0.0D);
+		serverLevel.broadcastEntityEvent(this, TREAT_EVENT);
+		this.getLookControl().setLookAt(player);
+		if (isNeko()) {
+			this.playSound(catSounds().eatSound().value(), 1.0F, 1.0F);
+		} else {
+			this.playSound(SoundEvents.GENERIC_EAT.value(), 0.7F, 1.0F);
+		}
+		purr();
+		if (favorite) {
+			favoriteKnown = true;
+			say(Component.translatable("butterbot.treat.favorite"));
+		} else {
+			say(Component.translatable("butterbot.treat." + this.random.nextInt(TREAT_LINES)));
+		}
+		long now = serverLevel.getGameTime();
+		if (now >= nextTreatBondAt) {
+			nextTreatBondAt = now + TREAT_BOND_COOLDOWN;
+			addBond(gain);
+		}
+	}
+
+	/** Pufferfish is refused (and kept by the player). */
+	private void refusePuffer() {
+		ServerLevel serverLevel = (ServerLevel) this.level();
+		serverLevel.sendParticles(ParticleTypes.ANGRY_VILLAGER, getX(), getY() + 2.0D, getZ(), 3, 0.3D, 0.1D, 0.3D, 0.0D);
+		if (isNeko()) {
+			this.playSound(catSounds().hissSound().value(), 0.8F, 1.0F);
+		}
+		say(Component.translatable("butterbot.treat.puffer"));
+	}
+
+	/** The owner sneak-hit it: it pouts (angry puffs, turning away on watching clients) and the bond drops, at most every 10 s. */
+	private void pout(ServerLevel level) {
+		long now = level.getGameTime();
+		if (now < nextPoutAt || !this.isAlive()) {
+			return;
+		}
+		nextPoutAt = now + POUT_COOLDOWN;
+		level.sendParticles(ParticleTypes.ANGRY_VILLAGER, getX(), getY() + 2.0D, getZ(), 4, 0.3D, 0.2D, 0.3D, 0.0D);
+		level.broadcastEntityEvent(this, POUT_EVENT);
+		say(Component.translatable("butterbot.pout." + this.random.nextInt(POUT_LINES)));
+		addBond(-5);
+	}
+
+	/**
+	 * Once a second with the owner around: a point of bond for every 10 minutes spent together, a nuzzle now and
+	 * then once it is fond, and a hug for a dying owner once they are soulmates.
+	 */
+	private void tickBond(Player owner, double distanceSq) {
+		long now = this.level().getGameTime();
+		if (distanceSq < 16.0D * 16.0D && ++nearOwnerSeconds >= NEAR_OWNER_BOND_SECONDS) {
+			nearOwnerSeconds = 0;
+			addBond(1);
+		}
+		Vec3 ownerPos = owner.position();
+		ownerStillSeconds = ownerStillPos != null && ownerPos.distanceToSqr(ownerStillPos) < 0.01D ? ownerStillSeconds + 1 : 0;
+		ownerStillPos = ownerPos;
+		if (bond >= BotBond.SOULMATE && now >= nextHugAt && distanceSq < 8.0D * 8.0D
+				&& owner.getHealth() < owner.getMaxHealth() * 0.3F) {
+			nextHugAt = now + HUG_COOLDOWN;
+			hug(owner);
+			return;
+		}
+		boolean calm = (task == BotTask.FOLLOW || task == BotTask.NONE && !jobs.isActive()) && !returnRequested && combatTicks <= 0;
+		if (bond >= BotBond.FOND && calm && ownerStillSeconds >= 10 && distanceSq < 4.0D * 4.0D && now >= nextNuzzleAt) {
+			nextNuzzleAt = now + 20L * (120 + this.random.nextInt(121));
+			nuzzle(owner);
+		}
+	}
+
+	/** Rubs up against an owner standing still nearby: hearts and a purr. */
+	private void nuzzle(Player owner) {
+		if (!(this.level() instanceof ServerLevel serverLevel)) {
+			return;
+		}
+		this.getLookControl().setLookAt(owner);
+		serverLevel.sendParticles(ParticleTypes.HEART, getX(), getY() + 2.0D, getZ(), 2, 0.3D, 0.1D, 0.3D, 0.0D);
+		serverLevel.broadcastEntityEvent(this, PET_EVENT);
+		purr();
+	}
+
+	/** Soulmates look after an owner low on health: Regeneration, hearts and a word of comfort, once every 5 minutes. */
+	private void hug(Player owner) {
+		owner.addEffect(new MobEffectInstance(MobEffects.REGENERATION, 100, 0), this);
+		if (this.level() instanceof ServerLevel serverLevel) {
+			serverLevel.sendParticles(ParticleTypes.HEART, owner.getX(), owner.getY() + 1.8D, owner.getZ(), 6, 0.4D, 0.3D, 0.4D, 0.0D);
+			serverLevel.broadcastEntityEvent(this, PET_EVENT);
+		}
+		this.getLookControl().setLookAt(owner);
+		purr();
+		tellOwner(Component.translatable("butterbot.bond.hug").withColor(BotBond.COLOR & 0xFFFFFF));
+	}
+
+	/** A cat's purr in neko mode; the classic Butter Bot hums quietly instead. */
+	private void purr() {
+		if (isNeko()) {
+			this.playSound(catSounds().purrSound().value(), 1.0F, 1.0F);
+		} else {
+			this.playSound(ModSounds.BOT_AMBIENT, 0.4F, 1.3F);
+		}
+	}
+
+	private static CatSoundVariant.CatSoundSet catSounds() {
+		return SoundEvents.CAT_SOUNDS.get(CatSoundVariants.SoundSet.CLASSIC).adultSounds();
 	}
 
 	// ------------------------------------------------------------------ levels and settings
@@ -1483,6 +1779,8 @@ public class ButterBotEntity extends PathfinderMob {
 		applyLevelStats();
 		this.setHealth(this.getMaxHealth());
 		celebrateLevelUp(start, level);
+		// Growing up together brings them closer.
+		addBond(1);
 	}
 
 	/** The job the current work is for, if it is job work (guards get theirs from fights instead). */
@@ -3976,6 +4274,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (autoRefill && distanceSq < 8.0D * 8.0D) {
 			hotbarRefill.tick(this, owner);
 		}
+		tickBond(owner, distanceSq);
 	}
 
 	public boolean placeBlockFromInventory(BlockPos pos, Item item) {
@@ -4058,6 +4357,10 @@ public class ButterBotEntity extends PathfinderMob {
 		output.storeNullable("TargetBlock", BlockPos.CODEC, targetBlock);
 		output.putBoolean("AutoRefill", autoRefill);
 		output.putBoolean("FarTeleport", farTeleport);
+		output.putInt("Bond", bond);
+		output.putInt("BondFav", getFavoriteTreat());
+		output.putBoolean("BondFavKnown", favoriteKnown);
+		output.putInt("BondNear", nearOwnerSeconds);
 		output.storeNullable("RecoverPos", BlockPos.CODEC, recoverPos);
 		ValueOutput.TypedOutputList<ItemStack> recovered = output.list("Recovered", ItemStack.CODEC);
 		recoveredItems.forEach(recovered::add);
@@ -4146,6 +4449,11 @@ public class ButterBotEntity extends PathfinderMob {
 
 		autoRefill = input.getBooleanOr("AutoRefill", true);
 		farTeleport = input.getBooleanOr("FarTeleport", true);
+		// Bots from before the bond start friendly; their favourite treat is picked from the UUID.
+		bond = BotBond.clamp(input.getIntOr("Bond", BotBond.DEFAULT));
+		favoriteTreat = input.getIntOr("BondFav", -1);
+		favoriteKnown = input.getBooleanOr("BondFavKnown", false);
+		nearOwnerSeconds = input.getIntOr("BondNear", 0);
 		recoverPos = input.read("RecoverPos", BlockPos.CODEC).orElse(null);
 		recoveredItems.clear();
 		input.listOrEmpty("Recovered", ItemStack.CODEC).forEach(recoveredItems::add);
@@ -4230,6 +4538,10 @@ public class ButterBotEntity extends PathfinderMob {
 		boolean hurt = super.hurtServer(level, source, damage);
 		if (hurt) {
 			lastHurtTick = this.tickCount;
+			// Only a sneaking owner gets this far.
+			if (source.getEntity() instanceof Player player && isOwnedBy(player)) {
+				pout(level);
+			}
 		}
 		return hurt;
 	}
