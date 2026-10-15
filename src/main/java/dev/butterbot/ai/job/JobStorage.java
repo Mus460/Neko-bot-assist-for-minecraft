@@ -19,6 +19,7 @@ import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity;
 import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.chunk.LevelChunk;
 import org.jetbrains.annotations.Nullable;
 
@@ -56,6 +57,16 @@ public final class JobStorage {
 
 	public static boolean isStorage(ServerLevel level, BlockPos pos) {
 		return open(level, pos) != null;
+	}
+
+	/** True if {@code a} and {@code b} are the same storage: the same block, or the two halves of one double chest. */
+	public static boolean sameStorage(ServerLevel level, BlockPos a, BlockPos b) {
+		if (a.equals(b)) {
+			return true;
+		}
+		BlockState state = level.isLoaded(a) ? level.getBlockState(a) : null;
+		return state != null && state.getBlock() instanceof ChestBlock && state.getValue(ChestBlock.TYPE) != ChestType.SINGLE
+				&& ChestBlock.getConnectedBlockPos(a, state).equals(b);
 	}
 
 	public static int count(Container container, Item item) {

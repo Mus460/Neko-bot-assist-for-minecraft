@@ -6,6 +6,7 @@ import dev.butterbot.ai.job.ResourceCatalog;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.entity.JobConfig;
+import dev.butterbot.registry.ModEntities;
 import dev.butterbot.util.Msg;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -23,6 +24,8 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 /** Job settings changed from the control panel, the {@code /butterbot job} command or a shortcut key. */
 public final class JobControl {
@@ -47,16 +50,134 @@ public final class JobControl {
 			jobs.setCenter(level.dimension(), player.blockPosition());
 		}
 		BlockPos looked = lookedAtStorage(player);
-		if (looked != null && (!job.usesList() || level.dimension().equals(Level.OVERWORLD))) {
+		if (looked != null && job != BotJob.BODYGUARD && (!job.usesList() || level.dimension().equals(Level.OVERWORLD))
+				&& !isSource(level, jobs, looked)) {
 			jobs.setChest(level.dimension(), looked);
+		}
+		if (job == BotJob.BODYGUARD && jobs.ward() == null) {
+			// Guards the nearest of the player's other bots until another is picked.
+			for (ButterBotEntity other : BotAccess.listBots(player, Optional.empty())) {
+				if (other != bot) {
+					jobs.setWard(other.getUUID());
+					break;
+				}
+			}
 		}
 		tell(player, Component.translatable("butterbot.msg.job_given", bot.getName(), job.displayName()));
 		explainMissing(player, bot);
 	}
 
+	/** True if {@code pos} is (part of) one of the courier's source chests. */
+	private static boolean isSource(ServerLevel level, JobConfig jobs, BlockPos pos) {
+		for (BlockPos source : jobs.sources()) {
+			if (JobStorage.sameStorage(level, source, pos) || JobStorage.sameStorage(level, pos, source)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Adds a chest the courier empties into its job chest. */
+	public static boolean addSource(ServerPlayer player, ButterBotEntity bot, BlockPos pos) {
+		JobConfig jobs = bot.getJobs();
+		ServerLevel level = player.level();
+		if (player.distanceToSqr(Vec3.atCenterOf(pos)) > PICK_RANGE * PICK_RANGE || !JobStorage.isStorage(level, pos)) {
+			fail(player, Component.translatable("butterbot.msg.job_not_a_chest"));
+			return false;
+		}
+		BlockPos chest = jobs.chest();
+		if (chest != null && level.dimension().equals(jobs.dimension())
+				&& (JobStorage.sameStorage(level, chest, pos) || JobStorage.sameStorage(level, pos, chest))) {
+			fail(player, Component.translatable("butterbot.msg.job_source_is_chest"));
+			return false;
+		}
+		if (chest != null && !level.dimension().equals(jobs.dimension())) {
+			fail(player, Component.translatable("butterbot.msg.job_source_other_dimension"));
+			return false;
+		}
+		if (isSource(level, jobs, pos)) {
+			fail(player, Component.translatable("butterbot.msg.job_source_already"));
+			return false;
+		}
+		if (!jobs.addSource(level.dimension(), pos)) {
+			fail(player, Component.translatable("butterbot.msg.job_sources_full", JobConfig.MAX_SOURCES));
+			return false;
+		}
+		bot.say(Component.translatable("butterbot.msg.job_chest_set_say"));
+		tell(player, Component.translatable("butterbot.msg.job_source_added", bot.getName(), pos.toShortString(),
+				jobs.sources().size(), JobConfig.MAX_SOURCES));
+		return true;
+	}
+
+	/** Makes a bodyguard stay with the player's bot with UUID {@code wardId} (empty: no one). */
+	public static void setWard(ServerPlayer player, ButterBotEntity bot, String wardId) {
+		if (wardId.isEmpty()) {
+			bot.getJobs().setWard(null);
+			tell(player, Component.translatable("butterbot.msg.job_ward_cleared", bot.getName()));
+			return;
+		}
+		UUID id;
+		try {
+			id = UUID.fromString(wardId);
+		} catch (IllegalArgumentException exception) {
+			fail(player, Component.translatable("butterbot.msg.job_ward_invalid"));
+			return;
+		}
+		setWard(player, bot, findOwnedBot(player, id));
+	}
+
+	/** {@link #setWard(ServerPlayer, ButterBotEntity, String)} by the other bot's name, for the chat command. */
+	public static void setWardByName(ServerPlayer player, ButterBotEntity bot, String name) {
+		ButterBotEntity found = null;
+		for (ServerLevel level : player.level().getServer().getAllLevels()) {
+			for (ButterBotEntity other : level.getEntities(ModEntities.BUTTER_BOT,
+					other -> other.isAlive() && other.isOwnedBy(player) && other.getName().getString().equalsIgnoreCase(name.trim()))) {
+				found = other;
+				break;
+			}
+			if (found != null) {
+				break;
+			}
+		}
+		setWard(player, bot, found);
+	}
+
+	private static void setWard(ServerPlayer player, ButterBotEntity bot, @Nullable ButterBotEntity ward) {
+		if (ward == null || ward == bot) {
+			fail(player, Component.translatable("butterbot.msg.job_ward_invalid"));
+			return;
+		}
+		bot.getJobs().setWard(ward.getUUID());
+		bot.say(Component.translatable("butterbot.msg.job_ward_set_say", ward.getName()));
+		tell(player, Component.translatable("butterbot.msg.job_ward_set", bot.getName(), ward.getName()));
+	}
+
+	/** One of the player's bots, in whatever dimension. */
+	@Nullable
+	private static ButterBotEntity findOwnedBot(ServerPlayer player, UUID id) {
+		for (ServerLevel level : player.level().getServer().getAllLevels()) {
+			if (level.getEntity(id) instanceof ButterBotEntity other && other.isAlive() && other.isOwnedBy(player)) {
+				return other;
+			}
+		}
+		return null;
+	}
+
 	/** Tells the player what the job still needs before it can start. */
 	public static void explainMissing(ServerPlayer player, ButterBotEntity bot) {
 		JobConfig jobs = bot.getJobs();
+		if (jobs.job() == BotJob.COURIER) {
+			if (jobs.chest() == null) {
+				tell(player, Component.translatable("butterbot.msg.job_hint_chest").withStyle(ChatFormatting.GOLD));
+			}
+			if (jobs.sources().isEmpty()) {
+				tell(player, Component.translatable("butterbot.msg.job_hint_sources").withStyle(ChatFormatting.GOLD));
+			}
+		}
+		if (jobs.job() == BotJob.BODYGUARD) {
+			tell(player, jobs.ward() == null ? Component.translatable("butterbot.msg.job_hint_ward").withStyle(ChatFormatting.GOLD)
+					: Component.translatable("butterbot.msg.job_ward_now", bot.getName(), wardName(player, jobs)));
+		}
 		if (jobs.job().usesList()) {
 			if (jobs.chest() == null) {
 				tell(player, Component.translatable("butterbot.msg.job_hint_chest").withStyle(ChatFormatting.GOLD));
@@ -77,6 +198,10 @@ public final class JobControl {
 		}
 		if (player.distanceToSqr(Vec3.atCenterOf(pos)) > PICK_RANGE * PICK_RANGE || !JobStorage.isStorage(level, pos)) {
 			fail(player, Component.translatable("butterbot.msg.job_not_a_chest"));
+			return false;
+		}
+		if (level.dimension().equals(jobs.dimension()) && isSource(level, jobs, pos)) {
+			fail(player, Component.translatable("butterbot.msg.job_chest_is_source"));
 			return false;
 		}
 		if (jobs.job().usesList() && !level.dimension().equals(Level.OVERWORLD)) {
@@ -167,6 +292,20 @@ public final class JobControl {
 		}
 		tell(player, Component.translatable("butterbot.msg.job_info", bot.getName(), jobs.job().displayName(),
 				bot.describeShortStatus()));
+		if (jobs.job() == BotJob.COURIER) {
+			MutableComponent sources = Component.empty();
+			for (int i = 0; i < jobs.sources().size(); i++) {
+				sources.append((i > 0 ? ", " : "") + jobs.sources().get(i).toShortString());
+			}
+			tell(player, Component.translatable("butterbot.msg.job_info_courier",
+					jobs.chest() == null ? "-" : jobs.chest().toShortString(), jobs.sources().isEmpty() ? Component.literal("-") : sources,
+					Component.translatable(jobs.smelt() ? "butterbot.gui.on" : "butterbot.gui.off"), jobs.stat()));
+			return;
+		}
+		if (jobs.job() == BotJob.BODYGUARD) {
+			tell(player, Component.translatable("butterbot.msg.job_info_bodyguard", wardName(player, jobs), jobs.stat()));
+			return;
+		}
 		if (jobs.job().usesList()) {
 			tell(player, Component.translatable("butterbot.msg.job_info_chest",
 					jobs.chest() == null ? "-" : jobs.chest().toShortString(), jobs.zone()));
@@ -189,6 +328,11 @@ public final class JobControl {
 						Component.translatable(jobs.butcher() ? "butterbot.gui.job_butcher_on" : "butterbot.gui.job_butcher_off")));
 			}
 		}
+	}
+
+	private static Component wardName(ServerPlayer player, JobConfig jobs) {
+		ButterBotEntity ward = jobs.ward() == null ? null : findOwnedBot(player, jobs.ward());
+		return ward == null ? Component.literal("-") : ward.getName();
 	}
 
 	static void tell(ServerPlayer player, Component message) {

@@ -21,6 +21,8 @@ public class McButton extends Button {
 
 	public enum Layout {TEXT, ICON, TILE, TOGGLE, TAB, SLOT}
 
+	private static final float MIN_TILE_TEXT_SCALE = 0.7F;
+
 	private final Layout layout;
 	@Nullable
 	private final ItemStack icon;
@@ -145,8 +147,20 @@ public class McButton extends Button {
 				if (icon != null) {
 					g.item(icon, x + (w - 16) / 2, y + 4);
 				}
-				String s = font.plainSubstrByWidth(text.getString(), w - 4);
-				g.text(font, s, x + (w - font.width(s)) / 2, y + h - 12, color, true);
+				String full = text.getString();
+				int room = w - 4;
+				if (font.width(full) <= room) {
+					g.text(font, full, x + (w - font.width(full)) / 2, y + h - 12, color, true);
+				} else {
+					// Narrow tiles: a long label shrinks a little before it is cut.
+					float scale = Math.max(MIN_TILE_TEXT_SCALE, room / (float) font.width(full));
+					String s = font.plainSubstrByWidth(full, (int) (room / scale));
+					g.pose().pushMatrix();
+					g.pose().translate(x + (w - font.width(s) * scale) / 2.0F, y + h - 11.5F);
+					g.pose().scale(scale, scale);
+					g.text(font, s, 0, 0, color, true);
+					g.pose().popMatrix();
+				}
 			}
 			case TOGGLE -> {
 				int textX = x + 5;

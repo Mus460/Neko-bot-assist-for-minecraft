@@ -30,7 +30,8 @@ import java.util.Iterator;
 import java.util.Map;
 
 /**
- * Guard mode: fights monsters that come close to the bot or its owner, then goes back to its job.
+ * Guard mode: fights monsters that come close to the bot or its owner (or the bot it guards, for a
+ * bodyguard), then goes back to its job.
  * It never attacks players, animals or pets, leaves neutral mobs (endermen, piglins...) alone until
  * they attack, and stays away from bosses and wardens. When badly hurt with no food it backs off.
  */
@@ -47,6 +48,9 @@ public class GuardAction implements BotAction {
 	private static final long IGNORE_TICKS = 20L * 30L;
 	/** A patrolling guard chases monsters this far past the edge of its area, no farther. */
 	private static final double PATROL_CHASE_MARGIN = 10.0D;
+	/** A bodyguard fights monsters this close to the bot it guards, and chases them this far from it. */
+	private static final double WARD_RADIUS = 12.0D;
+	private static final double WARD_CHASE_SQ = 20.0D * 20.0D;
 
 	@Nullable
 	private Mob target;
@@ -188,8 +192,12 @@ public class GuardAction implements BotAction {
 				&& withinChase(bot, mob) && isHostile(bot, mob) && !isIgnored(bot, mob);
 	}
 
-	/** Normally monsters near the bot; a patrolling guard keeps to its area instead. */
+	/** Normally monsters near the bot; a patrolling guard keeps to its area, a bodyguard to the bot it guards. */
 	private static boolean withinChase(ButterBotEntity bot, Mob mob) {
+		ButterBotEntity ward = bot.findWard();
+		if (ward != null && ward.level() == bot.level() && mob.distanceToSqr(ward) < WARD_CHASE_SQ) {
+			return true;
+		}
 		BlockPos center = bot.getPatrolCenter();
 		if (center == null) {
 			return bot.distanceToSqr(mob) < MAX_CHASE_SQ;
@@ -221,6 +229,21 @@ public class GuardAction implements BotAction {
 				double distance = bot.distanceToSqr(mob);
 				if (distance < bestDistance
 						&& (bot.getSensing().hasLineOfSight(mob) || Math.abs(mob.getY() - center.getY()) < 6.0D)) {
+					best = mob;
+					bestDistance = distance;
+				}
+			}
+		}
+		ButterBotEntity ward = bot.findWard();
+		if (ward != null && ward.level() == bot.level()) {
+			// Bodyguard: the monsters around the bot it guards, first of all the ones going for it.
+			AABB aroundWard = ward.getBoundingBox().inflate(WARD_RADIUS, 5.0D, WARD_RADIUS);
+			for (Mob mob : bot.level().getEntitiesOfClass(Mob.class, aroundWard, mob -> isValidTarget(bot, mob))) {
+				double distance = bot.distanceToSqr(mob);
+				if (mob.getTarget() == ward || ward.getLastHurtByMob() == mob) {
+					distance *= 0.25D;
+				}
+				if (distance < bestDistance && (mob.hasLineOfSight(ward) || bot.getSensing().hasLineOfSight(mob))) {
 					best = mob;
 					bestDistance = distance;
 				}

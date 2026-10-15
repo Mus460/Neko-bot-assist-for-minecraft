@@ -114,6 +114,16 @@ public class BotControlScreen extends Screen {
 	private static final int PICK_COLUMNS = 11;
 	/** Rancher: the kinds of animal as a 4-column grid of small cells. */
 	private static final int HERD_Y = 124;
+	/** Eight job tiles side by side. */
+	private static final int JOB_TILE_PITCH = 30;
+	/** Courier source rows. */
+	private static final int SOURCE_Y = 122;
+	private static final int SOURCE_PITCH = 17;
+	/** Bodyguard: buttons for the owner's other bots. */
+	private static final int WARD_Y = 98;
+	private static final int WARD_PITCH_X = 80;
+	private static final int WARD_PITCH_Y = 20;
+	private static final int MAX_WARD_BUTTONS = 9;
 	private static final int HERD_W = 57;
 	private static final int HERD_H = 20;
 	private static final int HERD_PITCH_X = 60;
@@ -151,6 +161,8 @@ public class BotControlScreen extends Screen {
 	private int listPage;
 	private int lastBotCount = -1;
 	private int lastJobType = -1;
+	/** Courier sources the job tab was built for (each has its own remove button). */
+	private int lastSourceCount = -1;
 	private int skinPage;
 	private int selectedSkinIndex = -1;
 	private long releaseArmedUntil;
@@ -224,7 +236,8 @@ public class BotControlScreen extends Screen {
 
 		// Most of the panel reads the bot live; only rebuild when its layout has to change.
 		Payloads.BotEntry bot = selected();
-		boolean jobLayoutChanged = activeTab == Tab.JOB && bot != null && bot.jobView().job() != lastJobType;
+		boolean jobLayoutChanged = activeTab == Tab.JOB && bot != null
+				&& (bot.jobView().job() != lastJobType || bot.jobView().sources().size() != lastSourceCount);
 		boolean needGone = activeTab == Tab.JOB && selectedNeed != null && (bot == null || selectedNeedView(bot.jobView()) == null);
 		if (needGone) {
 			selectedNeed = null;
@@ -711,11 +724,13 @@ public class BotControlScreen extends Screen {
 		Payloads.JobView view = bot.jobView();
 		BotJob current = BotJob.byOrdinal(view.job());
 		lastJobType = view.job();
+		lastSourceCount = view.sources().size();
 		BotJob[] values = BotJob.values();
-		Item[] icons = {ModItems.BUTTER_BOT, Items.IRON_PICKAXE, Items.IRON_AXE, Items.IRON_SWORD, Items.IRON_HOE, Items.WHEAT};
+		Item[] icons = {ModItems.BUTTER_BOT, Items.IRON_PICKAXE, Items.IRON_AXE, Items.IRON_SWORD, Items.IRON_HOE, Items.WHEAT,
+				Items.CHEST_MINECART, Items.SHIELD};
 		for (int i = 0; i < values.length; i++) {
 			BotJob value = values[i];
-			addRenderableWidget(McButton.tile(cx + i * 40, cy, 39, 34, Component.translatable(value.key() + ".short"),
+			addRenderableWidget(McButton.tile(cx + i * JOB_TILE_PITCH, cy, JOB_TILE_PITCH - 1, 34, Component.translatable(value.key() + ".short"),
 					new ItemStack(icons[i]), b -> {
 						Payloads.JobView now = jobView();
 						if (now != null && now.job() != value.ordinal()) {
@@ -744,6 +759,14 @@ public class BotControlScreen extends Screen {
 			return Component.translatable(now != null && now.paused() ? "butterbot.gui.job_resume" : "butterbot.gui.job_pause");
 		}).tip(Component.translatable("butterbot.gui.job_pause_tooltip")));
 
+		if (current == BotJob.COURIER) {
+			initCourier(view);
+			return;
+		}
+		if (current == BotJob.BODYGUARD) {
+			initBodyguard(bot);
+			return;
+		}
 		if (current.usesList()) {
 			addRenderableWidget(McButton.icon(right - 84, cy + 58, 84, 18, Component.translatable("butterbot.ui.pick_chest"),
 					new ItemStack(Items.CHEST), b -> startPick(BotKeys.PickKind.CHEST))
@@ -828,6 +851,53 @@ public class BotControlScreen extends Screen {
 							}
 						}).tip(Component.translatable("butterbot.gui.job_butcher_tooltip")));
 			}
+		}
+	}
+
+	/** Courier: its chest, smelting on the way, and up to four source chests (each with a remove button). */
+	private void initCourier(Payloads.JobView view) {
+		int right = cx + CW;
+		addRenderableWidget(McButton.text(right - 48, cy + 58, 48, 18, Component.translatable("butterbot.gui.job_pick_chest_short"),
+				b -> startPick(BotKeys.PickKind.CHEST)).tip(Component.translatable("butterbot.gui.job_courier_chest_tooltip")));
+		addRenderableWidget(McButton.toggle(cx, cy + 80, CW, 18, Component.translatable("butterbot.gui.job_smelt"),
+				new ItemStack(Items.FURNACE), () -> {
+					Payloads.JobView now = jobView();
+					return now != null && now.smelt();
+				}, b -> {
+					Payloads.JobView now = jobView();
+					if (now != null) {
+						command(Payloads.BotCommand.JOB_SMELT, "", now.smelt() ? 0 : 1);
+					}
+				}).tip(Component.translatable("butterbot.gui.job_smelt_tooltip")));
+		if (view.sources().size() < JobConfig.MAX_SOURCES) {
+			addRenderableWidget(McButton.icon(right - 92, cy + 102, 92, 18, Component.translatable("butterbot.gui.job_add_source"),
+					new ItemStack(Items.CHEST), b -> startPick(BotKeys.PickKind.SOURCE))
+					.tip(Component.translatable("butterbot.gui.job_add_source_tooltip")));
+		}
+		for (int i = 0; i < view.sources().size(); i++) {
+			int index = i;
+			addRenderableWidget(McButton.text(right - 18, cy + SOURCE_Y + i * SOURCE_PITCH, 18, 16, Component.literal("x"),
+					b -> command(Payloads.BotCommand.JOB_SOURCE, "", index)).danger()
+					.tip(Component.translatable("butterbot.gui.job_remove_source_tooltip")));
+		}
+	}
+
+	/** Bodyguard: one button for each of the owner's other bots; the one it guards is highlighted. */
+	private void initBodyguard(Payloads.BotEntry self) {
+		int shown = 0;
+		for (Payloads.BotEntry other : bots) {
+			if (other.id().equals(self.id()) || shown >= MAX_WARD_BUTTONS) {
+				continue;
+			}
+			UUID id = other.id();
+			int x = cx + (shown % 3) * WARD_PITCH_X;
+			int y = cy + WARD_Y + (shown / 3) * WARD_PITCH_Y;
+			addRenderableWidget(McButton.text(x, y, WARD_PITCH_X - 1, 18, Component.literal(other.name()),
+					b -> command(Payloads.BotCommand.JOB_WARD, id.toString())).selected(() -> {
+						Payloads.JobView now = jobView();
+						return now != null && now.ward().isPresent() && now.ward().get().equals(id);
+					}).tip(Component.translatable("butterbot.gui.job_ward_pick_tooltip", other.name())));
+			shown++;
 		}
 	}
 
@@ -932,6 +1002,14 @@ public class BotControlScreen extends Screen {
 				: Component.translatable(view.chestOk() ? "butterbot.gui.job_chest_ok" : "butterbot.gui.job_chest_bad",
 				view.chest().get().toShortString());
 		int chestColor = view.chest().isPresent() ? (view.chestOk() ? McStyle.TEXT : McStyle.BAD) : (job.usesList() ? McStyle.BAD : McStyle.TEXT);
+		if (job == BotJob.COURIER) {
+			renderCourier(g, view);
+			return;
+		}
+		if (job == BotJob.BODYGUARD) {
+			renderBodyguard(g, bot, view);
+			return;
+		}
 		if (job.usesList()) {
 			g.text(font, font.plainSubstrByWidth(chest.getString(), CW - 88), cx, cy + 63, chestColor, false);
 			g.text(font, Component.translatable("butterbot.gui.job_zone", view.zone()), cx, cy + 85, McStyle.TEXT, false);
@@ -953,6 +1031,38 @@ public class BotControlScreen extends Screen {
 		}
 		String info = job == BotJob.GUARD ? "butterbot.gui.job_guard_info" : "butterbot.gui.job_farmer_info";
 		g.textWithWordWrap(font, Component.translatable(info, view.stat(), view.radius()), cx, cy + 128, CW, McStyle.TEXT_DIM, false);
+	}
+
+	private void renderCourier(GuiGraphicsExtractor g, Payloads.JobView view) {
+		Component chest = view.chest().isEmpty() ? Component.translatable("butterbot.gui.job_courier_to_none")
+				: Component.translatable("butterbot.gui.job_courier_to", view.chest().get().toShortString());
+		g.text(font, font.plainSubstrByWidth(chest.getString(), CW - 52), cx, cy + 63,
+				view.chest().isPresent() && view.chestOk() ? McStyle.TEXT : McStyle.BAD, false);
+		List<BlockPos> sources = view.sources();
+		g.text(font, Component.translatable("butterbot.gui.job_sources", sources.size(), JobConfig.MAX_SOURCES), cx, cy + 107,
+				sources.isEmpty() ? McStyle.BAD : McStyle.TEXT, false);
+		for (int i = 0; i < sources.size(); i++) {
+			g.text(font, (i + 1) + ". " + sources.get(i).toShortString(), cx + 4, cy + SOURCE_Y + i * SOURCE_PITCH + 4, McStyle.TEXT, false);
+		}
+		int y = cy + SOURCE_Y + sources.size() * SOURCE_PITCH + 4;
+		Component info = sources.isEmpty() ? Component.translatable("butterbot.gui.job_sources_hint")
+				: Component.translatable("butterbot.gui.job_courier_info", view.stat());
+		if (y + 9 <= cy + CARD_H) {
+			g.textWithWordWrap(font, info, cx, y, CW, McStyle.TEXT_DIM, false);
+		}
+	}
+
+	private void renderBodyguard(GuiGraphicsExtractor g, Payloads.BotEntry self, Payloads.JobView view) {
+		boolean known = view.ward().isPresent() && !view.wardName().isEmpty();
+		Component ward = view.ward().isEmpty() ? Component.translatable("butterbot.gui.job_ward_none")
+				: Component.translatable("butterbot.gui.job_ward", known ? view.wardName() : "?");
+		g.text(font, font.plainSubstrByWidth(ward.getString(), CW), cx, cy + 63, known ? McStyle.TEXT : McStyle.BAD, false);
+		long others = bots.stream().filter(other -> !other.id().equals(self.id())).count();
+		g.text(font, Component.translatable(others == 0 ? "butterbot.gui.job_ward_no_bots" : "butterbot.gui.job_ward_pick"),
+				cx, cy + 85, others == 0 ? McStyle.BAD : McStyle.TEXT, false);
+		int rows = (int) Math.min(MAX_WARD_BUTTONS, others + 2) / 3;
+		int y = cy + WARD_Y + Math.max(1, rows) * WARD_PITCH_Y + 4;
+		g.textWithWordWrap(font, Component.translatable("butterbot.gui.job_bodyguard_info", view.stat()), cx, y, CW, McStyle.TEXT_DIM, false);
 	}
 
 	/** The list as a 3x3 grid of slots with "in chest / wanted" and a progress bar; the last cell adds an item. */

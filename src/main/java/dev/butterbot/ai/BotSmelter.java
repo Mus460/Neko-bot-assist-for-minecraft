@@ -121,6 +121,34 @@ public final class BotSmelter {
 		return -1;
 	}
 
+	/** True while there is something to smelt (with {@code mode}) and fuel to do it. */
+	public boolean canSmelt(SmeltMode mode) {
+		if (!(bot.level() instanceof ServerLevel level)) {
+			return false;
+		}
+		SimpleContainer backpack = bot.getInventory();
+		int slot = findInput(level, backpack, mode);
+		if (slot < 0) {
+			return false;
+		}
+		if (heat >= 1.0F) {
+			return true;
+		}
+		Item smelting = backpack.getItem(slot).getItem();
+		for (int i = 0; i < backpack.getContainerSize(); i++) {
+			ItemStack stack = backpack.getItem(i);
+			if (FUEL.containsKey(stack.getItem()) && !stack.is(smelting)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Fuel the built-in furnace burns. */
+	public static boolean isFuel(ItemStack stack) {
+		return FUEL.containsKey(stack.getItem());
+	}
+
 	/** Burns one piece of fuel, never the item that is about to be smelted. */
 	private boolean burnFuel(SimpleContainer backpack, Item smelting) {
 		for (int i = 0; i < backpack.getContainerSize(); i++) {

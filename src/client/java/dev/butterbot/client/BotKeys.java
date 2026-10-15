@@ -50,7 +50,7 @@ public final class BotKeys {
 	private static final KeyMapping DEBUG = key("debug", InputConstants.KEY_K);
 
 	/** What the next press of the context key picks for a bot's job (set from the Job tab). */
-	public enum PickKind {CHEST, CENTER}
+	public enum PickKind {CHEST, CENTER, SOURCE}
 
 	private static final long PICK_MILLIS = 30_000L;
 	private static UUID pickBot;
@@ -138,8 +138,11 @@ public final class BotKeys {
 		send(connected, DEBUG, Payloads.Hotkey.DEBUG);
 		if (connected && picking() && pickHintTicks-- <= 0) {
 			pickHintTicks = 20;
-			player.sendOverlayMessage(Component.translatable(pickKind == PickKind.CHEST
-					? "butterbot.gui.pick_chest_hint" : "butterbot.gui.pick_spot_hint", CONTEXT.getTranslatedKeyMessage()));
+			player.sendOverlayMessage(Component.translatable(switch (pickKind) {
+				case CHEST -> "butterbot.gui.pick_chest_hint";
+				case SOURCE -> "butterbot.gui.pick_source_hint";
+				case CENTER -> "butterbot.gui.pick_spot_hint";
+			}, CONTEXT.getTranslatedKeyMessage()));
 		}
 		while (CONTEXT.consumeClick()) {
 			if (!connected) {
@@ -154,7 +157,7 @@ public final class BotKeys {
 		}
 	}
 
-	/** Sends the looked-at block as the bot's job chest or work spot, then reopens the panel. */
+	/** Sends the looked-at block as the bot's job chest, source chest or work spot, then reopens the panel. */
 	private static void pick(Minecraft minecraft, LocalPlayer player) {
 		HitResult hit = player.pick(POINT_RANGE, 1.0F, false);
 		if (!(hit instanceof BlockHitResult blockHit) || hit.getType() != HitResult.Type.BLOCK) {
@@ -162,7 +165,11 @@ public final class BotKeys {
 			return;
 		}
 		BlockPos pos = pickKind == PickKind.CENTER ? blockHit.getBlockPos().above() : blockHit.getBlockPos();
-		int action = pickKind == PickKind.CHEST ? Payloads.BotCommand.JOB_CHEST : Payloads.BotCommand.JOB_CENTER;
+		int action = switch (pickKind) {
+			case CHEST -> Payloads.BotCommand.JOB_CHEST;
+			case SOURCE -> Payloads.BotCommand.JOB_SOURCE;
+			case CENTER -> Payloads.BotCommand.JOB_CENTER;
+		};
 		ClientPlayNetworking.send(new Payloads.BotCommand(pickBase, pickBot, action, "", new int[]{pos.getX(), pos.getY(), pos.getZ()}));
 		UUID bot = pickBot;
 		pickBot = null;

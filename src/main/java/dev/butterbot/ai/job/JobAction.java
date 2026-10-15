@@ -49,6 +49,7 @@ import java.util.UUID;
  * soon as something is taken out. Guards walk around their area, collect loot lying there and put
  * it in a chest. Farmers keep a farming run going around their spot. Ranchers patrol like guards and
  * look after the animals: breeding, shearing, milking, collecting eggs and (if allowed) culling.
+ * Couriers ({@link CourierJob}) and bodyguards ({@link BodyguardJob}) have their own classes.
  */
 public class JobAction implements BotAction {
 
@@ -96,6 +97,8 @@ public class JobAction implements BotAction {
 
 	private final JobTravel travel = new JobTravel();
 	private final Walker walker = new Walker();
+	private final CourierJob courier = new CourierJob();
+	private final BodyguardJob bodyguard = new BodyguardJob();
 	private Step step = Step.CHECK;
 	private int timer;
 	@Nullable
@@ -162,6 +165,8 @@ public class JobAction implements BotAction {
 		choreAnimal = null;
 		chorePartner = null;
 		chore = null;
+		courier.reset(bot);
+		bodyguard.reset(bot);
 		bot.setBotState(BotState.SEARCHING);
 	}
 
@@ -184,6 +189,8 @@ public class JobAction implements BotAction {
 			case GUARD -> tickPatrol(bot, jobs, home, false);
 			case RANCHER -> tickPatrol(bot, jobs, home, true);
 			case FARMER -> tickFarmer(bot, jobs, home);
+			case COURIER -> courier.tick(bot, jobs, home);
+			case BODYGUARD -> bodyguard.tick(bot, jobs);
 			case NONE -> {
 			}
 		}

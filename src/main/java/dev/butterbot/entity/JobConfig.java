@@ -1,9 +1,11 @@
 package dev.butterbot.entity;
 
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import dev.butterbot.ai.job.Livestock;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -19,7 +21,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Everything about a bot's job: which job, its chest, the list of items it must put in that chest,
@@ -46,9 +50,12 @@ public final class JobConfig {
 	public static final int MIN_HERD = 2;
 	public static final int MAX_HERD = 99;
 	private static final int MAX_FAILED_SITES = 24;
+	/** Chests a courier empties. */
+	public static final int MAX_SOURCES = 4;
 
 	/** What the job is doing right now, for the status line. Not saved. */
-	public enum Phase {SETUP, CHECKING, TRAVEL, WORKING, DEPOSIT, STANDBY, NOT_FOUND, CHEST_PROBLEM, PATROL, LOOT, FARMING, RANCHING}
+	public enum Phase {SETUP, CHECKING, TRAVEL, WORKING, DEPOSIT, STANDBY, NOT_FOUND, CHEST_PROBLEM, PATROL, LOOT, FARMING, RANCHING,
+		LOADING, CARRYING, SMELTING, WAITING, ESCORTING, NO_WARD}
 
 	/** One line of the list: keep {@code count} of {@code item} in the job chest. */
 	public record Need(Item item, int count) {
@@ -61,11 +68,29 @@ public final class JobConfig {
 		).apply(i, NeedData::new));
 	}
 
+	/** Rancher settings (saved next to the other fields, as before). */
+	public record RanchData(int herd, boolean butcher, Map<String, Integer> herdLimits) {
+		static final MapCodec<RanchData> MAP_CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
+				Codec.INT.optionalFieldOf("Herd", DEFAULT_HERD).forGetter(RanchData::herd),
+				Codec.BOOL.optionalFieldOf("Butcher", false).forGetter(RanchData::butcher),
+				Codec.unboundedMap(Codec.STRING, Codec.INT).optionalFieldOf("HerdLimits", Map.of()).forGetter(RanchData::herdLimits)
+		).apply(i, RanchData::new));
+	}
+
+	/** Courier and bodyguard settings (saved next to the other fields). */
+	public record ErrandData(List<BlockPos> sources, boolean smelt, Optional<UUID> ward) {
+		static final MapCodec<ErrandData> MAP_CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
+				BlockPos.CODEC.listOf().optionalFieldOf("Sources", List.of()).forGetter(ErrandData::sources),
+				Codec.BOOL.optionalFieldOf("Smelt", true).forGetter(ErrandData::smelt),
+				UUIDUtil.CODEC.optionalFieldOf("Ward").forGetter(ErrandData::ward)
+		).apply(i, ErrandData::new));
+	}
+
 	/** The saved form of a job. */
 	public record Data(String job, boolean paused, Optional<ResourceKey<Level>> dimension, Optional<BlockPos> chest,
 					   Optional<BlockPos> center, List<NeedData> needs, int zone, int radius, Optional<BlockPos> site,
-					   String siteItem, boolean siteExact, List<BlockPos> failedSites, int stat, int herd, boolean butcher,
-					   Map<String, Integer> herdLimits) {
+					   String siteItem, boolean siteExact, List<BlockPos> failedSites, int stat, RanchData ranch,
+					   ErrandData errand) {
 		public static final Codec<Data> CODEC = RecordCodecBuilder.create(i -> i.group(
 				Codec.STRING.optionalFieldOf("Job", "").forGetter(Data::job),
 				Codec.BOOL.optionalFieldOf("Paused", false).forGetter(Data::paused),
@@ -80,9 +105,8 @@ public final class JobConfig {
 				Codec.BOOL.optionalFieldOf("SiteExact", false).forGetter(Data::siteExact),
 				BlockPos.CODEC.listOf().optionalFieldOf("FailedSites", List.of()).forGetter(Data::failedSites),
 				Codec.INT.optionalFieldOf("Stat", 0).forGetter(Data::stat),
-				Codec.INT.optionalFieldOf("Herd", DEFAULT_HERD).forGetter(Data::herd),
-				Codec.BOOL.optionalFieldOf("Butcher", false).forGetter(Data::butcher),
-				Codec.unboundedMap(Codec.STRING, Codec.INT).optionalFieldOf("HerdLimits", Map.of()).forGetter(Data::herdLimits)
+				RanchData.MAP_CODEC.forGetter(Data::ranch),
+				ErrandData.MAP_CODEC.forGetter(Data::errand)
 		).apply(i, Data::new));
 	}
 
@@ -112,6 +136,13 @@ public final class JobConfig {
 	private final Map<String, Integer> herdLimits = new HashMap<>();
 	/** Rancher: may slaughter animals over {@link #herd}. Off unless the owner turns it on. */
 	private boolean butcher;
+	/** Courier: the chests it empties into {@link #chest}. */
+	private final List<BlockPos> sources = new ArrayList<>();
+	/** Courier: takes fuel along and smelts raw ores on the way. */
+	private boolean smelt = true;
+	/** Bodyguard: the bot it stays with. */
+	@Nullable
+	private UUID ward;
 
 	// Not saved.
 	private Phase phase = Phase.SETUP;
@@ -211,15 +242,59 @@ public final class JobConfig {
 		this.center = center == null ? null : center.immutable();
 	}
 
-	/** Chest and centre are always in the same dimension; picking a spot elsewhere forgets the other one. */
+	/** Chest, centre and sources are always in the same dimension; picking a spot elsewhere forgets the others. */
 	private void moveTo(ResourceKey<Level> newDimension) {
 		if (dimension != null && !dimension.equals(newDimension)) {
 			chest = null;
 			center = null;
 			site = null;
 			failedSites.clear();
+			sources.clear();
 		}
 		dimension = newDimension;
+	}
+
+	// ------------------------------------------------------------------ courier and bodyguard
+
+	public List<BlockPos> sources() {
+		return Collections.unmodifiableList(sources);
+	}
+
+	/** Adds a chest for a courier to empty. False when there are {@value #MAX_SOURCES} already (or it is on the list). */
+	public boolean addSource(ResourceKey<Level> dimension, BlockPos pos) {
+		if (sources.contains(pos) || (sources.size() >= MAX_SOURCES && Objects.equals(this.dimension, dimension))) {
+			return false;
+		}
+		moveTo(dimension);
+		sources.add(pos.immutable());
+		return true;
+	}
+
+	public void removeSource(int index) {
+		if (index >= 0 && index < sources.size()) {
+			sources.remove(index);
+		}
+	}
+
+	public void clearSources() {
+		sources.clear();
+	}
+
+	public boolean smelt() {
+		return smelt;
+	}
+
+	public void setSmelt(boolean smelt) {
+		this.smelt = smelt;
+	}
+
+	@Nullable
+	public UUID ward() {
+		return ward;
+	}
+
+	public void setWard(@Nullable UUID ward) {
+		this.ward = ward;
 	}
 
 	public int zone() {
@@ -504,7 +579,8 @@ public final class JobConfig {
 		return new Data(job.name(), paused, Optional.ofNullable(dimension), Optional.ofNullable(chest),
 				Optional.ofNullable(center), savedNeeds, zone, radius, Optional.ofNullable(site),
 				siteItem == null ? "" : BuiltInRegistries.ITEM.getKey(siteItem).toString(), siteExact, List.copyOf(failedSites), stat,
-				herd, butcher, Map.copyOf(herdLimits));
+				new RanchData(herd, butcher, Map.copyOf(herdLimits)),
+				new ErrandData(List.copyOf(sources), smelt, Optional.ofNullable(ward)));
 	}
 
 	public void load(Data data) {
@@ -528,10 +604,14 @@ public final class JobConfig {
 		failedSites.clear();
 		failedSites.addAll(data.failedSites());
 		stat = Math.max(0, data.stat());
-		herd = Math.clamp(data.herd(), MIN_HERD, MAX_HERD);
-		butcher = data.butcher();
+		herd = Math.clamp(data.ranch().herd(), MIN_HERD, MAX_HERD);
+		butcher = data.ranch().butcher();
+		sources.clear();
+		data.errand().sources().stream().distinct().limit(MAX_SOURCES).forEach(sources::add);
+		smelt = data.errand().smelt();
+		ward = data.errand().ward().orElse(null);
 		herdLimits.clear();
-		data.herdLimits().forEach((kind, limit) -> {
+		data.ranch().herdLimits().forEach((kind, limit) -> {
 			if (Livestock.byId(kind) != null) {
 				herdLimits.put(kind, Math.clamp(limit, MIN_HERD, MAX_HERD));
 			}

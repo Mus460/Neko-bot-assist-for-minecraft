@@ -88,6 +88,8 @@ Setiap bot bisa diberi **job**: pekerjaan tetap yang terus dikerjakan selama kam
 | **Penjaga** | Patroli di sekitar titik pilihanmu (radius 30 blok, bisa 6–64), melawan semua monster di area itu, memungut loot dan XP yang tergeletak, lalu menyimpan loot ke peti di area itu |
 | **Petani** | Memanen dan menanam ulang ladang di sekitar titik pilihanmu (radius 16 blok, bisa 6–32) terus-menerus. Hasil panen masuk ke peti pilihanmu (atau Bot Base) |
 | **Peternak** | Merawat hewan ternak di sekitar titik pilihanmu (radius 16 blok, bisa 6–32): mengawinkan, mencukur domba, memerah sapi, memungut telur/wol/bulu, mengusir monster, lalu menyimpan hasilnya di peti |
+| **Kurir** | Mengosongkan sampai 4 peti sumber ke satu peti tujuan, terus-menerus, dan bisa melebur bijih mentah di jalan |
+| **Pengawal** | Mengikuti salah satu bot milikmu ke mana pun (juga lewat portal) dan melawan monster di sekitarnya |
 
 **Penambang dan Pengumpul** bekerja dengan **satu peti khusus** dan **daftar barang**:
 
@@ -110,6 +112,20 @@ Bot yang punya job **tetap bekerja walaupun kamu jauh**: area kecil di sekitar b
 - **Pungut**: telur, wol, bulu, daging dan kulit yang tergeletak di area dipungut. Kandang berpagar tidak masalah: bot masuk lewat **pintu pagar (fence gate)** atau pintu kayu, lalu menutupnya lagi supaya hewan tidak kabur.
 - **Potong lebih** (mati kalau tidak dinyalakan): kalau jumlah satu jenis di area melebihi batasnya (misalnya 34 domba dengan batas 30), hewan dewasa dipotong sampai kembali ke batas. Anak hewan, hewan bernama, yang diikat tali, babi berpelana dan yang sedang kawin tidak pernah disentuh, dan setiap jenis selalu disisakan minimal 2 ekor dewasa.
 - Malam hari bot melawan monster yang masuk area ternak.
+
+**Kurir**: tekan **Peti (Z)** untuk peti tujuan, lalu **Tambah sumber** untuk tiap peti yang mau dikosongkan (maksimal 4, satu dimensi dengan peti tujuan). Tanda **x** di samping sumber menghapusnya.
+
+- Bot berkeliling peti sumber, mengambil semua isinya (selama tas masih muat), lalu membawanya ke peti tujuan. Ini diulang terus. Kalau semua sumber kosong, bot menunggu dan memeriksa lagi tiap 30 detik.
+- **Lebur bijih di jalan** (nyala dari awal): bot ikut membawa batu bara atau arang dari peti sumber, dan tungku bawaannya melebur besi, emas, tembaga mentah (dan puing kuno) selama perjalanan. Di peti tujuan bot menunggu sampai leburan selesai (paling lama 90 detik), jadi yang masuk peti berupa ingot. Bot menyimpan sampai 32 bahan bakar dan 16 makanan untuk dirinya.
+- Kalau peti tujuan penuh atau tidak bisa dicapai, bot memberitahumu lalu mencoba lagi 30 detik kemudian.
+- Contoh: penambang mengisi peti di tambang, kurir membawa isinya ke gudang di rumah.
+
+**Pengawal**: pilih bot yang dikawal dengan tombol nama bot di tab Job (saat job dipilih, bot terdekat milikmu langsung jadi yang dikawal).
+
+- Pengawal berjalan di dekat bot itu: ikut turun ke terowongannya, ikut lewat portal yang dipakainya, dan berlari kalau tertinggal jauh.
+- Monster dalam 12 blok dari bot yang dikawal dilawan, terutama yang sedang menyerangnya. Pengawal juga tetap melindungimu seperti mode pengawal biasa.
+- Kalau bot yang dikawal pergi ke dimensi lain tanpa portal yang dikenal (misalnya bot itu teleport darurat), pengawal menunggu 10 detik lalu menyusul sebagai jalan terakhir.
+- Kalau bot yang dikawal dikemas atau hancur, pengawal diam di tempat dan memberitahumu.
 
 **Jeda**: tombol **Jeda / Lanjut** di tab Job, `/butterbot job pause|resume`, atau `[` untuk semua bot sekaligus.
 
@@ -320,8 +336,8 @@ Semua perintah bisa dipakai tanpa cheat. Perintah kerja berlaku untuk bot milikm
 /butterbot skin <1-5>             pakai skin neko bawaan nomor 1-5
 /butterbot base | follow | come | deliver | stop | status | list
 /butterbot job                    info job bot terdekat (isi peti, daftar, area)
-/butterbot job set <miner|gatherer|guard|farmer|rancher|none>
-                                  (juga: penambang, pengumpul, penjaga, petani, peternak, asisten)
+/butterbot job set <miner|gatherer|guard|farmer|rancher|courier|bodyguard|none>
+                                  (juga: penambang, pengumpul, penjaga, petani, peternak, kurir, pengawal, asisten)
 /butterbot job chest [clear]      jadikan peti yang kamu lihat sebagai peti job
 /butterbot job need <item> [jumlah]   tambah/ubah barang di daftar (0 = hapus)
 /butterbot job remove <item>      hapus barang dari daftar
@@ -333,6 +349,10 @@ Semua perintah bisa dipakai tanpa cheat. Perintah kerja berlaku untuk bot milikm
 /butterbot job herd <domba|sapi|ayam|babi|kambing|kelinci|mooshroom> <2-99>
                                   peternak: batas satu jenis (juga: sheep, cow, chicken, pig, goat, rabbit)
 /butterbot job butcher <on|off>   peternak: potong ternak yang melebihi batas
+/butterbot job source             kurir: jadikan peti yang kamu lihat peti sumber
+/butterbot job source remove <1-4> | clear   kurir: hapus satu / semua peti sumber
+/butterbot job smelt <on|off>     kurir: lebur bijih mentah di jalan
+/butterbot job ward <nama bot>    pengawal: bot yang dikawal (clear = tidak ada)
 /butterbot job pause | resume     jeda / lanjutkan job
 ```
 

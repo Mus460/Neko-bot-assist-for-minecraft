@@ -121,7 +121,7 @@ public final class ModNetworking {
 		JobConfig jobs = bot.getJobs();
 		if (!jobs.hasJob()) {
 			return new Payloads.JobView(0, false, Optional.empty(), false, Optional.empty(), jobs.zone(), jobs.radius(), 0,
-					jobs.herd(), jobs.butcher(), List.of(), List.of());
+					jobs.herd(), jobs.butcher(), List.of(), List.of(), jobs.sources(), jobs.smelt(), Optional.empty(), "");
 		}
 		ServerLevel home = jobs.level(((ServerLevel) bot.level()).getServer());
 		BlockPos chest = jobs.chest();
@@ -154,8 +154,10 @@ public final class ModNetworking {
 				herds.add(new Payloads.HerdView(Livestock.id(kind), count, jobs.herdLimit(kind), jobs.hasHerdLimit(kind)));
 			}
 		}
+		ButterBotEntity ward = bot.findWard();
 		return new Payloads.JobView(jobs.job().ordinal(), jobs.isPaused(), Optional.ofNullable(chest), chestOk,
-				Optional.ofNullable(jobs.center()), jobs.zone(), jobs.radius(), jobs.stat(), jobs.herd(), jobs.butcher(), needs, herds);
+				Optional.ofNullable(jobs.center()), jobs.zone(), jobs.radius(), jobs.stat(), jobs.herd(), jobs.butcher(), needs, herds,
+				List.copyOf(jobs.sources()), jobs.smelt(), Optional.ofNullable(jobs.ward()), ward == null ? "" : ward.getName().getString());
 	}
 
 	private static void handleCommand(ServerPlayer player, Payloads.BotCommand payload) {
@@ -334,6 +336,17 @@ public final class ModNetworking {
 					bot.getJobs().setHerd(limit);
 				}
 			}
+			case Payloads.BotCommand.JOB_SOURCE -> {
+				if (payload.args().length >= 3) {
+					JobControl.addSource(player, bot, new BlockPos(payload.arg(0, 0), payload.arg(1, 0), payload.arg(2, 0)));
+				} else if (payload.args().length == 1) {
+					bot.getJobs().removeSource(payload.arg(0, -1));
+				} else {
+					bot.getJobs().clearSources();
+				}
+			}
+			case Payloads.BotCommand.JOB_SMELT -> bot.getJobs().setSmelt(payload.arg(0, 1) != 0);
+			case Payloads.BotCommand.JOB_WARD -> JobControl.setWard(player, bot, payload.text());
 			case Payloads.BotCommand.JOB_BUTCHER -> {
 				bot.getJobs().setButcher(payload.arg(0, 0) != 0);
 				if (!bot.getJobs().butcher()) {
