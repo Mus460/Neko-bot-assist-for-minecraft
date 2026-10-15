@@ -189,6 +189,16 @@ Buka tas bot (tombol **Buka tas** di panel, atau `V`). Baris paling atas adalah 
 - Slot baju zirah hanya menerima baju zirah (bukan labu atau kepala).
 - Perlengkapan tetap milikmu: dikembalikan saat bot dikemas atau dipulangkan, dan jatuh utuh di tempat bot hancur (kecuali yang terkena Curse of Vanishing).
 
+### Inti Memori (menghidupkan bot lagi)
+
+Kalau bot milikmu hancur, ia meninggalkan **Inti Memori** yang berkilau. Inti ini menyimpan nama, skin, telinga neko, level, skill, mastery, job, program Lua dan semua pengaturannya.
+
+- Inti masuk ke **Bot Base**-nya kalau masih ada tempat, kalau tidak ke **inventory-mu** (juga saat kamu di dimensi lain). Kalau dua-duanya tidak bisa, inti jatuh di tempat bot hancur, **bersinar menembus tembok dan tidak pernah hilang**. Chat memberi tahu letaknya, beserta koordinat tempat perlengkapan bot jatuh.
+- Inti tahan api, lava, ledakan dan kaktus. Bot yang jatuh ke void meninggalkan intinya di dekat Bot Base atau di dekatmu.
+- **Rakit Inti Memori dengan 4 Iron Ingot** (tanpa pola) untuk mendapat item Butter Bot lagi. Taruh, dan bot kembali sambil berkata "Aku kembali, Tuan! Aku masih ingat semuanya~".
+- Harganya kecil: XP di dalam level yang sedang berjalan hilang (levelnya tetap), dan XP simpanan untukmu sudah jatuh sebagai orb di tempat bot hancur.
+- Bot yang sudah dilepas (tanpa pemilik) tidak meninggalkan inti. **Second Wind** (level 25) tetap menyelamatkan bot lebih dulu.
+
 ### Mode teleport
 
 Tiap bot punya tombol **Teleport jauh** di tab Kontrol (atau `/butterbot teleport <true|false>`):
