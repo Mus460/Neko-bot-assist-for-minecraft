@@ -13,7 +13,7 @@ import java.util.function.Consumer;
 
 /**
  * What a destroyed bot leaves behind: everything it remembers (name, skin, level, skills, mastery,
- * job and settings) in the same saved data a packed bot keeps. Crafting it with 4 Iron Ingots turns
+ * job, bond and settings) in the same saved data a packed bot keeps. Crafting it with 4 Iron Ingots turns
  * it back into a placeable {@link ButterBotItem}, which brings the bot back as it was.
  */
 public class BotCoreItem extends Item {
@@ -27,7 +27,7 @@ public class BotCoreItem extends Item {
 								Consumer<Component> builder, TooltipFlag flag) {
 		CompoundTag tag = ButterBotItem.savedTag(stack);
 		if (tag != null) {
-			// "Mochi · Level 17", plus "· ♥ 72" once the bot's bond is saved too.
+			// "Mochi · Level 17 · ♥ 72"; cores left before the bond existed have no heart.
 			String name = tag.getStringOr("Name", "");
 			MutableComponent line = (name.isEmpty() ? Component.translatable("item.butterbot.butter_bot") : Component.literal(name))
 					.append(" · ").append(Component.translatable("butterbot.tooltip.level", tag.getIntOr("Level", 1)));

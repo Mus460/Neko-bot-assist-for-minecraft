@@ -206,7 +206,7 @@ Buka tas bot (tombol **Buka tas** di panel, atau `V`). Baris paling atas adalah 
 
 ### Inti Memori (menghidupkan bot lagi)
 
-Kalau bot milikmu hancur, ia meninggalkan **Inti Memori** yang berkilau. Inti ini menyimpan nama, skin, telinga neko, level, skill, mastery, job, program Lua dan semua pengaturannya.
+Kalau bot milikmu hancur, ia meninggalkan **Inti Memori** yang berkilau. Inti ini menyimpan nama, skin, telinga neko, level, skill, mastery, job, program Lua, kedekatan dan camilan favoritnya, serta semua pengaturannya.
 
 - Inti masuk ke **Bot Base**-nya kalau masih ada tempat, kalau tidak ke **inventory-mu** (juga saat kamu di dimensi lain). Kalau dua-duanya tidak bisa, inti jatuh di tempat bot hancur, **bersinar menembus tembok dan tidak pernah hilang**. Chat memberi tahu letaknya, beserta koordinat tempat perlengkapan bot jatuh.
 - Inti tahan api, lava, ledakan dan kaktus. Bot yang jatuh ke void meninggalkan intinya di dekat Bot Base atau di dekatmu.
@@ -270,7 +270,7 @@ Setiap bot punya meter **Kedekatan ♥** (0–100) denganmu. Bot baru, dan bot d
 | 50–79 | Sayang | Elusan juga memulihkan 2 darah bot. Sesekali bot mendusel kakimu saat kamu diam di dekatnya (dalam 4 blok, 10 detik) |
 | 80–100 | Belahan Jiwa | Saat darahmu di bawah 30% dan bot dalam 8 blok, ia memelukmu dan memberi Regeneration (sekali tiap 5 menit) |
 
-Naik tingkat diberitahukan di chat. Kedekatan tampil di kartu bot di panel (♥ di baris darah, arahkan kursor untuk rinciannya), di halaman **Statistik** (bar merah muda, tingkat dan camilan favorit), dan di tooltip item bot yang dikemas. Kedekatan dan camilan favorit ikut tersimpan saat bot dikemas jadi item.
+Naik tingkat diberitahukan di chat. Kedekatan tampil di kartu bot di panel (♥ di baris darah, arahkan kursor untuk rinciannya), di halaman **Statistik** (bar merah muda, tingkat dan camilan favorit), dan di tooltip item bot yang dikemas maupun Inti Memorinya. Kedekatan dan camilan favorit ikut tersimpan saat bot dikemas jadi item, dan tetap utuh di Inti Memori kalau bot hancur.
 
 ### Level (1 sampai 30)
 
