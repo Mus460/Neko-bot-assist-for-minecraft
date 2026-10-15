@@ -19,6 +19,11 @@ public class ButterBotRenderState extends AvatarRenderState {
 	public BotTier tier = BotTier.KITTEN;
 	/** Ticks into the level-up cheer, or -1 when it is not playing. */
 	public float levelUpTime = -1.0F;
+	/** Asked to be shown ("Show" in the panel): glows through walls and sends a beam up. */
+	public boolean focused;
+	/** The beam's colour (the glow colour) and its animation clock, which loops every 40 ticks. */
+	public int focusColor;
+	public float beamTime;
 	@Nullable
 	public Component infoLine;
 	@Nullable

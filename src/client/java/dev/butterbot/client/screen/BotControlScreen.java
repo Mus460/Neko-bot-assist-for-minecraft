@@ -9,6 +9,7 @@ import dev.butterbot.ai.actions.SortTaskAction;
 import dev.butterbot.ai.job.ResourceCatalog;
 import net.minecraft.world.entity.EntityType;
 import dev.butterbot.ai.job.Livestock;
+import dev.butterbot.client.BotFocus;
 import dev.butterbot.client.BotKeys;
 import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.entity.BotJob;
@@ -129,6 +130,11 @@ public class BotControlScreen extends Screen {
 	private static final int HERD_H = 20;
 	private static final int HERD_PITCH_X = 60;
 	private static final int HERD_PITCH_Y = 22;
+	/** The small "Show" button: on the card right of the paper doll, and at the right of each row of the bot list. */
+	private static final int SHOW_SIZE = 13;
+	private static final Identifier BUTTON_SPRITE = Identifier.withDefaultNamespace("widget/button");
+	private static final Identifier BUTTON_HOVER_SPRITE = Identifier.withDefaultNamespace("widget/button_highlighted");
+	private static final ItemStack SHOW_ICON = new ItemStack(Items.SPYGLASS);
 
 	// Remembered between openings so the panel feels persistent.
 	@Nullable
@@ -431,6 +437,15 @@ public class BotControlScreen extends Screen {
 			addRenderableWidget(McButton.text(cardX + CARD_W - 16, cardY + 3, 13, 13, Component.literal(">"), b -> cycleBot(1))
 					.tip(Component.translatable("butterbot.ui.next_bot")));
 		}
+		if (selected() != null) {
+			addRenderableWidget(new McButton(cardX + CARD_W - 17, cardY + 87, SHOW_SIZE, SHOW_SIZE, Component.translatable("butterbot.ui.show_bot"),
+					SHOW_ICON, McButton.Layout.SLOT, b -> {
+						Payloads.BotEntry bot = selected();
+						if (bot != null) {
+							showBot(bot.id());
+						}
+					}).tip(Component.translatable("butterbot.ui.show_bot_tip")));
+		}
 		if (!bots.isEmpty()) {
 			addRenderableWidget(McButton.text(cardX + 4, cardY + CARD_H - 20, CARD_W - 8, 16, Component.empty(), b -> {
 				saveInput();
@@ -546,20 +561,40 @@ public class BotControlScreen extends Screen {
 			}
 			String line = font.plainSubstrByWidth(bot.name() + "  Lv " + bot.level(), CW - 80);
 			g.text(font, line, cx + 27, y + 5, McStyle.TEXT, false);
-			String status = font.plainSubstrByWidth(Component.empty().append(bot.status()).getString(), CW - 32);
+			String status = font.plainSubstrByWidth(Component.empty().append(bot.status()).getString(), CW - 50);
 			g.text(font, status, cx + 27, y + 16, McStyle.TEXT_DIM, false);
 			if (minecraft != null && minecraft.player != null) {
 				double distance = Math.sqrt(minecraft.player.blockPosition().distSqr(bot.pos()));
 				String meters = (int) Math.round(distance) + " m";
 				g.text(font, meters, cx + CW - 5 - font.width(meters), y + 5, McStyle.TEXT_DIM, false);
 			}
+			boolean showHovered = inside(mouseX, mouseY, showX(), showY(y), SHOW_SIZE, SHOW_SIZE);
+			g.blitSprite(RenderPipelines.GUI_TEXTURED, showHovered ? BUTTON_HOVER_SPRITE : BUTTON_SPRITE, showX(), showY(y),
+					SHOW_SIZE, SHOW_SIZE);
+			McStyle.smallItem(g, SHOW_ICON, showX() + 1.5F, showY(y) + 1.5F, SHOW_SIZE - 3.0F);
+			if (showHovered) {
+				g.setTooltipForNextFrame(Component.translatable("butterbot.ui.show_bot_tip"), mouseX, mouseY);
+			}
 		}
+	}
+
+	/** Where a row's "Show" button is (the row starts at {@code rowY}). */
+	private int showX() {
+		return cx + CW - SHOW_SIZE - 4;
+	}
+
+	private static int showY(int rowY) {
+		return rowY + 13;
 	}
 
 	private boolean botListClicked(double mouseX, double mouseY) {
 		int start = listPage * LIST_ROWS;
 		for (int i = start; i < Math.min(bots.size(), start + LIST_ROWS); i++) {
 			int y = cy + 14 + (i - start) * 30;
+			if (inside(mouseX, mouseY, showX(), showY(y), SHOW_SIZE, SHOW_SIZE)) {
+				showBot(bots.get(i).id());
+				return true;
+			}
 			if (inside(mouseX, mouseY, cx, y, CW, 28)) {
 				listOpen = false;
 				selectBot(bots.get(i).id());
@@ -567,6 +602,16 @@ public class BotControlScreen extends Screen {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * "Show": for half a minute the bot glows through walls under a beam and gets a marker on screen, and
+	 * it calls out. The panel closes so the player can look for it.
+	 */
+	private void showBot(UUID id) {
+		BotFocus.set(id);
+		ClientPlayNetworking.send(Payloads.BotCommand.of(basePos, id, Payloads.BotCommand.PING));
+		onClose();
 	}
 
 	// ---------------------------------------------------------------- Main tab

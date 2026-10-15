@@ -61,7 +61,7 @@ Semua tombol bisa diganti di **Options → Controls → Key Binds**, bagian **Bu
 | `U` | Mode pengawal semua bot nyala/mati |
 | `I` | Terangi area 24 blok di sekitarmu |
 | `M` | Ambilkan satu tumpuk lagi barang yang sedang kamu pegang |
-| `]` | Tampilkan/sembunyikan daftar bot di pojok layar |
+| `]` | Ganti tampilan: daftar bot + penanda bot, hanya daftar bot, atau tidak ada |
 | `[` | **Jeda semua job**, atau kalau semua sedang dijeda, suruh semua bot kerja lagi |
 
 `H`, `N` dan `J` hanya berlaku untuk bot dalam 500 blok darimu, dan sekaligus menjeda job bot itu (tekan `[` untuk menyuruh mereka kerja lagi).
@@ -132,7 +132,7 @@ Bot yang punya job **tetap bekerja walaupun kamu jauh**: area kecil di sekitar b
 
 ### Daftar bot di layar (HUD)
 
-Di pojok kiri atas tampil semua bot milikmu: level (diwarnai sesuai tier-nya), nama, bar darah, apa yang sedang dikerjakan, jaraknya darimu (atau "dimensi lain"), dan isi tas. Daftar disembunyikan otomatis saat layar F3 terbuka. Tekan `]` untuk menyembunyikan atau menampilkannya (pilihan ini diingat).
+Di pojok kiri atas tampil semua bot milikmu: level (diwarnai sesuai tier-nya), nama, bar darah, apa yang sedang dikerjakan, jaraknya darimu (atau "dimensi lain"), dan isi tas. Daftar disembunyikan otomatis saat layar F3 terbuka. Tekan `]` untuk berganti antara daftar bot plus [penanda bot](#penanda-bot-dan-tombol-tunjukkan), hanya daftar bot, dan tidak menampilkan apa-apa (pilihan ini diingat).
 
 Daftar ini juga langsung memberi tahu kalau ada yang tidak beres:
 
@@ -140,6 +140,18 @@ Daftar ini juga langsung memberi tahu kalau ada yang tidak beres:
 - **Baris berdenyut merah** selama bot diserang (beberapa detik setelah kena pukul) dan selama darahnya di bawah 30%.
 - **Bar darah turun halus**, dan bagian yang baru hilang berkedip putih sebentar, jadi pukulan besar langsung kelihatan.
 - **Garis progres hijau** di bawah baris: jumlah blok pesanan tambang, panjang terowongan, atau seberapa penuh daftar barang penambang/pengumpul di peti job-nya (menurut hitungan terakhir).
+
+### Penanda bot dan tombol Tunjukkan
+
+Di mode pertama tombol `]`, setiap bot yang lebih jauh dari 20 blok mendapat **penanda** yang melayang di atas kepalanya, terlihat tembus tembok: wajah kecilnya di dalam cincin darah, dengan jaraknya di bawahnya. Kalau bot ada di belakangmu atau di luar layar, penandanya menempel di tepi layar dengan panah kecil yang menunjuk ke arahnya. Bot yang lebih dekat dari 20 blok sudah punya label nama sendiri, jadi penandanya memudar dan hilang. Penanda disembunyikan saat layar F3 atau layar lain (panel, inventaris, chat) terbuka.
+
+Tombol **Tunjukkan** (ikon teropong) ada di kartu bot di panel, di kanan boneka bot, dan di kanan setiap baris daftar **Semua bot**. Panel langsung tertutup, lalu selama **30 detik**:
+
+- bot itu **bersinar tembus tembok** dengan warna rambutnya dan memancarkan **sinar beacon** setinggi langit, sehingga kelihatan dari jauh;
+- ia mendapat penanda yang berdenyut, walaupun penanda sedang dimatikan dengan `]` (dari dekat penanda hanya muncul di tepi layar untuk menunjuk arah);
+- bot berseru "Di sini, Tuan!" dengan not musik di atas kepalanya (bot neko menyapa dengan suaranya, Butter Bot klasik berbunyi "ting").
+
+Sinar dan cahaya hanya tampil selama bot masih dalam jarak pandang dunia (view distance). Kalau lebih jauh dari itu, penanda di layar tetap menunjukkan arahnya. Telinga dan ekor kucing tidak ikut bersinar.
 
 ### Tab panel kontrol
 

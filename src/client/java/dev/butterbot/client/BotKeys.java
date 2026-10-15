@@ -124,7 +124,7 @@ public final class BotKeys {
 				&& ClientPlayNetworking.canSend(Payloads.Hotkey.TYPE);
 		tickPanelKey(minecraft, connected);
 		while (HUD.consumeClick()) {
-			BotHud.toggle();
+			BotHud.cycleMode();
 		}
 		send(connected, CALL_ALL, Payloads.Hotkey.CALL_ALL);
 		send(connected, STOP_ALL, Payloads.Hotkey.STOP_ALL);

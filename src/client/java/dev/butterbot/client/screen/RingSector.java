@@ -16,26 +16,35 @@ import org.jetbrains.annotations.Nullable;
  * GUI scale: from radius {@code r0} to {@code r1} and from angle {@code a0} to {@code a1} (radians,
  * clockwise from the right, around the pose's origin). Colours fade from the inner to the outer edge.
  */
-record RingSector(Matrix3x2fc pose, float r0, float r1, float a0, float a1, int innerColor, int outerColor,
-				  @Nullable ScreenRectangle bounds) implements GuiElementRenderState {
+public record RingSector(Matrix3x2fc pose, float r0, float r1, float a0, float a1, int innerColor, int outerColor,
+						float maxStep, @Nullable ScreenRectangle bounds) implements GuiElementRenderState {
 
 	/** Short enough steps that the curve looks round. */
 	private static final float STEP = (float) (Math.PI / 48.0D);
 
 	/** Draws a ring piece centred on the current pose origin. */
-	static void draw(GuiGraphicsExtractor g, float r0, float r1, float a0, float a1, int innerColor, int outerColor) {
+	public static void draw(GuiGraphicsExtractor g, float r0, float r1, float a0, float a1, int innerColor, int outerColor) {
+		draw(g, r0, r1, a0, a1, innerColor, outerColor, STEP);
+	}
+
+	/**
+	 * Same with longer steps allowed: a small ring (a few pixels across) looks just as round with far
+	 * fewer pieces, which matters for things drawn every frame.
+	 */
+	public static void draw(GuiGraphicsExtractor g, float r0, float r1, float a0, float a1, int innerColor, int outerColor,
+							float maxStep) {
 		if (r1 <= r0 || a1 <= a0 || ((innerColor | outerColor) >>> 24) == 0) {
 			return;
 		}
 		Matrix3x2f pose = new Matrix3x2f(g.pose());
 		int size = (int) Math.ceil(r1);
 		ScreenRectangle bounds = new ScreenRectangle(-size - 1, -size - 1, size * 2 + 2, size * 2 + 2).transformMaxBounds(pose);
-		g.guiRenderState.addGuiElement(new RingSector(pose, r0, r1, a0, a1, innerColor, outerColor, bounds));
+		g.guiRenderState.addGuiElement(new RingSector(pose, r0, r1, a0, a1, innerColor, outerColor, Math.max(STEP, maxStep), bounds));
 	}
 
 	@Override
 	public void buildVertices(VertexConsumer consumer) {
-		int steps = Math.max(1, (int) Math.ceil((a1 - a0) / STEP));
+		int steps = Math.max(1, (int) Math.ceil((a1 - a0) / maxStep));
 		float step = (a1 - a0) / steps;
 		for (int i = 0; i < steps; i++) {
 			float from = a0 + i * step;
