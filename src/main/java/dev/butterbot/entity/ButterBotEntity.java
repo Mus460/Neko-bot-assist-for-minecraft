@@ -725,7 +725,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (recoverPos != null || !recoveredItems.isEmpty()) {
 			return Component.translatable("butterbot.hud.s.recovering");
 		}
-		if (returnRequested) {
+		if (returnRequested || ((task == BotTask.MINE || task == BotTask.TUNNEL) && isInventoryFull())) {
 			return Component.translatable("butterbot.hud.s.delivering");
 		}
 		return switch (task) {
@@ -805,7 +805,10 @@ public class ButterBotEntity extends PathfinderMob {
 		if (recoverPos != null || !recoveredItems.isEmpty()) {
 			return Component.translatable("butterbot.status.recovering");
 		}
-		if (returnRequested) {
+		if (returnRequested || ((task == BotTask.MINE || task == BotTask.TUNNEL) && isInventoryFull())) {
+			if (isJobDriven() && jobs.chest() != null) {
+				return Component.translatable("butterbot.status.delivering_job");
+			}
 			return Component.translatable(deliveryMode == DeliveryMode.BASE
 					? "butterbot.status.delivering_base" : "butterbot.status.delivering_owner");
 		}
@@ -1704,7 +1707,7 @@ public class ButterBotEntity extends PathfinderMob {
 	public BlockPos getFarmStorage() {
 		if (jobs.isActive() && jobs.job() == BotJob.FARMER && jobs.chest() != null
 				&& this.level() instanceof ServerLevel serverLevel && serverLevel.dimension().equals(jobs.dimension())
-				&& JobStorage.isStorage(serverLevel, jobs.chest())) {
+				&& (!serverLevel.isLoaded(jobs.chest()) || JobStorage.isStorage(serverLevel, jobs.chest()))) {
 			return jobs.chest();
 		}
 		return getBase() != null ? basePos : null;
@@ -1877,7 +1880,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (item != null) {
 			onJobSiteFailed(item);
 		}
-		if (hasLoot()) {
+		if (JobAction.hasSomethingToDeliver(this, jobs)) {
 			returnRequested = true;
 		} else {
 			clearTask();
@@ -2581,10 +2584,17 @@ public class ButterBotEntity extends PathfinderMob {
 		return !inventory.isEmpty();
 	}
 
+	/**
+	 * No room left: every slot is taken and, on a mining run, no half-filled stack of what it is
+	 * collecting is left (half stacks of cobblestone or byproducts are no room for more ore).
+	 */
 	public boolean isInventoryFull() {
 		for (int i = 0; i < inventory.getContainerSize(); i++) {
 			ItemStack stack = inventory.getItem(i);
-			if (stack.isEmpty() || stack.getCount() < stack.getMaxStackSize()) {
+			if (stack.isEmpty()) {
+				return false;
+			}
+			if (stack.getCount() < stack.getMaxStackSize() && (task != BotTask.MINE || isWantedLoot(stack))) {
 				return false;
 			}
 		}
@@ -2614,7 +2624,7 @@ public class ButterBotEntity extends PathfinderMob {
 	public void collectNearbyDrops(Vec3 center, double radius) {
 		List<ItemEntity> drops = this.level().getEntitiesOfClass(ItemEntity.class, new AABB(center, center).inflate(radius));
 		for (ItemEntity drop : drops) {
-			if (!drop.isAlive()) {
+			if (!drop.isAlive() || drop.getOwner() instanceof Player) {
 				continue;
 			}
 			ItemStack leftover = inventory.addItem(drop.getItem().copy());
@@ -2727,14 +2737,33 @@ public class ButterBotEntity extends PathfinderMob {
 	}
 
 	public void deliverInventoryTo(Player player) {
+		deliverInventoryTo(player, 0);
+	}
+
+	/** Hands the backpack over, keeping up to {@code keepPlantables} of each kind of seed and sapling. */
+	public void deliverInventoryTo(Player player, int keepPlantables) {
 		int total = 0;
+		Map<Item, Integer> kept = new HashMap<>();
 		for (int i = 0; i < inventory.getContainerSize(); i++) {
-			ItemStack stack = inventory.removeItemNoUpdate(i);
+			ItemStack stack = inventory.getItem(i);
 			if (stack.isEmpty()) {
 				continue;
 			}
-			total += stack.getCount();
-			BehaviorUtils.throwItem(this, stack, player.position().add(0.0D, 0.5D, 0.0D));
+			ItemStack give;
+			if (keepPlantables > 0 && isPlantable(stack)) {
+				int alreadyKept = kept.getOrDefault(stack.getItem(), 0);
+				int keep = Math.max(0, Math.min(stack.getCount(), keepPlantables - alreadyKept));
+				kept.put(stack.getItem(), alreadyKept + keep);
+				if (keep == stack.getCount()) {
+					continue;
+				}
+				give = stack.split(stack.getCount() - keep);
+				inventory.setItem(i, stack);
+			} else {
+				give = inventory.removeItemNoUpdate(i);
+			}
+			total += give.getCount();
+			BehaviorUtils.throwItem(this, give, player.position().add(0.0D, 0.5D, 0.0D));
 		}
 		if (total > 0) {
 			tellOwner(Component.translatable("butterbot.msg.here_you_go", total));

@@ -3,10 +3,13 @@ package dev.butterbot.ai.actions;
 import dev.butterbot.ai.BotAction;
 import dev.butterbot.ai.TreeFeller;
 import dev.butterbot.ai.Walker;
+import dev.butterbot.ai.job.JobChunks;
 import dev.butterbot.ai.job.JobStorage;
+import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotState;
 import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
+import dev.butterbot.entity.JobConfig;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
@@ -53,6 +56,12 @@ public class FarmTaskAction implements BotAction {
 	/** How often a grandmaster farmer helps the crops around it grow. */
 	private static final int GROWTH_INTERVAL = 100;
 	private static final int GROWTH_CROPS = 3;
+	/** After a harvest, the next work is looked for this close by first (no full scan of the field). */
+	private static final int NEARBY = 4;
+	/** Farther than this the bot hops to its storage instead of walking. */
+	private static final double FAR_STORAGE_SQ = 48.0D * 48.0D;
+	private static final int STORAGE_LOAD_TICKS = 20 * 30;
+	private static final long WARN_TICKS = 20L * 60L * 5L;
 
 	private enum Work {CROP, WART, COCOA, BERRY, CANE, FRUIT, TREE, SOW}
 
@@ -64,6 +73,8 @@ public class FarmTaskAction implements BotAction {
 	private int scanCooldown;
 	private int workTicks;
 	private boolean unloading;
+	private int storageLoadTicks;
+	private long lastWarning = JobConfig.NEVER;
 	/** Game time until which a full base is not tried again. */
 	private long baseFullUntil;
 
@@ -95,6 +106,12 @@ public class FarmTaskAction implements BotAction {
 		}
 		if (bot.getMiner().isDigging()) {
 			bot.getMiner().tickDig();
+			return;
+		}
+		if (!unloading && strayedFromJob(bot, level)) {
+			// Pulled away from its field (rescuing the owner's things, a long chase, another dimension):
+			// end this run so the farmer job brings the bot back and starts a new one there.
+			bot.clearTask();
 			return;
 		}
 
@@ -148,7 +165,9 @@ public class FarmTaskAction implements BotAction {
 			workTicks = 0;
 			doWork(bot, level, pos, work);
 			target = null;
-			scanCooldown = 0;
+			if (!findWorkNear(bot, level, pos)) {
+				scanCooldown = 0;
+			}
 			return;
 		}
 
@@ -167,29 +186,75 @@ public class FarmTaskAction implements BotAction {
 			return;
 		}
 		bot.setBotState(BotState.RETURNING);
-		if (bot.distanceToSqr(Vec3.atCenterOf(pos)) > BASE_REACH_SQ) {
+		double distanceSq = bot.distanceToSqr(Vec3.atCenterOf(pos));
+		if (distanceSq > BASE_REACH_SQ) {
+			if (!level.isLoaded(pos)) {
+				// A far job chest: load its spot first, then hop there.
+				JobChunks.preload(level, pos);
+				if (++storageLoadTicks > STORAGE_LOAD_TICKS) {
+					storageFailed(bot, level, pos, false);
+				}
+				return;
+			}
+			storageLoadTicks = 0;
+			if (distanceSq > FAR_STORAGE_SQ && bot.teleportNear(pos, false)) {
+				walker.reset(bot);
+				return;
+			}
 			if (!walker.walk(bot, Vec3.atBottomCenterOf(pos), 1.1D, true, MAX_STUCK_TICKS)) {
 				if (!bot.teleportNear(pos)) {
-					bot.tellOwner(Component.translatable("butterbot.msg.cant_reach_base"));
-					unloading = false;
+					storageFailed(bot, level, pos, false);
 				}
 				walker.reset(bot);
 			}
 			return;
 		}
+		storageLoadTicks = 0;
 		bot.getNavigation().stop();
 		bot.getLookControl().setLookAt(Vec3.atCenterOf(pos));
 		Container storage = JobStorage.open(level, pos);
 		if (storage == null) {
-			unloading = false;
+			storageFailed(bot, level, pos, false);
 			return;
 		}
 		if (!bot.depositInto(storage, pos, ButterBotEntity.KEEP_PLANTABLES)) {
-			bot.tellOwner(Component.translatable("butterbot.msg.base_full"));
-			baseFullUntil = bot.level().getGameTime() + BASE_FULL_RETRY_TICKS;
+			storageFailed(bot, level, pos, true);
+			return;
 		}
 		unloading = false;
 		walker.reset(bot);
+	}
+
+	/** Storage full or out of reach: say so (now and then, not every minute) and try again later. */
+	private void storageFailed(ButterBotEntity bot, ServerLevel level, BlockPos pos, boolean full) {
+		unloading = false;
+		storageLoadTicks = 0;
+		walker.reset(bot);
+		long now = level.getGameTime();
+		baseFullUntil = now + BASE_FULL_RETRY_TICKS;
+		if (now - lastWarning < WARN_TICKS) {
+			return;
+		}
+		lastWarning = now;
+		boolean base = pos.equals(bot.getBasePos());
+		if (base) {
+			bot.tellOwner(Component.translatable(full ? "butterbot.msg.base_full" : "butterbot.msg.cant_reach_base"));
+		} else {
+			bot.tellOwner(Component.translatable(full ? "butterbot.msg.job_chest_full" : "butterbot.msg.job_chest_unreachable",
+					pos.toShortString()));
+		}
+	}
+
+	/** A farmer job's run ends when the bot is no longer at its field (another dimension, or carried far away). */
+	private static boolean strayedFromJob(ButterBotEntity bot, ServerLevel level) {
+		if (!bot.isJobActive() || bot.getJobs().job() != BotJob.FARMER || bot.getJobs().center() == null) {
+			return false;
+		}
+		if (!level.dimension().equals(bot.getJobs().dimension())) {
+			return true;
+		}
+		double reach = bot.getFarmRadius() + 8.0D;
+		return Walker.horizontalDistSq(bot, bot.getJobs().center()) > reach * reach;
 	}
 
 	/** Items in the backpack that would be unloaded (the seeds and saplings it keeps do not count). */
@@ -253,6 +318,38 @@ public class FarmTaskAction implements BotAction {
 				}
 			}
 		}
+	}
+
+	/** Work right around {@code around} (the plant just harvested), inside the field. True if some was found. */
+	private boolean findWorkNear(ButterBotEntity bot, ServerLevel level, BlockPos around) {
+		BlockPos center = bot.getFarmCenter();
+		int radius = bot.getFarmRadius();
+		double best = Double.MAX_VALUE;
+		BlockPos found = null;
+		Work foundWork = null;
+		for (BlockPos cursor : BlockPos.betweenClosed(around.offset(-NEARBY, -2, -NEARBY), around.offset(NEARBY, 2, NEARBY))) {
+			if (Math.abs(cursor.getX() - center.getX()) > radius || Math.abs(cursor.getZ() - center.getZ()) > radius
+					|| Math.abs(cursor.getY() - center.getY()) > VERTICAL || !level.isLoaded(cursor)) {
+				continue;
+			}
+			Work here = workAt(bot, level, cursor);
+			if (here == null || bot.isBlacklisted(cursor)) {
+				continue;
+			}
+			double distance = bot.distanceToSqr(Vec3.atCenterOf(cursor));
+			if (distance < best) {
+				best = distance;
+				found = cursor.immutable();
+				foundWork = here;
+			}
+		}
+		if (found == null) {
+			return false;
+		}
+		target = found;
+		work = foundWork;
+		walker.reset(bot);
+		return true;
 	}
 
 	private boolean isWork(ButterBotEntity bot, ServerLevel level, BlockPos pos, Work expected) {

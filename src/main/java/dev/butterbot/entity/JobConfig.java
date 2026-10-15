@@ -101,8 +101,13 @@ public final class JobConfig {
 	private long chestCountsTime = Long.MIN_VALUE;
 	private final Map<Item, Long> cooldowns = new HashMap<>();
 	private final Map<Item, Integer> failStreak = new HashMap<>();
-	private long lastWarning = Long.MIN_VALUE;
-	private long lastDepositTry = Long.MIN_VALUE;
+	/**
+	 * "Long ago" for timestamps: far enough back for every wait, and safe to subtract from
+	 * ({@code now - Long.MIN_VALUE} overflows and makes every "has it been long enough" check fail).
+	 */
+	public static final long NEVER = -1_000_000_000L;
+	private long lastWarning = NEVER;
+	private long lastDepositTry = NEVER;
 
 	// ------------------------------------------------------------------ job
 
@@ -174,6 +179,8 @@ public final class JobConfig {
 		this.chest = chest == null ? null : chest.immutable();
 		chestCountsTime = Long.MIN_VALUE;
 		chestCounts.clear();
+		// Without a Bot Base the no-dig zone is around the chest, so a moved chest moves the zone too.
+		clearSite();
 	}
 
 	@Nullable
@@ -203,6 +210,12 @@ public final class JobConfig {
 
 	public void setZone(int zone) {
 		this.zone = Math.clamp(zone, 0, MAX_ZONE);
+		// The old dig site may be inside the new zone: pick a new one.
+		clearSite();
+	}
+
+	public void clearSite() {
+		setSite(null, null, false);
 	}
 
 	/** Patrol or farm radius (depends on the job). */
