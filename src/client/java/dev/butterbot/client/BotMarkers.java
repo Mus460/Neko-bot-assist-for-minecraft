@@ -120,10 +120,11 @@ public final class BotMarkers implements HudElement {
 			float angle = 0.0F;
 			if (!onScreen) {
 				float dx = x - width / 2.0F;
-				float dy = y - height / 2.0F;
-				if (Math.abs(dx) < 0.5F && Math.abs(dy) < 0.5F) {
-					// Straight behind: point down.
-					dy = 1.0F;
+				float dy = y + LIFT - height / 2.0F;
+				if (behind) {
+					// Behind the player: always on the lower part of the edge, pointing down or aside, never up
+					// like a bot ahead and high above (the mirrored point is a little above the middle on flat ground).
+					dy = Math.max(Math.abs(dy), 1.0F);
 				}
 				float rx = Math.max(1.0F, width / 2.0F - EDGE);
 				float ry = Math.max(1.0F, height / 2.0F - EDGE);

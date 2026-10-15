@@ -359,7 +359,7 @@
   "butterbot.bond.tier_up": "We're closer now: %s ♥",
   "butterbot.bond.hug": "Hang in there, I've got you! ♥",
   "butterbot.ui.bond": "♥ %s",
-  "butterbot.ui.bond_tip": "Bond grows when you pat its head (click the very top of it), feed it fish or sweets, and spend time together. Hitting it while sneaking lowers it.",
+  "butterbot.ui.bond_tip": "Bond grows when you pat its head (click its forehead, just above the eyes), feed it fish or sweets, and spend time together. Hitting it while sneaking lowers it.",
   "butterbot.stats.bond": "♥ %s · %s",
   "butterbot.stats.favorite": "Favourite treat: %s",
   "butterbot.stats.favorite_unknown": "Favourite treat: ??? (feed it treats to find out)",

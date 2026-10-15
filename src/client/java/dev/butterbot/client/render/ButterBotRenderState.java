@@ -24,9 +24,10 @@ public class ButterBotRenderState extends AvatarRenderState {
 	/** The beam's colour (the glow colour) and its animation clock, which loops every 40 ticks. */
 	public int focusColor;
 	public float beamTime;
-	/** The bond reaction playing (pat, pout, treat; see ButterBotEntity.REACTION_*) and ticks into it, or -1. */
+	/** The bond reaction playing (pat, pout, treat; see ButterBotEntity.REACTION_*), ticks into it (or -1) and how strongly (0 to 1). */
 	public int reaction;
 	public float reactionTime = -1.0F;
+	public float reactionStrength;
 	@Nullable
 	public Component infoLine;
 	@Nullable

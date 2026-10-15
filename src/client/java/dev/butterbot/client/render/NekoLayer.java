@@ -77,7 +77,7 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 		// On a level up the ears perk up and flick in turn; a pat or a pout folds them outwards.
 		float twitch = earTwitch(age);
 		float flick = cheer * 18.0F;
-		float fold = ReactionAnimation.earFold(state.reaction, state.reactionTime);
+		float fold = ReactionAnimation.earFold(state.reaction, state.reactionTime, state.reactionStrength);
 		float rightAngle = twitch + fold + flick * Mth.sin(cheerTime * 1.3F);
 		float leftAngle = twitch + fold + flick * Mth.sin(cheerTime * 1.3F + Mth.HALF_PI);
 		float earScale = 1.0F + 0.25F * cheer;
@@ -107,7 +107,7 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 		Tail tail = new Tail(age,
 				6.0F + 14.0F * Mth.clamp(state.walkAnimationSpeed, 0.0F, 1.0F) + (state.working ? 4.0F : 0.0F),
 				state.working ? 0.2F : 0.12F,
-				ReactionAnimation.strength(state.reactionTime), reactionTime * ReactionAnimation.wagSpeed(state.reaction),
+				state.reactionStrength, reactionTime * ReactionAnimation.wagSpeed(state.reaction),
 				ReactionAnimation.wagSway(state.reaction),
 				cheer, cheerTime,
 				TAIL_SEGMENT_LENGTH + 0.04F * grow,

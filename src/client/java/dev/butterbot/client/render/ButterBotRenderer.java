@@ -100,7 +100,7 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		if (cheering) {
 			poseStack.rotateDegrees(Axis.YP, LevelUpAnimation.twirl(state.levelUpTime));
 		}
-		float turn = standing ? ReactionAnimation.bodyTurn(state.reaction, state.reactionTime) : 0.0F;
+		float turn = standing ? ReactionAnimation.bodyTurn(state.reaction, state.reactionStrength) : 0.0F;
 		if (turn != 0.0F) {
 			poseStack.rotateDegrees(Axis.YP, turn);
 		}
@@ -137,10 +137,11 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		}
 		state.reactionTime = entity.reactionTime(partialTicks);
 		state.reaction = state.reactionTime >= 0.0F ? entity.reactionType() : ButterBotEntity.REACTION_NONE;
+		state.reactionStrength = ReactionAnimation.strength(state.reactionTime, entity.reactionLeft(partialTicks));
 		if (state.reaction != ButterBotEntity.REACTION_NONE) {
 			// Leaning into a pat, chewing nods, or a pout's head turned aside with the chin up.
-			state.xRot += ReactionAnimation.headPitch(state.reaction, state.reactionTime);
-			state.yRot += ReactionAnimation.headTurn(state.reaction, state.reactionTime);
+			state.xRot += ReactionAnimation.headPitch(state.reaction, state.reactionTime, state.reactionStrength);
+			state.yRot += ReactionAnimation.headTurn(state.reaction, state.reactionStrength);
 		}
 
 		boolean close = state.distanceToCameraSq < INFO_DISTANCE_SQ && !entity.isInvisible();
