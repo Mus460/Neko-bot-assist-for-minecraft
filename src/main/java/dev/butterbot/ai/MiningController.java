@@ -3,7 +3,6 @@ package dev.butterbot.ai;
 import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -11,8 +10,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Breaks one block at a time with a visible crack animation. It takes as long as it would take a
- * player holding the tool the bot shows (iron, later diamond and netherite), and higher-level bots
- * are faster still.
+ * player holding the tool the bot shows (iron, later diamond and netherite, or a better one the owner
+ * gave it), and higher-level bots are faster still.
  */
 public final class MiningController {
 
@@ -60,13 +59,14 @@ public final class MiningController {
 		return digTicks(bot, level, pos, state);
 	}
 
-	/** Vanilla's breaking time for the bot's tool: hardness x 30 / tool speed ticks (x 100 with the wrong tool). */
+	/**
+	 * Vanilla's breaking time for the bot's tool (its own or a faster one it was given, Efficiency
+	 * included): hardness x 30 / tool speed ticks (x 100 when no tool gets the drops).
+	 */
 	private static float digTicks(ButterBotEntity bot, Level level, BlockPos pos, BlockState state) {
 		float hardness = state.getDestroySpeed(level, pos);
-		ItemStack tool = bot.diggingTool(state);
-		float toolSpeed = Math.max(1.0F, tool.getDestroySpeed(state));
-		boolean proper = !state.requiresCorrectToolForDrops() || tool.isCorrectToolForDrops(state);
-		return hardness * (proper ? 30.0F : 100.0F) / toolSpeed / bot.stats().digSpeed();
+		boolean proper = bot.canHarvest(state);
+		return hardness * (proper ? 30.0F : 100.0F) / bot.toolSpeed(state) / bot.stats().digSpeed();
 	}
 
 	/** Advances the current dig. Returns true on the tick the block breaks. */

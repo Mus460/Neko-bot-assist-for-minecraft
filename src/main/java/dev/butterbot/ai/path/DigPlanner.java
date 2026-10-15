@@ -8,6 +8,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -254,7 +255,7 @@ public final class DigPlanner {
 				} else if (floor.passable()) {
 					// An edge: drop down a little, or bridge the gap.
 					addDrop(out, front, bodyCost);
-					if (dig) {
+					if (dig && !bot.isJobZoneBlocked(front.below())) {
 						out.add(new Candidate(front, WALK + bodyCost + PLACE, step(front, DigPath.Move.BRIDGE, front.below(), front.above(), front)));
 					}
 				}
@@ -286,7 +287,7 @@ public final class DigPlanner {
 		}
 		// Pillar up: jump and put a block where the feet were.
 		Cell aboveHead = cell(p.above(2));
-		if (dig && clearable(aboveHead) && cell(p).passable()) {
+		if (dig && clearable(aboveHead) && cell(p).passable() && jumpsHighEnough(p) && !bot.isJobZoneBlocked(p)) {
 			out.add(new Candidate(p.above(), PILLAR + enter(aboveHead), step(p.above(), DigPath.Move.PILLAR, null, p.above(2))));
 		}
 		return out;
@@ -323,6 +324,19 @@ public final class DigPlanner {
 	 */
 	private boolean standable(BlockPos feet) {
 		return cell(feet).kind != Kind.WATER || cell(feet.above()).kind != Kind.WATER;
+	}
+
+	/**
+	 * A jump from feet at {@code p} gets high enough to put a block under them: not when standing on a
+	 * slab, carpet or bed. An empty floor is a block put there by the move before (or water).
+	 */
+	private boolean jumpsHighEnough(BlockPos p) {
+		BlockPos floor = p.below();
+		if (!level.isLoaded(floor)) {
+			return false;
+		}
+		VoxelShape shape = level.getBlockState(floor).getCollisionShape(level, floor);
+		return shape.isEmpty() || shape.max(Direction.Axis.Y) >= 0.75D;
 	}
 
 	/** Open, something the bot may dig away, or a gate it opens. */

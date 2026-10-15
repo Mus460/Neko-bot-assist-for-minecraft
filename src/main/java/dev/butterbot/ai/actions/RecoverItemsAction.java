@@ -102,8 +102,9 @@ public class RecoverItemsAction implements BotAction {
 		}
 		if (distanceSq > ARRIVED_SQ) {
 			// Far away the spot isn't loaded yet: head that way; it loads as the bot gets near.
-			Vec3 goal = level.isLoaded(spot) ? center : new Vec3(center.x, bot.getY(), center.z);
-			if (!walker.walk(bot, goal, 1.3D, true, 200)) {
+			boolean moving = level.isLoaded(spot) ? walker.walk(bot, center, 1.3D, true, 200)
+					: walker.walkFar(bot, center.x, center.z, 1.3D, true, 200);
+			if (!moving) {
 				if (!bot.lastResortTeleport(spot)) {
 					bot.sayStuck();
 				}
@@ -135,8 +136,9 @@ public class RecoverItemsAction implements BotAction {
 	private void bringBack(ButterBotEntity bot, ServerLevel level) {
 		Player owner = bot.getOwner();
 		if (owner == null) {
-			followAcrossDimensions(bot, level);
-			bot.getNavigation().stop();
+			if (!followAcrossDimensions(bot, level)) {
+				bot.getNavigation().stop();
+			}
 			return;
 		}
 		awayTicks = 0;
@@ -163,20 +165,20 @@ public class RecoverItemsAction implements BotAction {
 	/**
 	 * The owner respawned in another dimension (for example died in the Nether, woke up at home): the
 	 * bot walks back through the portal it came by. Without one it says so, and after a while hops
-	 * over as a last resort (it carries the owner's things).
+	 * over as a last resort (it carries the owner's things). True while it walks to a portal.
 	 */
-	private void followAcrossDimensions(ButterBotEntity bot, ServerLevel level) {
+	private boolean followAcrossDimensions(ButterBotEntity bot, ServerLevel level) {
 		UUID ownerId = bot.getOwnerUuid();
 		if (ownerId == null) {
-			return;
+			return false;
 		}
 		ServerPlayer owner = level.getServer().getPlayerList().getPlayer(ownerId);
 		if (owner == null || !owner.isAlive() || owner.isSpectator() || owner.level() == level) {
-			return;
+			return false;
 		}
 		if (Travel.towards(bot, walker, owner.level().dimension(), bot.getLastOwnerPos())) {
 			awayTicks = 0;
-			return;
+			return true;
 		}
 		if (++awayTicks == DIMENSION_FOLLOW_DELAY) {
 			bot.tellOwner(Component.translatable("butterbot.msg.follow_no_way", Travel.dimensionName(owner.level().dimension())));
@@ -184,6 +186,7 @@ public class RecoverItemsAction implements BotAction {
 		if (awayTicks > DIMENSION_FOLLOW_DELAY * 5 && owner.onGround() && bot.lastResortToLevel(owner.level(), owner.blockPosition())) {
 			awayTicks = 0;
 		}
+		return false;
 	}
 
 	@Override

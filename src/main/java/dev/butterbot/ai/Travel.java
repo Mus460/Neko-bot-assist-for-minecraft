@@ -58,10 +58,10 @@ public final class Travel {
 				portal = null;
 			}
 		}
-		if (portal == null) {
+		if (portal == null || !bot.wantPortal(dimension)) {
+			// No way it knows, or it has tried this one for too long: the caller falls back.
 			return false;
 		}
-		bot.wantPortal(dimension);
 		Vec3 inside = Vec3.atBottomCenterOf(portal);
 		if (bot.position().distanceToSqr(inside) > INSIDE_SQ) {
 			if (!walker.walk(bot, inside, 1.1D, true, MAX_STUCK_TICKS)) {

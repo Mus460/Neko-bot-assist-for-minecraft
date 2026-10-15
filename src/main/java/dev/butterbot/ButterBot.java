@@ -9,6 +9,7 @@ import dev.butterbot.registry.ModBlockEntities;
 import dev.butterbot.registry.ModBlocks;
 import dev.butterbot.registry.ModEntities;
 import dev.butterbot.registry.ModItems;
+import dev.butterbot.registry.ModMenus;
 import dev.butterbot.registry.ModSounds;
 import dev.butterbot.skin.ServerSkinStore;
 import net.fabricmc.api.ModInitializer;
@@ -36,6 +37,7 @@ public class ButterBot implements ModInitializer {
 		ModItems.init();
 		ModBlockEntities.init();
 		ModEntities.init();
+		ModMenus.init();
 		ModNetworking.init();
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, buildContext, selection) ->

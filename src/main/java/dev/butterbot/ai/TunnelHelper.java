@@ -8,6 +8,7 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -104,7 +105,19 @@ public final class TunnelHelper {
 		}
 		Level level = bot.level();
 		BlockPos feet = bot.blockPosition();
-		BlockPos base = level.getBlockState(feet).canBeReplaced() ? feet : feet.above();
+		BlockState feetState = level.getBlockState(feet);
+		if (!feetState.canBeReplaced()) {
+			VoxelShape shape = feetState.getCollisionShape(level, feet);
+			if (shape.isEmpty()) {
+				// A torch or flower at its feet: picked up first, the block goes there.
+				return bot.getMiner().beginDig(feet) ? StepResult.DIGGING : StepResult.BLOCKED;
+			}
+			if (shape.max(Direction.Axis.Y) < 0.75D) {
+				// On a slab, carpet or bed a jump doesn't get high enough to put a block on top of it.
+				return canClear(bot, feet, feetState) ? dig(bot, feet) : StepResult.BLOCKED;
+			}
+		}
+		BlockPos base = feetState.canBeReplaced() ? feet : feet.above();
 		for (BlockPos cell : new BlockPos[]{base.above(), base.above(2)}) {
 			BlockState cellState = level.getBlockState(cell);
 			if (isPassable(level, cell) && !isTrap(cellState)) {
