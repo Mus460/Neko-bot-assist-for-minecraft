@@ -51,8 +51,17 @@ public final class MiningController {
 		return true;
 	}
 
-	/** Vanilla's breaking time for the bot's tool: hardness x 30 / tool speed ticks (x 100 with the wrong tool). */
+	/** How many ticks {@code bot} needs to break the block at {@code pos} (for planning routes). */
+	public static int estimateTicks(ButterBotEntity bot, BlockPos pos, BlockState state) {
+		return Mth.clamp(Mth.ceil(digTicks(bot, bot.level(), pos, state)), MIN_TICKS, MAX_TICKS);
+	}
+
 	private float digTicks(Level level, BlockPos pos, BlockState state) {
+		return digTicks(bot, level, pos, state);
+	}
+
+	/** Vanilla's breaking time for the bot's tool: hardness x 30 / tool speed ticks (x 100 with the wrong tool). */
+	private static float digTicks(ButterBotEntity bot, Level level, BlockPos pos, BlockState state) {
 		float hardness = state.getDestroySpeed(level, pos);
 		ItemStack tool = bot.diggingTool(state);
 		float toolSpeed = Math.max(1.0F, tool.getDestroySpeed(state));

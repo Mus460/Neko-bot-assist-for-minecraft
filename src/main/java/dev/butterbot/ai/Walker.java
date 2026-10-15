@@ -1,5 +1,8 @@
 package dev.butterbot.ai;
 
+import dev.butterbot.ai.path.DigPath;
+import dev.butterbot.ai.path.DigPlanner;
+import dev.butterbot.ai.path.PathFollower;
 import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
@@ -19,6 +22,8 @@ public final class Walker {
 	private static final int UNSTICK_INTERVAL = 10;
 	/** A single walk never builds more than this (no endless bridges across the ocean). */
 	private static final int MAX_BLOCKS_PLACED = 64;
+	/** Dig routes tried per walk before falling back to poking at the obstacle step by step. */
+	private static final int MAX_PLANS = 3;
 
 	private int repathCooldown;
 	private int stuckTicks;
@@ -27,12 +32,17 @@ public final class Walker {
 	private int stepTicks;
 	@Nullable
 	private Vec3 lastPosition;
+	/** A dig route around whatever the bot got stuck on. */
+	private final PathFollower follower = new PathFollower();
+	private int failedPlans;
 
 	public void reset(ButterBotEntity bot) {
 		repathCooldown = 0;
 		stuckTicks = 0;
 		blocksPlaced = 0;
 		stepTicks = 0;
+		failedPlans = 0;
+		follower.clear();
 		lastPosition = bot.position();
 	}
 
@@ -46,6 +56,29 @@ public final class Walker {
 	 * bot has been stuck for longer than {@code maxStuckTicks}.
 	 */
 	public boolean walk(ButterBotEntity bot, Vec3 target, double speed, boolean digWhenStuck, int maxStuckTicks) {
+		if (follower.isActive()) {
+			PathFollower.Status status = follower.tick(bot);
+			if (status == PathFollower.Status.RUNNING) {
+				if (blocksPlaced + follower.placed() >= MAX_BLOCKS_PLACED) {
+					blocksPlaced += follower.placed();
+					follower.clear();
+					return false;
+				}
+				stuckTicks = 0;
+				lastPosition = bot.position();
+				return true;
+			}
+			// Around the obstacle (or the route stopped fitting): back to normal walking.
+			blocksPlaced += follower.placed();
+			follower.clear();
+			if (status == PathFollower.Status.FAILED) {
+				failedPlans++;
+			}
+			stuckTicks = 0;
+			repathCooldown = 0;
+			lastPosition = bot.position();
+			return true;
+		}
 		MiningController miner = bot.getMiner();
 		if (miner.isDigging()) {
 			miner.tickDig();
@@ -94,6 +127,10 @@ public final class Walker {
 			if (blocksPlaced >= MAX_BLOCKS_PLACED) {
 				return false;
 			}
+			if (failedPlans < MAX_PLANS && planAround(bot, target)) {
+				stuckTicks = 0;
+				return true;
+			}
 			TunnelHelper.StepResult step = TunnelHelper.digStepTowards(bot, BlockPos.containing(target));
 			if (step == TunnelHelper.StepResult.BUILDING) {
 				blocksPlaced++;
@@ -103,6 +140,19 @@ public final class Walker {
 		}
 
 		return stuckTicks <= maxStuckTicks;
+	}
+
+	/** Plans a dig route towards the target (or the next waypoint) and starts following it. */
+	private boolean planAround(ButterBotEntity bot, Vec3 target) {
+		BlockPos goal = BlockPos.containing(waypoint(bot, target));
+		DigPath path = DigPlanner.plan(bot, DigPlanner.reach(goal, 2), null);
+		if (path == null || path.isEmpty()) {
+			failedPlans++;
+			return false;
+		}
+		bot.getNavigation().stop();
+		follower.start(path, null);
+		return true;
 	}
 
 	/** The target itself when it is close, otherwise a point {@value #WAYPOINT_DISTANCE} blocks towards it. */

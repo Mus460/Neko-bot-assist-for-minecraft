@@ -140,7 +140,7 @@ public final class TunnelHelper {
 	}
 
 	/** Blocks that trap whoever walks into them. */
-	private static boolean isTrap(BlockState state) {
+	public static boolean isTrap(BlockState state) {
 		return state.is(Blocks.COBWEB) || state.is(Blocks.POWDER_SNOW);
 	}
 

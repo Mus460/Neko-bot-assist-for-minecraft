@@ -196,6 +196,8 @@ public final class Payloads {
 		public static final int FETCH_HELD = 9;
 		/** Pauses every working bot, or puts them all back to work if none is working. */
 		public static final int JOB_TOGGLE = 10;
+		/** Shows what the bots around are doing, with their targets and dig routes (or hides it again). */
+		public static final int DEBUG = 11;
 
 		public static final Type<Hotkey> TYPE = typeOf("hotkey");
 		public static final StreamCodec<RegistryFriendlyByteBuf, Hotkey> CODEC = StreamCodec.of(
