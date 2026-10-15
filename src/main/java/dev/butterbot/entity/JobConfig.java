@@ -2,12 +2,14 @@ package dev.butterbot.entity;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import dev.butterbot.ai.job.Livestock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
@@ -37,10 +39,16 @@ public final class JobConfig {
 	public static final int MIN_RADIUS = 6;
 	public static final int MAX_PATROL_RADIUS = 64;
 	public static final int MAX_FARM_RADIUS = 32;
+	public static final int DEFAULT_RANCH_RADIUS = 16;
+	public static final int MAX_RANCH_RADIUS = 32;
+	/** Ranchers breed each kind of animal up to this many. */
+	public static final int DEFAULT_HERD = 10;
+	public static final int MIN_HERD = 2;
+	public static final int MAX_HERD = 99;
 	private static final int MAX_FAILED_SITES = 24;
 
 	/** What the job is doing right now, for the status line. Not saved. */
-	public enum Phase {SETUP, CHECKING, TRAVEL, WORKING, DEPOSIT, STANDBY, NOT_FOUND, CHEST_PROBLEM, PATROL, LOOT, FARMING}
+	public enum Phase {SETUP, CHECKING, TRAVEL, WORKING, DEPOSIT, STANDBY, NOT_FOUND, CHEST_PROBLEM, PATROL, LOOT, FARMING, RANCHING}
 
 	/** One line of the list: keep {@code count} of {@code item} in the job chest. */
 	public record Need(Item item, int count) {
@@ -56,7 +64,8 @@ public final class JobConfig {
 	/** The saved form of a job. */
 	public record Data(String job, boolean paused, Optional<ResourceKey<Level>> dimension, Optional<BlockPos> chest,
 					   Optional<BlockPos> center, List<NeedData> needs, int zone, int radius, Optional<BlockPos> site,
-					   String siteItem, boolean siteExact, List<BlockPos> failedSites, int stat) {
+					   String siteItem, boolean siteExact, List<BlockPos> failedSites, int stat, int herd, boolean butcher,
+					   Map<String, Integer> herdLimits) {
 		public static final Codec<Data> CODEC = RecordCodecBuilder.create(i -> i.group(
 				Codec.STRING.optionalFieldOf("Job", "").forGetter(Data::job),
 				Codec.BOOL.optionalFieldOf("Paused", false).forGetter(Data::paused),
@@ -70,7 +79,10 @@ public final class JobConfig {
 				Codec.STRING.optionalFieldOf("SiteItem", "").forGetter(Data::siteItem),
 				Codec.BOOL.optionalFieldOf("SiteExact", false).forGetter(Data::siteExact),
 				BlockPos.CODEC.listOf().optionalFieldOf("FailedSites", List.of()).forGetter(Data::failedSites),
-				Codec.INT.optionalFieldOf("Stat", 0).forGetter(Data::stat)
+				Codec.INT.optionalFieldOf("Stat", 0).forGetter(Data::stat),
+				Codec.INT.optionalFieldOf("Herd", DEFAULT_HERD).forGetter(Data::herd),
+				Codec.BOOL.optionalFieldOf("Butcher", false).forGetter(Data::butcher),
+				Codec.unboundedMap(Codec.STRING, Codec.INT).optionalFieldOf("HerdLimits", Map.of()).forGetter(Data::herdLimits)
 		).apply(i, Data::new));
 	}
 
@@ -92,8 +104,14 @@ public final class JobConfig {
 	/** True when {@link #site} is the exact spot the bot left (down in its tunnel), not just an area. */
 	private boolean siteExact;
 	private final List<BlockPos> failedSites = new ArrayList<>();
-	/** Items delivered (list jobs), monsters defeated (guard) or crops harvested (farmer). */
+	/** Items delivered (list jobs), monsters defeated (guard), crops harvested (farmer) or chores done (rancher). */
 	private int stat;
+	/** Rancher: how many of each kind of animal to keep (kinds without a limit of their own). */
+	private int herd = DEFAULT_HERD;
+	/** Rancher: limits for single kinds of animal, by entity type id. */
+	private final Map<String, Integer> herdLimits = new HashMap<>();
+	/** Rancher: may slaughter animals over {@link #herd}. Off unless the owner turns it on. */
+	private boolean butcher;
 
 	// Not saved.
 	private Phase phase = Phase.SETUP;
@@ -221,13 +239,56 @@ public final class JobConfig {
 	/** Patrol or farm radius (depends on the job). */
 	public int radius() {
 		if (radius > 0) {
-			return radius;
+			return Math.min(radius, maxRadius());
 		}
-		return job == BotJob.FARMER ? DEFAULT_FARM_RADIUS : DEFAULT_PATROL_RADIUS;
+		return switch (job) {
+			case FARMER -> DEFAULT_FARM_RADIUS;
+			case RANCHER -> DEFAULT_RANCH_RADIUS;
+			default -> DEFAULT_PATROL_RADIUS;
+		};
 	}
 
 	public int maxRadius() {
-		return job == BotJob.FARMER ? MAX_FARM_RADIUS : MAX_PATROL_RADIUS;
+		return maxRadiusFor(job);
+	}
+
+	public static int maxRadiusFor(BotJob job) {
+		return switch (job) {
+			case FARMER -> MAX_FARM_RADIUS;
+			case RANCHER -> MAX_RANCH_RADIUS;
+			default -> MAX_PATROL_RADIUS;
+		};
+	}
+
+	public int herd() {
+		return herd;
+	}
+
+	/** One limit for every kind of animal (limits set for single kinds are dropped). */
+	public void setHerd(int herd) {
+		this.herd = Math.clamp(herd, MIN_HERD, MAX_HERD);
+		herdLimits.clear();
+	}
+
+	/** How many of {@code kind} the rancher keeps: its own limit, or the one for every kind. */
+	public int herdLimit(EntityType<?> kind) {
+		return herdLimits.getOrDefault(Livestock.id(kind), herd);
+	}
+
+	public boolean hasHerdLimit(EntityType<?> kind) {
+		return herdLimits.containsKey(Livestock.id(kind));
+	}
+
+	public void setHerdLimit(EntityType<?> kind, int limit) {
+		herdLimits.put(Livestock.id(kind), Math.clamp(limit, MIN_HERD, MAX_HERD));
+	}
+
+	public boolean butcher() {
+		return butcher;
+	}
+
+	public void setButcher(boolean butcher) {
+		this.butcher = butcher;
 	}
 
 	public void setRadius(int radius) {
@@ -442,7 +503,8 @@ public final class JobConfig {
 		}
 		return new Data(job.name(), paused, Optional.ofNullable(dimension), Optional.ofNullable(chest),
 				Optional.ofNullable(center), savedNeeds, zone, radius, Optional.ofNullable(site),
-				siteItem == null ? "" : BuiltInRegistries.ITEM.getKey(siteItem).toString(), siteExact, List.copyOf(failedSites), stat);
+				siteItem == null ? "" : BuiltInRegistries.ITEM.getKey(siteItem).toString(), siteExact, List.copyOf(failedSites), stat,
+				herd, butcher, Map.copyOf(herdLimits));
 	}
 
 	public void load(Data data) {
@@ -466,6 +528,14 @@ public final class JobConfig {
 		failedSites.clear();
 		failedSites.addAll(data.failedSites());
 		stat = Math.max(0, data.stat());
+		herd = Math.clamp(data.herd(), MIN_HERD, MAX_HERD);
+		butcher = data.butcher();
+		herdLimits.clear();
+		data.herdLimits().forEach((kind, limit) -> {
+			if (Livestock.byId(kind) != null) {
+				herdLimits.put(kind, Math.clamp(limit, MIN_HERD, MAX_HERD));
+			}
+		});
 		phase = Phase.SETUP;
 	}
 

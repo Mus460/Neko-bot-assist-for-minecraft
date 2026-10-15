@@ -81,6 +81,7 @@ import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.SpawnGroupData;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
@@ -176,6 +177,8 @@ public class ButterBotEntity extends PathfinderMob {
 	private static final long PROBLEM_MESSAGE_TICKS = 20L * 60L;
 	private static final long PROBLEM_MEMORY_TICKS = 20L * 60L * 5L;
 	private static final float MAX_DIGGABLE_HARDNESS = 10.0F;
+	/** Ancient debris needs a diamond pickaxe, as for a player: the bot gets one at this level. */
+	public static final int NETHERITE_MIN_LEVEL = 5;
 	/** How long the bot keeps holding its tool after the last block it dug. */
 	private static final int TOOL_HOLD_TICKS = 60;
 	private static final int SWING_INTERVAL_TICKS = 5;
@@ -302,6 +305,8 @@ public class ButterBotEntity extends PathfinderMob {
 	// A monster (or animal) the owner pointed at.
 	@Nullable
 	private UUID orderedTarget;
+	/** The ordered target is an animal the rancher job is culling, not something the owner pointed at. */
+	private boolean orderedCull;
 	private long orderedUntil;
 
 	// The standing job (miner, gatherer, guard, farmer) and the item a job's mining run is after.
@@ -497,7 +502,7 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		gainWorkXp(xp);
 		collectNearbyDrops(victim.position(), 3.0D);
-		if (jobs.job() == BotJob.GUARD) {
+		if (jobs.job() == BotJob.GUARD || (jobs.job() == BotJob.RANCHER && victim instanceof Animal)) {
 			jobs.addStat(1);
 		}
 	}
@@ -726,6 +731,7 @@ public class ButterBotEntity extends PathfinderMob {
 			case PATROL -> Component.translatable("butterbot.status.job_patrol", jobName, jobs.radius(), jobs.stat());
 			case LOOT -> Component.translatable("butterbot.status.job_loot", jobName);
 			case FARMING -> Component.translatable("butterbot.status.job_farming", jobName);
+			case RANCHING -> Component.translatable("butterbot.status.job_ranching", jobName, jobs.radius(), jobs.stat());
 		};
 	}
 
@@ -754,6 +760,7 @@ public class ButterBotEntity extends PathfinderMob {
 				case CHEST_PROBLEM -> Component.translatable("butterbot.hud.s.chest_problem");
 				case PATROL -> Component.translatable("butterbot.hud.s.patrol", jobs.stat());
 				case FARMING -> Component.translatable("butterbot.hud.s.farming", harvestedCount);
+				case RANCHING -> Component.translatable("butterbot.hud.s.ranching", jobs.stat());
 			};
 			case MINE -> mineFilter == null && resource == null ? Component.translatable("butterbot.hud.s.idle")
 					: Component.translatable("butterbot.hud.s.mining",
@@ -793,6 +800,9 @@ public class ButterBotEntity extends PathfinderMob {
 			}
 			case FARMER -> {
 				return Items.IRON_HOE;
+			}
+			case RANCHER -> {
+				return Items.WHEAT;
 			}
 			case NONE -> {
 			}
@@ -987,6 +997,8 @@ public class ButterBotEntity extends PathfinderMob {
 		return switch (jobs.job()) {
 			case MINER, GATHERER -> isJobDriven() ? jobs.job() : null;
 			case FARMER -> task == BotTask.FARM ? BotJob.FARMER : null;
+			// Ranch chores (and culling) happen between orders.
+			case RANCHER -> task == BotTask.NONE ? BotJob.RANCHER : null;
 			case GUARD, NONE -> null;
 		};
 	}
@@ -1193,7 +1205,8 @@ public class ButterBotEntity extends PathfinderMob {
 	 * touched, and it is off while the bot is rescuing the owner's things.
 	 */
 	private void magnetPickup(ServerLevel level, int radius) {
-		boolean working = task == BotTask.MINE || task == BotTask.FARM || (jobs.isActive() && jobs.job() == BotJob.GUARD);
+		boolean working = task == BotTask.MINE || task == BotTask.FARM
+				|| (jobs.isActive() && (jobs.job() == BotJob.GUARD || jobs.job() == BotJob.RANCHER));
 		if (!working || recoverPos != null || !recoveredItems.isEmpty() || isInventoryFull()) {
 			return;
 		}
@@ -1229,7 +1242,8 @@ public class ButterBotEntity extends PathfinderMob {
 	}
 
 	public boolean isGuarding() {
-		return guard || (jobs.isActive() && jobs.job() == BotJob.GUARD);
+		// Ranchers keep monsters away from their animals.
+		return guard || (jobs.isActive() && (jobs.job() == BotJob.GUARD || jobs.job() == BotJob.RANCHER));
 	}
 
 	/** The guard setting itself (a guard job fights even when it is off). */
@@ -1408,7 +1422,17 @@ public class ButterBotEntity extends PathfinderMob {
 		this.deliveryMode = deliveryMode;
 	}
 
-	public void assignMineTask(BotResource resource, int count) {
+	/** Starts a mining run. False (and the owner is told why) when it can't be dug here or by this bot. */
+	public boolean assignMineTask(BotResource resource, int count) {
+		if (!resource.foundIn(this.level().dimension())) {
+			tellOwner(Component.translatable(resource.isNether() ? "butterbot.msg.mine_needs_nether" : "butterbot.msg.mine_needs_overworld",
+					resource.displayName()).withStyle(ChatFormatting.RED));
+			return false;
+		}
+		if (resource == BotResource.NETHERITE && getBotLevel() < NETHERITE_MIN_LEVEL) {
+			tellOwner(Component.translatable("butterbot.msg.netherite_needs_level", NETHERITE_MIN_LEVEL).withStyle(ChatFormatting.RED));
+			return false;
+		}
 		clearTask();
 		this.task = BotTask.MINE;
 		this.resource = resource;
@@ -1418,6 +1442,11 @@ public class ButterBotEntity extends PathfinderMob {
 		requestRescan();
 		say(Component.translatable("butterbot.msg.start_mining", count, resource.displayName()));
 		speak(ModSounds.VOICE_OK);
+		if (resource.isNether() && !stats().has(BotStats.Ability.FIRE_IMMUNE)) {
+			tellOwner(Component.translatable("butterbot.msg.nether_fire_tip", BotStats.Ability.FIRE_IMMUNE.level())
+					.withStyle(ChatFormatting.GOLD));
+		}
+		return true;
 	}
 
 	public void assignTunnelTask(BlockPos origin, Direction direction, int length, int width, int height, boolean torches) {
@@ -1694,6 +1723,7 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/** The owner pointed at {@code mob}: attack it, even with guard mode off. */
 	public void orderAttack(Mob mob) {
+		this.orderedCull = false;
 		this.orderedTarget = mob.getUUID();
 		this.orderedUntil = this.level().getGameTime() + 20L * 60L;
 		say(Component.translatable("butterbot.msg.attack_order", mob.getName()));
@@ -1714,6 +1744,27 @@ public class ButterBotEntity extends PathfinderMob {
 
 	public void clearOrderedTarget() {
 		orderedTarget = null;
+	}
+
+	/** A rancher culling {@code animal} (its herd is over the limit): the fighting code does it, quietly. */
+	public void cullAnimal(Mob animal) {
+		this.orderedTarget = animal.getUUID();
+		this.orderedUntil = this.level().getGameTime() + 20L * 20L;
+		this.orderedCull = true;
+	}
+
+	/** The animal this bot is culling right now, if any. */
+	@Nullable
+	public Mob getCullTarget() {
+		return orderedCull ? getOrderedTarget() : null;
+	}
+
+	/** Calls off a cull (an attack the owner ordered is left alone). */
+	public void stopCulling() {
+		if (orderedCull) {
+			orderedTarget = null;
+			orderedCull = false;
+		}
 	}
 
 	public boolean refillsHotbar() {
@@ -1807,6 +1858,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.fetchCount = 0;
 		this.gotoPos = null;
 		this.mineFilter = null;
+		stopCulling();
 		if (!fetchCarry.isEmpty()) {
 			stashFetchCarry();
 		}
@@ -1846,6 +1898,7 @@ public class ButterBotEntity extends PathfinderMob {
 	/** Gives the bot a new job (or none). The current order is dropped so it starts right away. */
 	public void setJob(BotJob job) {
 		jobs.setJob(job, item -> ResourceCatalog.canGet(job, item));
+		stopCulling();
 		if (task != BotTask.LUA) {
 			clearTask();
 		}
@@ -1876,6 +1929,7 @@ public class ButterBotEntity extends PathfinderMob {
 	public void pauseJob() {
 		if (jobs.hasJob() && !jobs.isPaused()) {
 			jobs.setPaused(true);
+			stopCulling();
 			if (mineFilter != null || task == BotTask.FARM) {
 				clearTask();
 			}
@@ -1964,7 +2018,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (mineFilter != null && mineFilter.optimalY() != null) {
 			return mineFilter.optimalY();
 		}
-		return resource == null ? 0 : resource.optimalY();
+		return resource == null ? 0 : resource.optimalY(this.level().dimension());
 	}
 
 	public boolean isMiningUnderground() {
@@ -1977,7 +2031,7 @@ public class ButterBotEntity extends PathfinderMob {
 	/** The middle of a guard's patrol area, or null when the bot isn't patrolling here. */
 	@Nullable
 	public BlockPos getPatrolCenter() {
-		if (!jobs.isActive() || jobs.job() != BotJob.GUARD || jobs.center() == null
+		if (!jobs.isActive() || (jobs.job() != BotJob.GUARD && jobs.job() != BotJob.RANCHER) || jobs.center() == null
 				|| !this.level().dimension().equals(jobs.dimension())) {
 			return null;
 		}
@@ -2254,6 +2308,10 @@ public class ButterBotEntity extends PathfinderMob {
 		if (blockState.isAir() || blockState.hasBlockEntity() || !blockState.getFluidState().isEmpty()
 				|| blockState.is(ModBlocks.BOT_BASE) || isJobZoneBlocked(pos)) {
 			return false;
+		}
+		if (blockState.is(Blocks.ANCIENT_DEBRIS)) {
+			// Far harder than anything else it digs, but a diamond pickaxe gets through it.
+			return getBotLevel() >= NETHERITE_MIN_LEVEL;
 		}
 		float hardness = blockState.getDestroySpeed(this.level(), pos);
 		return hardness >= 0.0F && hardness <= MAX_DIGGABLE_HARDNESS;

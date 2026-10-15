@@ -202,8 +202,9 @@ public final class HotkeyHandler {
 		}
 		BotResource resource = mineableResource(state);
 		if (resource != null) {
-			nearest.assignMineTask(resource, resource == BotResource.WOOD ? CONTEXT_WOOD_COUNT : CONTEXT_MINE_COUNT);
-			nearest.setTargetBlock(pos);
+			if (nearest.assignMineTask(resource, resource == BotResource.WOOD ? CONTEXT_WOOD_COUNT : CONTEXT_MINE_COUNT)) {
+				nearest.setTargetBlock(pos);
+			}
 			return;
 		}
 		if (isFarmBlock(state)) {

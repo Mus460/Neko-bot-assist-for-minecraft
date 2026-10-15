@@ -8,6 +8,9 @@ import dev.butterbot.entity.BotResource;
 import dev.butterbot.entity.BotSkill;
 import dev.butterbot.entity.BotStats;
 import dev.butterbot.entity.ButterBotEntity;
+import dev.butterbot.ai.job.Livestock;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.animal.Animal;
 import dev.butterbot.entity.DeliveryMode;
 import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
@@ -117,7 +120,8 @@ public final class ModNetworking {
 	private static Payloads.JobView jobView(ButterBotEntity bot) {
 		JobConfig jobs = bot.getJobs();
 		if (!jobs.hasJob()) {
-			return new Payloads.JobView(0, false, Optional.empty(), false, Optional.empty(), jobs.zone(), jobs.radius(), 0, List.of());
+			return new Payloads.JobView(0, false, Optional.empty(), false, Optional.empty(), jobs.zone(), jobs.radius(), 0,
+					jobs.herd(), jobs.butcher(), List.of(), List.of());
 		}
 		ServerLevel home = jobs.level(((ServerLevel) bot.level()).getServer());
 		BlockPos chest = jobs.chest();
@@ -139,8 +143,19 @@ public final class ModNetworking {
 			needs.add(new Payloads.NeedView(BuiltInRegistries.ITEM.getKey(need.item()).toString(), need.count(),
 					jobs.knownChestCount(need.item())));
 		}
+		List<Payloads.HerdView> herds = new ArrayList<>();
+		if (jobs.job() == BotJob.RANCHER) {
+			// How many of each kind are in the area right now (unknown while it isn't loaded).
+			BlockPos center = jobs.center();
+			Map<EntityType<?>, List<Animal>> around = home != null && center != null && home.isLoaded(center)
+					? Livestock.around(home, center, jobs.radius()) : null;
+			for (EntityType<?> kind : Livestock.KINDS) {
+				int count = around == null ? -1 : around.getOrDefault(kind, List.of()).size();
+				herds.add(new Payloads.HerdView(Livestock.id(kind), count, jobs.herdLimit(kind), jobs.hasHerdLimit(kind)));
+			}
+		}
 		return new Payloads.JobView(jobs.job().ordinal(), jobs.isPaused(), Optional.ofNullable(chest), chestOk,
-				Optional.ofNullable(jobs.center()), jobs.zone(), jobs.radius(), jobs.stat(), needs);
+				Optional.ofNullable(jobs.center()), jobs.zone(), jobs.radius(), jobs.stat(), jobs.herd(), jobs.butcher(), needs, herds);
 	}
 
 	private static void handleCommand(ServerPlayer player, Payloads.BotCommand payload) {
@@ -310,6 +325,21 @@ public final class ModNetworking {
 				}
 			}
 			case Payloads.BotCommand.SKILL_RESET -> bot.resetSkills();
+			case Payloads.BotCommand.JOB_HERD -> {
+				int limit = payload.arg(0, JobConfig.DEFAULT_HERD);
+				EntityType<?> kind = Livestock.byId(payload.text());
+				if (kind != null) {
+					bot.getJobs().setHerdLimit(kind, limit);
+				} else if (payload.text().isEmpty()) {
+					bot.getJobs().setHerd(limit);
+				}
+			}
+			case Payloads.BotCommand.JOB_BUTCHER -> {
+				bot.getJobs().setButcher(payload.arg(0, 0) != 0);
+				if (!bot.getJobs().butcher()) {
+					bot.stopCulling();
+				}
+			}
 			case Payloads.BotCommand.LINK_BASE -> {
 				if (validBase) {
 					bot.setBasePos(payload.base().get());

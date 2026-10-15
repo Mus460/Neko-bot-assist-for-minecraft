@@ -1,6 +1,7 @@
 package dev.butterbot.network;
 
 import dev.butterbot.ai.job.JobStorage;
+import dev.butterbot.ai.job.Livestock;
 import dev.butterbot.ai.job.ResourceCatalog;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.ButterBotEntity;
@@ -13,6 +14,7 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
@@ -176,6 +178,16 @@ public final class JobControl {
 		} else {
 			tell(player, Component.translatable("butterbot.msg.job_info_area",
 					jobs.center() == null ? "-" : jobs.center().toShortString(), jobs.radius(), jobs.stat()));
+			if (jobs.job() == BotJob.RANCHER) {
+				MutableComponent limits = Component.empty();
+				for (EntityType<?> kind : Livestock.KINDS) {
+					if (jobs.hasHerdLimit(kind)) {
+						limits.append(kind.getDescription()).append(" " + jobs.herdLimit(kind) + ", ");
+					}
+				}
+				tell(player, Component.translatable("butterbot.msg.job_info_ranch", limits, jobs.herd(),
+						Component.translatable(jobs.butcher() ? "butterbot.gui.job_butcher_on" : "butterbot.gui.job_butcher_off")));
+			}
 		}
 	}
 

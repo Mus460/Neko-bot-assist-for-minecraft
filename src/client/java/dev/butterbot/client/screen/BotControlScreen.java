@@ -7,6 +7,8 @@ import dev.butterbot.ai.actions.FarmTaskAction;
 import dev.butterbot.ai.actions.LightAreaAction;
 import dev.butterbot.ai.actions.SortTaskAction;
 import dev.butterbot.ai.job.ResourceCatalog;
+import net.minecraft.world.entity.EntityType;
+import dev.butterbot.ai.job.Livestock;
 import dev.butterbot.client.BotKeys;
 import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.entity.BotJob;
@@ -100,7 +102,7 @@ public class BotControlScreen extends Screen {
 	private static final int SKILL_PITCH_X = 61;
 	private static final int SKILL_PITCH_Y = 37;
 	private static final int SKILL_TOP = 32;
-	private static final BotJob[] MASTERY_JOBS = {BotJob.MINER, BotJob.GATHERER, BotJob.GUARD, BotJob.FARMER};
+	private static final BotJob[] MASTERY_JOBS = {BotJob.MINER, BotJob.GATHERER, BotJob.GUARD, BotJob.FARMER, BotJob.RANCHER};
 
 	// Job tab grid.
 	private static final int GRID_Y = 102;
@@ -110,6 +112,12 @@ public class BotControlScreen extends Screen {
 	private static final int CELL_PITCH_Y = 24;
 	private static final int PICK_PITCH = 20;
 	private static final int PICK_COLUMNS = 11;
+	/** Rancher: the kinds of animal as a 4-column grid of small cells. */
+	private static final int HERD_Y = 124;
+	private static final int HERD_W = 57;
+	private static final int HERD_H = 20;
+	private static final int HERD_PITCH_X = 60;
+	private static final int HERD_PITCH_Y = 22;
 
 	// Remembered between openings so the panel feels persistent.
 	@Nullable
@@ -129,6 +137,9 @@ public class BotControlScreen extends Screen {
 	private static boolean jobPicker;
 	@Nullable
 	private static String selectedNeed;
+	/** The kind of animal whose limit the rancher buttons change. */
+	@Nullable
+	private static String selectedHerd;
 
 	private Optional<BlockPos> basePos;
 	@Nullable
@@ -673,13 +684,16 @@ public class BotControlScreen extends Screen {
 			case STONE -> Items.COBBLESTONE;
 			case WOOD -> Items.OAK_LOG;
 			case SAND -> Items.SAND;
+			case NETHERITE -> Items.ANCIENT_DEBRIS;
 		};
 	}
 
 	private void renderMine(GuiGraphicsExtractor g) {
 		g.text(font, Component.translatable("butterbot.ui.pick_resource"), cx, cy + 2, McStyle.TEXT, false);
 		BotResource resource = BotResource.values()[Math.floorMod(resourceIndex, BotResource.values().length)];
-		Component where = resource.isUnderground()
+		Component where = resource.isNether()
+				? Component.translatable("butterbot.ui.dug_at_nether", resource.displayName(), resource.optimalY())
+				: resource.isUnderground()
 				? Component.translatable("butterbot.ui.dug_at", resource.displayName(), resource.optimalY())
 				: Component.translatable("butterbot.ui.on_surface", resource.displayName());
 		g.text(font, where, cx, cy + 83, McStyle.TEXT, false);
@@ -698,10 +712,10 @@ public class BotControlScreen extends Screen {
 		BotJob current = BotJob.byOrdinal(view.job());
 		lastJobType = view.job();
 		BotJob[] values = BotJob.values();
-		Item[] icons = {ModItems.BUTTER_BOT, Items.IRON_PICKAXE, Items.IRON_AXE, Items.IRON_SWORD, Items.IRON_HOE};
+		Item[] icons = {ModItems.BUTTER_BOT, Items.IRON_PICKAXE, Items.IRON_AXE, Items.IRON_SWORD, Items.IRON_HOE, Items.WHEAT};
 		for (int i = 0; i < values.length; i++) {
 			BotJob value = values[i];
-			addRenderableWidget(McButton.tile(cx + Math.round(i * 48.25F), cy, 46, 34, Component.translatable(value.key() + ".short"),
+			addRenderableWidget(McButton.tile(cx + i * 40, cy, 39, 34, Component.translatable(value.key() + ".short"),
 					new ItemStack(icons[i]), b -> {
 						Payloads.JobView now = jobView();
 						if (now != null && now.job() != value.ordinal()) {
@@ -776,7 +790,7 @@ public class BotControlScreen extends Screen {
 					b -> command(Payloads.BotCommand.JOB_CENTER)).tip(Component.translatable("butterbot.gui.job_here_tooltip")));
 			addRenderableWidget(McButton.text(right - 48, cy + 58, 48, 18, Component.translatable("butterbot.gui.job_pick_spot"),
 					b -> startPick(BotKeys.PickKind.CENTER)).tip(Component.translatable("butterbot.gui.job_pick_spot_tooltip")));
-			int max = current == BotJob.FARMER ? JobConfig.MAX_FARM_RADIUS : JobConfig.MAX_PATROL_RADIUS;
+			int max = JobConfig.maxRadiusFor(current);
 			addRenderableWidget(McButton.text(right - 40, cy + 80, 19, 18, Component.literal("-"), b -> {
 				Payloads.JobView now = jobView();
 				if (now != null) {
@@ -793,6 +807,82 @@ public class BotControlScreen extends Screen {
 					b -> startPick(BotKeys.PickKind.CHEST)).tip(Component.translatable("butterbot.gui.job_area_chest_tooltip")));
 			addRenderableWidget(McButton.text(right - 36, cy + 102, 36, 18, Component.translatable("butterbot.gui.job_auto"),
 					b -> command(Payloads.BotCommand.JOB_CHEST)).tip(Component.translatable("butterbot.gui.job_auto_tooltip")));
+			if (current == BotJob.RANCHER) {
+				if (selectedHerdView(view) != null) {
+					int[] deltas = {-10, -1, 1, 10};
+					for (int i = 0; i < deltas.length; i++) {
+						int delta = deltas[i];
+						addRenderableWidget(McButton.text(cx + i * 31, cy + 170, 29, 18,
+								Component.literal(delta > 0 ? "+" + delta : String.valueOf(delta)), b -> adjustHerd(delta))
+								.tip(Component.translatable("butterbot.gui.job_herd_tooltip")));
+					}
+				}
+				addRenderableWidget(McButton.toggle(cx + 128, cy + 170, CW - 128, 18, Component.translatable("butterbot.gui.job_butcher"),
+						new ItemStack(Items.IRON_SWORD), () -> {
+							Payloads.JobView now = jobView();
+							return now != null && now.butcher();
+						}, b -> {
+							Payloads.JobView now = jobView();
+							if (now != null) {
+								command(Payloads.BotCommand.JOB_BUTCHER, "", now.butcher() ? 0 : 1);
+							}
+						}).tip(Component.translatable("butterbot.gui.job_butcher_tooltip")));
+			}
+		}
+	}
+
+	/** Changes the limit of the selected kind of animal by {@code delta}, starting from what the server says now. */
+	private void adjustHerd(int delta) {
+		Payloads.JobView view = jobView();
+		Payloads.HerdView herd = view == null ? null : selectedHerdView(view);
+		if (herd != null) {
+			command(Payloads.BotCommand.JOB_HERD, herd.kind(), Math.clamp(herd.limit() + delta, JobConfig.MIN_HERD, JobConfig.MAX_HERD));
+		}
+	}
+
+	@Nullable
+	private static Payloads.HerdView selectedHerdView(Payloads.JobView view) {
+		if (selectedHerd == null) {
+			return null;
+		}
+		for (Payloads.HerdView herd : view.herds()) {
+			if (herd.kind().equals(selectedHerd)) {
+				return herd;
+			}
+		}
+		return null;
+	}
+
+	/** Each kind of animal: how many are in the area / its limit (red when over, green when full). */
+	private void renderHerds(GuiGraphicsExtractor g, Payloads.JobView view, int mouseX, int mouseY) {
+		List<Payloads.HerdView> herds = view.herds();
+		for (int i = 0; i < herds.size(); i++) {
+			Payloads.HerdView herd = herds.get(i);
+			int x = cx + (i % 4) * HERD_PITCH_X;
+			int y = cy + HERD_Y + (i / 4) * HERD_PITCH_Y;
+			boolean hovered = inside(mouseX, mouseY, x, y, HERD_W, HERD_H);
+			boolean isSelected = herd.kind().equals(selectedHerd);
+			McStyle.inset(g, x, y, HERD_W, HERD_H, hovered ? 0xFFD6D6D6 : isSelected ? 0xFFBFD8BF : 0xFFB4B4B4);
+			if (isSelected) {
+				g.outline(x - 1, y - 1, HERD_W + 2, HERD_H + 2, McStyle.WHITE);
+			}
+			EntityType<?> kind = Livestock.byId(herd.kind());
+			if (kind != null) {
+				g.item(new ItemStack(Livestock.icon(kind)), x + 2, y + 2);
+			}
+			String count = herd.count() < 0 ? "?" : String.valueOf(herd.count());
+			int color = herd.count() > herd.limit() ? McStyle.BAD : herd.count() == herd.limit() ? McStyle.GOOD : McStyle.TEXT;
+			g.text(font, font.plainSubstrByWidth(count + "/" + herd.limit(), HERD_W - 21), x + 20, y + 6, color, false);
+			if (hovered && kind != null) {
+				g.setComponentTooltipForNextFrame(font, List.of(kind.getDescription().copy().withStyle(ChatFormatting.AQUA),
+						Component.translatable("butterbot.gui.herd_count", count, herd.limit()),
+						Component.translatable(herd.custom() ? "butterbot.gui.herd_custom" : "butterbot.gui.herd_default")
+								.withStyle(ChatFormatting.GRAY)), mouseX, mouseY);
+			}
+		}
+		if (selectedHerdView(view) == null) {
+			g.text(font, font.plainSubstrByWidth(Component.translatable("butterbot.gui.herd_hint").getString(), 124), cx, cy + 175,
+					McStyle.TEXT_DIM, false);
 		}
 	}
 
@@ -857,6 +947,10 @@ public class BotControlScreen extends Screen {
 		g.text(font, font.plainSubstrByWidth(spot.getString(), CW - 102), cx, cy + 63, view.center().isPresent() ? McStyle.TEXT : McStyle.BAD, false);
 		g.text(font, Component.translatable("butterbot.gui.job_radius", view.radius()), cx, cy + 85, McStyle.TEXT, false);
 		g.text(font, font.plainSubstrByWidth(chest.getString(), CW - 90), cx, cy + 107, chestColor, false);
+		if (job == BotJob.RANCHER) {
+			renderHerds(g, view, mouseX, mouseY);
+			return;
+		}
 		String info = job == BotJob.GUARD ? "butterbot.gui.job_guard_info" : "butterbot.gui.job_farmer_info";
 		g.textWithWordWrap(font, Component.translatable(info, view.stat(), view.radius()), cx, cy + 128, CW, McStyle.TEXT_DIM, false);
 	}
@@ -933,6 +1027,20 @@ public class BotControlScreen extends Screen {
 			return false;
 		}
 		BotJob job = BotJob.byOrdinal(view.job());
+		if (job == BotJob.RANCHER) {
+			List<Payloads.HerdView> herds = view.herds();
+			for (int i = 0; i < herds.size(); i++) {
+				int x = cx + (i % 4) * HERD_PITCH_X;
+				int y = cy + HERD_Y + (i / 4) * HERD_PITCH_Y;
+				if (inside(mouseX, mouseY, x, y, HERD_W, HERD_H)) {
+					String kind = herds.get(i).kind();
+					selectedHerd = kind.equals(selectedHerd) ? null : kind;
+					rebuildPreservingInput();
+					return true;
+				}
+			}
+			return false;
+		}
 		if (!job.usesList()) {
 			return false;
 		}
@@ -1340,7 +1448,7 @@ public class BotControlScreen extends Screen {
 			int index = BotProgress.jobIndex(job);
 			int xp = index >= 0 && index < mastery.length ? mastery[index] : 0;
 			int rank = BotProgress.masteryRank(xp);
-			int y = cy + 85 + i * 11;
+			int y = cy + 84 + i * 10;
 			g.text(font, font.plainSubstrByWidth(job.displayName().getString(), 58), cx, y, McStyle.TEXT, false);
 			String rankName = font.plainSubstrByWidth(Component.translatable("butterbot.mastery.rank." + rank).getString(), 62);
 			g.text(font, rankName, cx + 60, y, rank >= BotProgress.MAX_MASTERY ? McStyle.GOOD : McStyle.TEXT, false);
@@ -1357,7 +1465,7 @@ public class BotControlScreen extends Screen {
 			}
 			McStyle.bar(g, cx + 124, y + 2, 60, 4, progress, McStyle.XP);
 			g.text(font, amount, cx + CW - font.width(amount), y, McStyle.TEXT_DIM, false);
-			if (inside(mouseX, mouseY, cx, y - 1, CW, 11)) {
+			if (inside(mouseX, mouseY, cx, y - 1, CW, 10)) {
 				g.setComponentTooltipForNextFrame(font, List.of(
 						job.displayName().copy().append(" - ").append(Component.translatable("butterbot.mastery.rank." + rank)).withStyle(ChatFormatting.AQUA),
 						Component.translatable("butterbot.mastery.bonus." + job.name().toLowerCase(Locale.ROOT)).withStyle(ChatFormatting.GRAY),
@@ -1365,12 +1473,12 @@ public class BotControlScreen extends Screen {
 			}
 		}
 
-		g.text(font, Component.translatable("butterbot.ui.abilities_title").withStyle(ChatFormatting.BOLD), cx, cy + 131, McStyle.TEXT, false);
+		g.text(font, Component.translatable("butterbot.ui.abilities_title").withStyle(ChatFormatting.BOLD), cx, cy + 135, McStyle.TEXT, false);
 		BotStats.Ability[] abilities = BotStats.Ability.values();
 		for (int i = 0; i < abilities.length; i++) {
 			BotStats.Ability ability = abilities[i];
 			int x = cx + (i % 2) * 122;
-			int y = cy + 141 + (i / 2) * 10;
+			int y = cy + 145 + (i / 2) * 10;
 			boolean unlocked = stats.has(ability);
 			Component line = unlocked ? Component.translatable("butterbot.ui.ability_on", ability.displayName())
 					: Component.translatable("butterbot.ui.ability_off", ability.level(), ability.displayName());

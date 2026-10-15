@@ -12,7 +12,8 @@ import java.util.Locale;
 public record BotStats(double maxHealth, double attackDamage, double armor, float digSpeed, double speedMultiplier,
 					   int backpackSlots, int fortune, int veinSize, int scanRadius, int smeltPerCycle, int farmRadiusBonus,
 					   int magnetRadius, boolean swimmer, boolean feather, float regenPerSecond, float oreBonusChance,
-					   float gatherBonusChance, float cropBonusChance, float sweepFraction, boolean growthAura, int level) {
+					   float gatherBonusChance, float cropBonusChance, float sweepFraction, boolean growthAura,
+						   float twinChance, int level) {
 
 	public static final int BASE_SCAN_RADIUS = 20;
 	public static final double BASE_ARMOR = 4.0D;
@@ -74,6 +75,7 @@ public record BotStats(double maxHealth, double attackDamage, double armor, floa
 		int gatherer = masteryRank(masteryXp, BotJob.GATHERER);
 		int guard = masteryRank(masteryXp, BotJob.GUARD);
 		int farmer = masteryRank(masteryXp, BotJob.FARMER);
+		int rancher = masteryRank(masteryXp, BotJob.RANCHER);
 		float legend = lv >= Ability.LEGEND.level() ? LEGEND_BONUS : 1.0F;
 
 		double maxHealth = (BotLevels.maxHealth(lv) + 6.0D * r(ranks, BotSkill.TOUGH) + 4.0D * guard) * legend;
@@ -96,7 +98,7 @@ public record BotStats(double maxHealth, double attackDamage, double armor, floa
 		float sweep = sweepRank <= 0 ? 0.0F : sweepRank == 1 ? 0.4F : 0.7F;
 		return new BotStats(maxHealth, attack, armor, digSpeed, speed, backpack, fortune, vein, scan, smelt, farmBonus, magnet,
 				r(ranks, BotSkill.SWIMMER) > 0, r(ranks, BotSkill.FEATHER) > 0, regen, oreBonus, gatherBonus, cropBonus, sweep,
-				farmer >= BotProgress.MAX_MASTERY, lv);
+				farmer >= BotProgress.MAX_MASTERY, 0.08F * rancher, lv);
 	}
 
 	private static int r(int[] ranks, BotSkill skill) {

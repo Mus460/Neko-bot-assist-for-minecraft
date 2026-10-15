@@ -14,7 +14,7 @@ public final class BotProgress {
 	public static final int[] MASTERY_XP = {100, 300, 700, 1500, 3000};
 	public static final int MAX_MASTERY = MASTERY_XP.length;
 	/** Miner, gatherer, guard and farmer. */
-	public static final int JOBS = 4;
+	public static final int JOBS = 5;
 	private static final int FORMAT = 1;
 	private static final int MAX_COUNT = 1_000_000_000;
 
