@@ -121,7 +121,7 @@ public final class ModNetworking {
 		JobConfig jobs = bot.getJobs();
 		if (!jobs.hasJob()) {
 			return new Payloads.JobView(0, false, Optional.empty(), false, Optional.empty(), jobs.zone(), jobs.radius(), 0,
-					jobs.herd(), jobs.butcher(), List.of(), List.of(), jobs.sources(), jobs.smelt(), Optional.empty(), "");
+					jobs.herd(), jobs.butcher(), List.of(), List.of(), List.copyOf(jobs.sources()), jobs.smelt(), Optional.empty(), "");
 		}
 		ServerLevel home = jobs.level(((ServerLevel) bot.level()).getServer());
 		BlockPos chest = jobs.chest();
@@ -337,7 +337,9 @@ public final class ModNetworking {
 				}
 			}
 			case Payloads.BotCommand.JOB_SOURCE -> {
-				if (payload.args().length >= 3) {
+				if (payload.args().length >= 3 && payload.text().equals("remove")) {
+					bot.getJobs().removeSource(new BlockPos(payload.arg(0, 0), payload.arg(1, 0), payload.arg(2, 0)));
+				} else if (payload.args().length >= 3) {
 					JobControl.addSource(player, bot, new BlockPos(payload.arg(0, 0), payload.arg(1, 0), payload.arg(2, 0)));
 				} else if (payload.args().length == 1) {
 					bot.getJobs().removeSource(payload.arg(0, -1));

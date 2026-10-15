@@ -115,15 +115,16 @@ Bot yang punya job **tetap bekerja walaupun kamu jauh**: area kecil di sekitar b
 
 **Kurir**: tekan **Peti (Z)** untuk peti tujuan, lalu **Tambah sumber** untuk tiap peti yang mau dikosongkan (maksimal 4, satu dimensi dengan peti tujuan). Tanda **x** di samping sumber menghapusnya.
 
-- Bot berkeliling peti sumber, mengambil semua isinya (selama tas masih muat), lalu membawanya ke peti tujuan. Ini diulang terus. Kalau semua sumber kosong, bot menunggu dan memeriksa lagi tiap 30 detik.
-- **Lebur bijih di jalan** (nyala dari awal): bot ikut membawa batu bara atau arang dari peti sumber, dan tungku bawaannya melebur besi, emas, tembaga mentah (dan puing kuno) selama perjalanan. Di peti tujuan bot menunggu sampai leburan selesai (paling lama 90 detik), jadi yang masuk peti berupa ingot. Bot menyimpan sampai 32 bahan bakar dan 16 makanan untuk dirinya.
+- Bot berkeliling peti sumber, mengambil semua isinya (selama tas masih muat), lalu membawanya ke peti tujuan. Ini diulang terus, dan tiap putaran dimulai dari sumber berikutnya supaya semua sumber kebagian. Kalau bot berhenti sebentar untuk melawan monster, ia melanjutkan dari tempat terakhir. Kalau semua sumber kosong, bot menunggu dan memeriksa lagi tiap 30 detik.
+- **Lebur bijih di jalan** (nyala dari awal): bot ikut membawa batu bara atau arang dari peti sumber, dan tungku bawaannya melebur besi, emas, tembaga mentah (dan puing kuno) selama perjalanan. Di peti tujuan bot menunggu sampai leburan selesai (paling lama 90 detik), jadi yang masuk peti berupa ingot. Yang dilebur hanya bijih: makanan dan barang lain sampai di peti apa adanya. Kalau dimatikan, tidak ada yang dilebur. Bot menyimpan sampai 32 bahan bakar dan 16 makanan untuk dirinya, dan selalu menyisakan 2 slot tas untuk hasil leburan.
 - Kalau peti tujuan penuh atau tidak bisa dicapai, bot memberitahumu lalu mencoba lagi 30 detik kemudian.
 - Contoh: penambang mengisi peti di tambang, kurir membawa isinya ke gudang di rumah.
 
-**Pengawal**: pilih bot yang dikawal dengan tombol nama bot di tab Job (saat job dipilih, bot terdekat milikmu langsung jadi yang dikawal).
+**Pengawal**: pilih bot yang dikawal dengan tombol nama bot di tab Job (saat job dipilih, bot milikmu yang paling dekat dengan pengawal langsung dipilih, bukan pengawal lain). Kalau bot yang dikawal dikemas lalu ditaruh lagi, pengawal menemukannya lagi lewat namanya.
 
 - Pengawal berjalan di dekat bot itu: ikut turun ke terowongannya, ikut lewat portal yang dipakainya, dan berlari kalau tertinggal jauh.
-- Monster dalam 12 blok dari bot yang dikawal dilawan, terutama yang sedang menyerangnya. Pengawal juga tetap melindungimu seperti mode pengawal biasa.
+- Monster dalam 12 blok dari bot yang dikawal dilawan, terutama yang sedang menyerangnya. Kalau pengawal masih jauh (lebih dari 20 blok), ia menyusul dulu baru bertarung. Pengawal juga tetap melindungimu seperti mode pengawal biasa.
+- Pengawal tidak menggali atau membangun ke dalam kandang atau ladang bot peternak, petani atau penjaga; ia lewat pintu pagar.
 - Kalau bot yang dikawal pergi ke dimensi lain tanpa portal yang dikenal (misalnya bot itu teleport darurat), pengawal menunggu 10 detik lalu menyusul sebagai jalan terakhir.
 - Kalau bot yang dikawal dikemas atau hancur, pengawal diam di tempat dan memberitahumu.
 

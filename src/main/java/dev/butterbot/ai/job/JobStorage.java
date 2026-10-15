@@ -85,6 +85,10 @@ public final class JobStorage {
 		if (container instanceof BotBaseBlockEntity base) {
 			return base.insert(stack);
 		}
+		if (container instanceof ShulkerBoxBlockEntity && !stack.getItem().canFitInsideContainerItems()) {
+			// No shulker boxes inside a shulker box, as for a player.
+			return stack;
+		}
 		for (int i = 0; i < container.getContainerSize() && !stack.isEmpty(); i++) {
 			ItemStack existing = container.getItem(i);
 			if (!existing.isEmpty() && existing.getCount() < existing.getMaxStackSize()

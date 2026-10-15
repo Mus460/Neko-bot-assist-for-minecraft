@@ -78,11 +78,12 @@ public final class JobConfig {
 	}
 
 	/** Courier and bodyguard settings (saved next to the other fields). */
-	public record ErrandData(List<BlockPos> sources, boolean smelt, Optional<UUID> ward) {
+	public record ErrandData(List<BlockPos> sources, boolean smelt, Optional<UUID> ward, String wardName) {
 		static final MapCodec<ErrandData> MAP_CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
 				BlockPos.CODEC.listOf().optionalFieldOf("Sources", List.of()).forGetter(ErrandData::sources),
 				Codec.BOOL.optionalFieldOf("Smelt", true).forGetter(ErrandData::smelt),
-				UUIDUtil.CODEC.optionalFieldOf("Ward").forGetter(ErrandData::ward)
+				UUIDUtil.CODEC.optionalFieldOf("Ward").forGetter(ErrandData::ward),
+				Codec.STRING.optionalFieldOf("WardName", "").forGetter(ErrandData::wardName)
 		).apply(i, ErrandData::new));
 	}
 
@@ -140,9 +141,10 @@ public final class JobConfig {
 	private final List<BlockPos> sources = new ArrayList<>();
 	/** Courier: takes fuel along and smelts raw ores on the way. */
 	private boolean smelt = true;
-	/** Bodyguard: the bot it stays with. */
+	/** Bodyguard: the bot it stays with, and its name (to find it again after it was packed up and placed). */
 	@Nullable
 	private UUID ward;
+	private String wardName = "";
 
 	// Not saved.
 	private Phase phase = Phase.SETUP;
@@ -293,8 +295,18 @@ public final class JobConfig {
 		return ward;
 	}
 
-	public void setWard(@Nullable UUID ward) {
+	public String wardName() {
+		return wardName;
+	}
+
+	public void setWard(@Nullable UUID ward, String name) {
 		this.ward = ward;
+		this.wardName = ward == null ? "" : name;
+	}
+
+	/** Takes the source chest at {@code pos} off the list. */
+	public void removeSource(BlockPos pos) {
+		sources.remove(pos);
 	}
 
 	public int zone() {
@@ -580,7 +592,7 @@ public final class JobConfig {
 				Optional.ofNullable(center), savedNeeds, zone, radius, Optional.ofNullable(site),
 				siteItem == null ? "" : BuiltInRegistries.ITEM.getKey(siteItem).toString(), siteExact, List.copyOf(failedSites), stat,
 				new RanchData(herd, butcher, Map.copyOf(herdLimits)),
-				new ErrandData(List.copyOf(sources), smelt, Optional.ofNullable(ward)));
+				new ErrandData(List.copyOf(sources), smelt, Optional.ofNullable(ward), wardName));
 	}
 
 	public void load(Data data) {
@@ -610,6 +622,7 @@ public final class JobConfig {
 		data.errand().sources().stream().distinct().limit(MAX_SOURCES).forEach(sources::add);
 		smelt = data.errand().smelt();
 		ward = data.errand().ward().orElse(null);
+		wardName = ward == null ? "" : data.errand().wardName();
 		herdLimits.clear();
 		data.ranch().herdLimits().forEach((kind, limit) -> {
 			if (Livestock.byId(kind) != null) {

@@ -50,6 +50,7 @@ public final class BotSmelter {
 	/** Items the fuel already burnt can still smelt. */
 	private float heat;
 	private float experience;
+	private int smeltedTotal;
 
 	public BotSmelter(ButterBotEntity bot) {
 		this.bot = bot;
@@ -57,6 +58,20 @@ public final class BotSmelter {
 
 	/** Smelts a few items from the backpack. Called every half second. */
 	public void tick(SmeltMode mode) {
+		tick(mode, false);
+	}
+
+	/** A courier's furnace: raw ores only (food and everything else it carries stay as they are). */
+	public void tickOres() {
+		tick(SmeltMode.ORES, true);
+	}
+
+	/** Items smelted so far (to see whether the furnace is getting anywhere). */
+	public int smeltedCount() {
+		return smeltedTotal;
+	}
+
+	private void tick(SmeltMode mode, boolean oresOnly) {
 		if (!(bot.level() instanceof ServerLevel level)) {
 			return;
 		}
@@ -64,7 +79,7 @@ public final class BotSmelter {
 		int smelted = 0;
 		int rounds = bot.stats().smeltPerCycle();
 		for (int round = 0; round < rounds; round++) {
-			int slot = findInput(level, backpack, mode);
+			int slot = findInput(level, backpack, mode, oresOnly);
 			if (slot < 0) {
 				break;
 			}
@@ -89,6 +104,7 @@ public final class BotSmelter {
 		if (smelted == 0) {
 			return;
 		}
+		smeltedTotal += smelted;
 		int wholeXp = (int) experience;
 		if (wholeXp > 0) {
 			experience -= wholeXp;
@@ -102,7 +118,7 @@ public final class BotSmelter {
 		}
 	}
 
-	private int findInput(ServerLevel level, SimpleContainer backpack, SmeltMode mode) {
+	private int findInput(ServerLevel level, SimpleContainer backpack, SmeltMode mode, boolean oresOnly) {
 		for (int i = 0; i < backpack.getContainerSize(); i++) {
 			ItemStack stack = backpack.getItem(i);
 			if (stack.isEmpty() || FUEL.containsKey(stack.getItem()) || stack.has(DataComponents.MAX_DAMAGE)) {
@@ -114,20 +130,20 @@ public final class BotSmelter {
 			}
 			boolean ore = ORES.contains(stack.getItem());
 			boolean cooking = stack.has(DataComponents.FOOD) && smelt.result().has(DataComponents.FOOD);
-			if (mode == SmeltMode.ALL || ore || cooking) {
+			if (ore || !oresOnly && (mode == SmeltMode.ALL || cooking)) {
 				return i;
 			}
 		}
 		return -1;
 	}
 
-	/** True while there is something to smelt (with {@code mode}) and fuel to do it. */
-	public boolean canSmelt(SmeltMode mode) {
+	/** True while there are raw ores to smelt and fuel to do it. */
+	public boolean canSmeltOres() {
 		if (!(bot.level() instanceof ServerLevel level)) {
 			return false;
 		}
 		SimpleContainer backpack = bot.getInventory();
-		int slot = findInput(level, backpack, mode);
+		int slot = findInput(level, backpack, SmeltMode.ORES, true);
 		if (slot < 0) {
 			return false;
 		}

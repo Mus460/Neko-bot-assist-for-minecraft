@@ -478,11 +478,15 @@ public class ButterBotEntity extends PathfinderMob {
 			this.entityData.set(DATA_SPEECH, Component.empty());
 		}
 
-		// A courier with smelting on runs its furnace on raw ores even when smelting is off for the bot.
-		SmeltMode furnace = smeltMode != SmeltMode.OFF ? smeltMode
-				: jobs.isActive() && jobs.job() == BotJob.COURIER && jobs.smelt() ? SmeltMode.ORES : SmeltMode.OFF;
-		if (furnace != SmeltMode.OFF && this.tickCount % 10 == 0) {
-			smelter.tick(furnace);
+		if (this.tickCount % 10 == 0) {
+			if (jobs.isActive() && jobs.job() == BotJob.COURIER) {
+				// A courier's own setting decides: raw ores only, so the cargo arrives as it was otherwise.
+				if (jobs.smelt()) {
+					smelter.tickOres();
+				}
+			} else if (smeltMode != SmeltMode.OFF) {
+				smelter.tick(smeltMode);
+			}
 		}
 		if (autoTorch && task == BotTask.MINE && --torchCooldown <= 0) {
 			torchCooldown = 10;
@@ -2935,6 +2939,17 @@ public class ButterBotEntity extends PathfinderMob {
 					&& Objects.equals(ward.getOwnerUuid(), ownerUuid)) {
 				wardCache = ward;
 				break;
+			}
+		}
+		if (wardCache == null && !jobs.wardName().isEmpty() && this.tickCount % 100 == 0) {
+			// Packed up and placed again it is a new bot: find it again by its name.
+			for (ServerLevel level : here.getServer().getAllLevels()) {
+				for (ButterBotEntity ward : level.getEntities(ModEntities.BUTTER_BOT, other -> other != this && other.isAlive()
+						&& Objects.equals(other.getOwnerUuid(), ownerUuid) && other.getName().getString().equals(jobs.wardName()))) {
+					jobs.setWard(ward.getUUID(), jobs.wardName());
+					wardCache = ward;
+					return ward;
+				}
 			}
 		}
 		return wardCache;

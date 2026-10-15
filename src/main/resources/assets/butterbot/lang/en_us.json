@@ -603,6 +603,7 @@
   "butterbot.msg.job_sources_full": "At most %s source chests. Remove one first.",
   "butterbot.msg.job_source_added": "%s will empty the chest at %s (%s/%s sources).",
   "butterbot.msg.job_sources_cleared": "Cleared %s's source chests.",
+  "butterbot.msg.job_source_removed": "Removed a source chest of %s (%s/%s left).",
   "butterbot.msg.job_ward_cleared": "%s guards no one now.",
   "butterbot.msg.job_ward_invalid": "That isn't another of your bots.",
   "butterbot.msg.job_ward_set_say": "I'll look after %s!",
