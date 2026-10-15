@@ -77,8 +77,9 @@ public enum GearSlot {
 			return false;
 		}
 		if (armorSlot != null) {
+			// Armor only (it shows on the bot): no pumpkins or heads.
 			Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
-			return equippable != null && equippable.slot() == armorSlot;
+			return equippable != null && equippable.slot() == armorSlot && equippable.assetId().isPresent();
 		}
 		return stack.is(tools);
 	}

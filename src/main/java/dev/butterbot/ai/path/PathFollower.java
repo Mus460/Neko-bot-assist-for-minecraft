@@ -146,7 +146,7 @@ public final class PathFollower {
 				BlockPos base = feetOf(bot);
 				BlockState baseState = level.getBlockState(base);
 				if (!baseState.canBeReplaced()) {
-					if (!baseState.getCollisionShape(level, base).isEmpty() || !miner.beginDig(base)) {
+					if (!baseState.getCollisionShape(level, base).isEmpty() || !TunnelHelper.isPickable(baseState) || !miner.beginDig(base)) {
 						return Status.FAILED;
 					}
 					stepTicks = 0;

@@ -176,7 +176,11 @@ public final class Walker {
 		Level level = bot.level();
 		BlockPos column = BlockPos.containing(step);
 		if (!level.dimensionType().hasCeiling() && level.isLoaded(column)) {
-			step = new Vec3(step.x, level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ()), step.z);
+			int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ());
+			if (ground > level.getMinY()) {
+				// (Over the void in the End there is no ground: keep its own height.)
+				step = new Vec3(step.x, ground, step.z);
+			}
 		}
 		return walk(bot, step, speed, digWhenStuck, maxStuckTicks);
 	}

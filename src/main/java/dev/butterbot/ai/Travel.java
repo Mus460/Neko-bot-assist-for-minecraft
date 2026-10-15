@@ -58,15 +58,21 @@ public final class Travel {
 				portal = null;
 			}
 		}
-		if (portal == null || !bot.wantPortal(dimension)) {
-			// No way it knows, or it has tried this one for too long: the caller falls back.
+		if (portal == null) {
 			return false;
 		}
 		Vec3 inside = Vec3.atBottomCenterOf(portal);
-		if (bot.position().distanceToSqr(inside) > INSIDE_SQ) {
+		boolean atPortal = bot.position().distanceToSqr(inside) <= INSIDE_SQ;
+		if (!bot.wantPortal(dimension, atPortal)) {
+			// It stood at this portal for a good while and it didn't take it: the caller falls back.
+			return false;
+		}
+		if (!atPortal) {
 			if (!walker.walk(bot, inside, 1.1D, true, MAX_STUCK_TICKS)) {
+				// Can't get to it even digging and building: the caller falls back to its last resort.
 				walker.reset(bot);
-				bot.sayStuck();
+				bot.giveUpPortal();
+				return false;
 			}
 		} else {
 			// Right in front of it: step in (the game does the rest).

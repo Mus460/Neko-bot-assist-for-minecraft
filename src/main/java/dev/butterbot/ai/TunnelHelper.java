@@ -109,8 +109,9 @@ public final class TunnelHelper {
 		if (!feetState.canBeReplaced()) {
 			VoxelShape shape = feetState.getCollisionShape(level, feet);
 			if (shape.isEmpty()) {
-				// A torch or flower at its feet: picked up first, the block goes there.
-				return bot.getMiner().beginDig(feet) ? StepResult.DIGGING : StepResult.BLOCKED;
+				// A torch or flower at its feet is picked up first and the block goes there; rails,
+				// redstone, plates and crops are left alone.
+				return isPickable(feetState) && bot.getMiner().beginDig(feet) ? StepResult.DIGGING : StepResult.BLOCKED;
 			}
 			if (shape.max(Direction.Axis.Y) < 0.75D) {
 				// On a slab, carpet or bed a jump doesn't get high enough to put a block on top of it.
@@ -132,6 +133,12 @@ public final class TunnelHelper {
 			return StepResult.BLOCKED;
 		}
 		return bot.startPillarJump(base) ? StepResult.BUILDING : StepResult.MOVING;
+	}
+
+	/** Small things the bot may pick up from under its feet to pillar: torches (it lights its tunnels) and flowers. */
+	public static boolean isPickable(BlockState state) {
+		return state.is(Blocks.TORCH) || state.is(Blocks.SOUL_TORCH) || state.is(Blocks.COPPER_TORCH)
+				|| state.is(BlockTags.SMALL_FLOWERS);
 	}
 
 	/** A fence gate or wooden door, which the bot opens to walk through. */
