@@ -292,6 +292,11 @@ public class ButterBotEntity extends PathfinderMob {
 	/** Where the owner was last seen in the bot's dimension (the portal, when they went through one). */
 	@Nullable
 	private BlockPos lastOwnerPos;
+	/** Bodyguard: where the bot it guards was last seen in this dimension (it may have taken a portal there). */
+	@Nullable
+	private BlockPos lastWardPos;
+	@Nullable
+	private ButterBotEntity wardCache;
 	/** The dimension the bot is walking into a portal for, and until when it may use one. */
 	@Nullable
 	private ResourceKey<Level> portalWish;
@@ -469,8 +474,11 @@ public class ButterBotEntity extends PathfinderMob {
 			this.entityData.set(DATA_SPEECH, Component.empty());
 		}
 
-		if (smeltMode != SmeltMode.OFF && this.tickCount % 10 == 0) {
-			smelter.tick(smeltMode);
+		// A courier with smelting on runs its furnace on raw ores even when smelting is off for the bot.
+		SmeltMode furnace = smeltMode != SmeltMode.OFF ? smeltMode
+				: jobs.isActive() && jobs.job() == BotJob.COURIER && jobs.smelt() ? SmeltMode.ORES : SmeltMode.OFF;
+		if (furnace != SmeltMode.OFF && this.tickCount % 10 == 0) {
+			smelter.tick(furnace);
 		}
 		if (autoTorch && task == BotTask.MINE && --torchCooldown <= 0) {
 			torchCooldown = 10;
@@ -562,7 +570,7 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		gainWorkXp(xp);
 		collectNearbyDrops(victim.position(), 3.0D);
-		if (jobs.job() == BotJob.GUARD || (jobs.job() == BotJob.RANCHER && victim instanceof Animal)) {
+		if (jobs.job() == BotJob.GUARD || jobs.job() == BotJob.BODYGUARD || (jobs.job() == BotJob.RANCHER && victim instanceof Animal)) {
 			jobs.addStat(1);
 		}
 	}
@@ -1013,7 +1021,18 @@ public class ButterBotEntity extends PathfinderMob {
 			case LOOT -> Component.translatable("butterbot.status.job_loot", jobName);
 			case FARMING -> Component.translatable("butterbot.status.job_farming", jobName);
 			case RANCHING -> Component.translatable("butterbot.status.job_ranching", jobName, jobs.radius(), jobs.stat());
+			case LOADING -> Component.translatable("butterbot.status.job_loading", jobName);
+			case CARRYING -> Component.translatable("butterbot.status.job_carrying", jobName, jobs.stat());
+			case SMELTING -> Component.translatable("butterbot.status.job_smelting", jobName);
+			case WAITING -> Component.translatable("butterbot.status.job_waiting", jobName, jobs.stat());
+			case ESCORTING -> Component.translatable("butterbot.status.job_escorting", jobName, wardName(), jobs.stat());
+			case NO_WARD -> Component.translatable("butterbot.status.job_no_ward", jobName);
 		};
+	}
+
+	private Component wardName() {
+		ButterBotEntity ward = findWard();
+		return ward == null ? Component.literal("?") : ward.getName();
 	}
 
 	/** A few words for the on-screen list: only what the bot is doing right now. */
@@ -1042,6 +1061,12 @@ public class ButterBotEntity extends PathfinderMob {
 				case PATROL -> Component.translatable("butterbot.hud.s.patrol", jobs.stat());
 				case FARMING -> Component.translatable("butterbot.hud.s.farming", harvestedCount);
 				case RANCHING -> Component.translatable("butterbot.hud.s.ranching", jobs.stat());
+				case LOADING -> Component.translatable("butterbot.hud.s.loading");
+				case CARRYING -> Component.translatable("butterbot.hud.s.carrying");
+				case SMELTING -> Component.translatable("butterbot.hud.s.smelting");
+				case WAITING -> Component.translatable("butterbot.hud.s.courier_wait");
+				case ESCORTING -> Component.translatable("butterbot.hud.s.escorting", wardName());
+				case NO_WARD -> Component.translatable("butterbot.hud.s.no_ward");
 			};
 			case MINE -> mineFilter == null && resource == null ? Component.translatable("butterbot.hud.s.idle")
 					: Component.translatable("butterbot.hud.s.mining",
@@ -1084,6 +1109,12 @@ public class ButterBotEntity extends PathfinderMob {
 			}
 			case RANCHER -> {
 				return Items.WHEAT;
+			}
+			case COURIER -> {
+				return Items.CHEST_MINECART;
+			}
+			case BODYGUARD -> {
+				return Items.SHIELD;
 			}
 			case NONE -> {
 			}
@@ -1280,7 +1311,7 @@ public class ButterBotEntity extends PathfinderMob {
 			case FARMER -> task == BotTask.FARM ? BotJob.FARMER : null;
 			// Ranch chores (and culling) happen between orders.
 			case RANCHER -> task == BotTask.NONE ? BotJob.RANCHER : null;
-			case GUARD, NONE -> null;
+			case GUARD, COURIER, BODYGUARD, NONE -> null;
 		};
 	}
 
@@ -1524,7 +1555,7 @@ public class ButterBotEntity extends PathfinderMob {
 
 	public boolean isGuarding() {
 		// Ranchers keep monsters away from their animals.
-		return guard || (jobs.isActive() && (jobs.job() == BotJob.GUARD || jobs.job() == BotJob.RANCHER));
+		return guard || (jobs.isActive() && (jobs.job() == BotJob.GUARD || jobs.job() == BotJob.RANCHER || jobs.job() == BotJob.BODYGUARD));
 	}
 
 	/** The guard setting itself (a guard job fights even when it is off). */
@@ -2844,6 +2875,7 @@ public class ButterBotEntity extends PathfinderMob {
 				portalExits.put(portalKey(here, lastDimension), portal);
 			}
 			lastOwnerPos = null;
+			lastWardPos = null;
 			portalWish = null;
 		}
 		lastDimension = here;
@@ -2852,7 +2884,42 @@ public class ButterBotEntity extends PathfinderMob {
 			if (owner != null && owner.level() == level) {
 				lastOwnerPos = owner.blockPosition();
 			}
+			ButterBotEntity ward = jobs.isActive() ? findWard() : null;
+			if (ward != null && ward.level() == level) {
+				lastWardPos = ward.blockPosition();
+			}
 		}
+	}
+
+	@Nullable
+	public BlockPos getLastWardPos() {
+		return lastWardPos;
+	}
+
+	/** The bot a bodyguard stays with, wherever it is: null without one, or when it is gone or packed up. */
+	@Nullable
+	public ButterBotEntity findWard() {
+		UUID id = jobs.job() == BotJob.BODYGUARD ? jobs.ward() : null;
+		if (id == null || !(this.level() instanceof ServerLevel here)) {
+			wardCache = null;
+			return null;
+		}
+		if (wardCache != null && !wardCache.isRemoved() && wardCache.isAlive() && wardCache.getUUID().equals(id)) {
+			return wardCache;
+		}
+		wardCache = null;
+		for (ServerLevel level : here.getServer().getAllLevels()) {
+			if (level.getEntity(id) instanceof ButterBotEntity ward && ward != this && ward.isAlive()
+					&& Objects.equals(ward.getOwnerUuid(), ownerUuid)) {
+				wardCache = ward;
+				break;
+			}
+		}
+		return wardCache;
+	}
+
+	public BotSmelter getSmelter() {
+		return smelter;
 	}
 
 	/**

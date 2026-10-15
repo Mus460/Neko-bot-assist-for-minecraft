@@ -110,6 +110,12 @@ public final class Payloads {
 		public static final int JOB_HERD = 35;
 		/** Rancher: {@code args[0]} 1 lets it cull animals over the limit, 0 doesn't. */
 		public static final int JOB_BUTCHER = 36;
+		/** Courier: adds the source chest at {@code args[0..2]}, removes source number {@code args[0]}, or (no args) all. */
+		public static final int JOB_SOURCE = 37;
+		/** Courier: {@code args[0]} 1 smelts raw ores on the way, 0 doesn't. */
+		public static final int JOB_SMELT = 38;
+		/** Bodyguard: guards the bot with the UUID in {@code text} (empty: no one). */
+		public static final int JOB_WARD = 39;
 
 		public static final Type<BotCommand> TYPE = typeOf("bot_command");
 		public static final StreamCodec<RegistryFriendlyByteBuf, BotCommand> CODEC = StreamCodec.of(
@@ -279,9 +285,10 @@ public final class Payloads {
 
 	/** A bot's job for the control panel. */
 	public record JobView(int job, boolean paused, Optional<BlockPos> chest, boolean chestOk, Optional<BlockPos> center,
-						  int zone, int radius, int stat, int herd, boolean butcher, List<NeedView> needs, List<HerdView> herds) {
+						  int zone, int radius, int stat, int herd, boolean butcher, List<NeedView> needs, List<HerdView> herds,
+						  List<BlockPos> sources, boolean smelt, Optional<UUID> ward, String wardName) {
 		public static final JobView NONE = new JobView(0, false, Optional.empty(), false, Optional.empty(), 200, 30, 0, 10, false,
-				List.of(), List.of());
+				List.of(), List.of(), List.of(), true, Optional.empty(), "");
 
 		static void write(RegistryFriendlyByteBuf buf, JobView v) {
 			buf.writeVarInt(v.job);
@@ -307,6 +314,14 @@ public final class Payloads {
 				buf.writeVarInt(herd.limit);
 				buf.writeBoolean(herd.custom);
 			}
+			buf.writeVarInt(v.sources.size());
+			for (BlockPos source : v.sources) {
+				buf.writeBlockPos(source);
+			}
+			buf.writeBoolean(v.smelt);
+			buf.writeBoolean(v.ward.isPresent());
+			v.ward.ifPresent(buf::writeUUID);
+			buf.writeUtf(v.wardName, 64);
 		}
 
 		static JobView read(RegistryFriendlyByteBuf buf) {
@@ -330,7 +345,16 @@ public final class Payloads {
 			for (int i = 0; i < kinds; i++) {
 				herds.add(new HerdView(buf.readUtf(64), buf.readVarInt() - 1, buf.readVarInt(), buf.readBoolean()));
 			}
-			return new JobView(job, paused, chest, chestOk, center, zone, radius, stat, herd, butcher, needs, herds);
+			int sourceCount = Math.min(buf.readVarInt(), 16);
+			List<BlockPos> sources = new ArrayList<>(sourceCount);
+			for (int i = 0; i < sourceCount; i++) {
+				sources.add(buf.readBlockPos());
+			}
+			boolean smelt = buf.readBoolean();
+			Optional<UUID> ward = buf.readBoolean() ? Optional.of(buf.readUUID()) : Optional.empty();
+			String wardName = buf.readUtf(64);
+			return new JobView(job, paused, chest, chestOk, center, zone, radius, stat, herd, butcher, needs, herds,
+					sources, smelt, ward, wardName);
 		}
 	}
 

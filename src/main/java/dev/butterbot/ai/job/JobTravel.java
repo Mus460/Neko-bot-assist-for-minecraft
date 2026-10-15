@@ -11,8 +11,8 @@ import net.minecraft.world.phys.Vec3;
 /**
  * Gets a working bot somewhere, however far, on foot: it keeps the area around itself loaded while it
  * walks (see {@link JobChunks}), works its way around obstacles with the route planner, and reaches
- * another dimension through a portal it came through. Only as a last resort (a miner or gatherer
- * stuck for a long while even with digging and building, or no portal known) does it hop there.
+ * another dimension through a portal it came through. Only as a last resort (stuck for a long while,
+ * or no portal known) does it hop there; farmers, guards and ranchers never hop within a dimension.
  */
 public final class JobTravel {
 
@@ -58,16 +58,18 @@ public final class JobTravel {
 			bot.getNavigation().stop();
 			return Result.ARRIVED;
 		}
-		// Farmers, guards and ranchers only walk (round fences, through gates): digging or building could
-		// open their pens. Miners and gatherers dig and build their way when stuck.
-		boolean dig = !bot.getJobs().job().usesArea();
+		// Only miners and gatherers dig and build their way when stuck. The others walk (round fences,
+		// through gates): digging or building could open a pen or a wall of the base. Farmers, guards and
+		// ranchers never hop either; a stuck courier does, as a last resort.
+		boolean dig = bot.getJobs().job().usesList();
+		boolean hop = !bot.getJobs().job().usesArea();
 		// Not loaded yet (far away): head that way over the ground; it loads as the bot gets near.
 		boolean moving = loaded ? walker.walk(bot, Vec3.atBottomCenterOf(target), 1.1D, dig, MAX_STUCK_TICKS)
 				: walker.walkFar(bot, pos.getX() + 0.5D, pos.getZ() + 0.5D, 1.1D, dig, MAX_STUCK_TICKS);
 		if (!moving) {
 			walker.reset(bot);
 			// Stuck even with the route planner digging and building: hop there as a last resort.
-			if (dig && loaded && bot.lastResortTeleport(target)) {
+			if (hop && loaded && bot.lastResortTeleport(target)) {
 				return Result.MOVING;
 			}
 			bot.sayStuck();

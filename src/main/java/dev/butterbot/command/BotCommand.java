@@ -196,7 +196,8 @@ public final class BotCommand {
 		LiteralArgumentBuilder<CommandSourceStack> set = Commands.literal("set");
 		String[][] names = {{"none", "NONE"}, {"miner", "MINER"}, {"gatherer", "GATHERER"}, {"guard", "GUARD"}, {"farmer", "FARMER"},
 				{"rancher", "RANCHER"}, {"penambang", "MINER"}, {"pengumpul", "GATHERER"}, {"penjaga", "GUARD"}, {"petani", "FARMER"},
-				{"peternak", "RANCHER"}, {"asisten", "NONE"}};
+				{"peternak", "RANCHER"}, {"courier", "COURIER"}, {"kurir", "COURIER"}, {"bodyguard", "BODYGUARD"},
+				{"pengawal", "BODYGUARD"}, {"asisten", "NONE"}};
 		for (String[] name : names) {
 			BotJob value = BotJob.valueOf(name[1]);
 			set.then(Commands.literal(name[0]).executes(ctx -> simple(ctx.getSource(), bot ->
@@ -290,9 +291,50 @@ public final class BotCommand {
 		job.then(Commands.literal("butcher")
 				.then(Commands.literal("on").executes(ctx -> butcher(ctx.getSource(), true)))
 				.then(Commands.literal("off").executes(ctx -> butcher(ctx.getSource(), false))));
+		job.then(Commands.literal("source")
+				.executes(ctx -> simple(ctx.getSource(), bot -> {
+					ServerPlayer player = ctx.getSource().getPlayerOrException();
+					BlockPos looked = JobControl.lookedAtStorage(player);
+					if (looked == null) {
+						ctx.getSource().sendFailure(Component.translatable("butterbot.msg.job_look_at_chest"));
+					} else {
+						JobControl.addSource(player, bot, looked);
+					}
+				}))
+				.then(Commands.literal("clear").executes(ctx -> simple(ctx.getSource(), bot -> {
+					bot.getJobs().clearSources();
+					ctx.getSource().sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.job_sources_cleared",
+							bot.getName())), false);
+				})))
+				.then(Commands.literal("remove")
+						.then(Commands.argument("number", IntegerArgumentType.integer(1, JobConfig.MAX_SOURCES))
+								.executes(ctx -> {
+									int number = IntegerArgumentType.getInteger(ctx, "number");
+									return simple(ctx.getSource(), bot -> bot.getJobs().removeSource(number - 1));
+								}))));
+		job.then(Commands.literal("smelt")
+				.then(Commands.literal("on").executes(ctx -> smelt(ctx.getSource(), true)))
+				.then(Commands.literal("off").executes(ctx -> smelt(ctx.getSource(), false))));
+		job.then(Commands.literal("ward")
+				.then(Commands.literal("clear").executes(ctx -> simple(ctx.getSource(), bot ->
+						JobControl.setWard(ctx.getSource().getPlayerOrException(), bot, ""))))
+				.then(Commands.argument("name", StringArgumentType.greedyString())
+						.executes(ctx -> {
+							String name = StringArgumentType.getString(ctx, "name");
+							return simple(ctx.getSource(), bot -> JobControl.setWardByName(ctx.getSource().getPlayerOrException(), bot, name));
+						})));
 		job.then(Commands.literal("pause").executes(ctx -> simple(ctx.getSource(), bot -> JobControl.setPaused(bot, true))));
 		job.then(Commands.literal("resume").executes(ctx -> simple(ctx.getSource(), bot -> JobControl.setPaused(bot, false))));
 		return job;
+	}
+
+	/** {@code /butterbot job smelt on|off}: does a courier smelt raw ores on the way? */
+	private static int smelt(CommandSourceStack source, boolean on) throws CommandSyntaxException {
+		return simple(source, bot -> {
+			bot.getJobs().setSmelt(on);
+			source.sendSuccess(() -> Msg.prefixed(Component.translatable(on ? "butterbot.msg.job_smelt_on" : "butterbot.msg.job_smelt_off",
+					bot.getName())), false);
+		});
 	}
 
 	/** {@code /butterbot job butcher on|off}: may a rancher cull animals over the limit? */
