@@ -13,6 +13,7 @@ import dev.butterbot.client.BotKeys;
 import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
+import dev.butterbot.entity.BotTier;
 import dev.butterbot.entity.BotProgress;
 import dev.butterbot.entity.BotResource;
 import dev.butterbot.entity.BotSkill;
@@ -1401,7 +1402,11 @@ public class BotControlScreen extends Screen {
 
 	private void renderLevel(GuiGraphicsExtractor g, Payloads.BotEntry bot) {
 		int level = bot.level();
-		g.text(font, Component.translatable("butterbot.gui.level_title", level, BotLevels.MAX_LEVEL), cx, cy + 2, McStyle.TEXT, false);
+		Component levelTitle = Component.translatable("butterbot.gui.level_title", level, BotLevels.MAX_LEVEL);
+		g.text(font, levelTitle, cx, cy + 2, McStyle.TEXT, false);
+		BotTier tier = BotTier.of(level);
+		g.text(font, Component.translatable("butterbot.gui.tier", tier.displayName()), cx + font.width(levelTitle) + 6, cy + 2,
+				tier.guiColor(), false);
 		Component forYou = Component.translatable("butterbot.gui.stored_xp", bot.storedXp());
 		g.text(font, forYou, cx + CW - font.width(forYou), cy + 2, McStyle.GOOD, false);
 		boolean max = level >= BotLevels.MAX_LEVEL;
