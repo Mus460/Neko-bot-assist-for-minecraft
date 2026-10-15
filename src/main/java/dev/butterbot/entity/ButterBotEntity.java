@@ -33,6 +33,7 @@ import dev.butterbot.item.ButterBotItem;
 import dev.butterbot.menu.BotInventoryMenu;
 import dev.butterbot.lua.LuaProgram;
 import dev.butterbot.network.ModNetworking;
+import dev.butterbot.network.Payloads;
 import dev.butterbot.registry.ModBlocks;
 import dev.butterbot.registry.ModEntities;
 import dev.butterbot.registry.ModSounds;
@@ -203,6 +204,10 @@ public class ButterBotEntity extends PathfinderMob {
 	/** Problems are told to the owner at most this often (the rest only show with the debug key). */
 	private static final long PROBLEM_MESSAGE_TICKS = 20L * 60L;
 	private static final long PROBLEM_MEMORY_TICKS = 20L * 60L * 5L;
+	/** The on-screen list warns about a problem or a failed way for this long. */
+	private static final long HUD_WARNING_TICKS = 20L * 60L;
+	/** ...and for this long after a last-resort hop got it out: enough to notice, then back to work. */
+	private static final long HUD_UNSTUCK_TICKS = 20L * 10L;
 	private static final float MAX_DIGGABLE_HARDNESS = 10.0F;
 	/** Ancient debris needs a diamond pickaxe, as for a player: the bot gets its own at this level. */
 	public static final int NETHERITE_MIN_LEVEL = 5;
@@ -339,6 +344,8 @@ public class ButterBotEntity extends PathfinderMob {
 	private int displayTicks;
 	private int combatTicks;
 	private int lastHurtTick = -1000;
+	/** Game time until which the on-screen list shows the bot as stuck (see {@link #hudFlags()}). */
+	private long stuckUntil = Long.MIN_VALUE;
 	private int careTimer;
 	private int eatCooldown;
 	private int feedCooldown;
@@ -1123,6 +1130,66 @@ public class ButterBotEntity extends PathfinderMob {
 					: Component.translatable("butterbot.hud.s.fetching", new ItemStack(fetchItem).getHoverName());
 			case GOTO -> Component.translatable("butterbot.hud.s.waiting");
 		};
+	}
+
+	/** Warning bits for the on-screen list ({@link Payloads.HudBot#STUCK} and the rest). All of them wear off by themselves. */
+	public int hudFlags() {
+		int flags = 0;
+		if (this.level().getGameTime() < stuckUntil) {
+			flags |= Payloads.HudBot.STUCK;
+		}
+		if (getHudProblem() != null) {
+			flags |= Payloads.HudBot.PROBLEM;
+		}
+		if (this.tickCount - lastHurtTick < 60) {
+			flags |= Payloads.HudBot.HURT;
+		}
+		if (jobs.hasJob() && jobs.isPaused()) {
+			flags |= Payloads.HudBot.PAUSED;
+		}
+		if (combatTicks > 0) {
+			flags |= Payloads.HudBot.FIGHTING;
+		}
+		if (this.getHealth() < this.getMaxHealth() * 0.3F) {
+			flags |= Payloads.HudBot.LOW_HEALTH;
+		}
+		return flags;
+	}
+
+	/** The last problem while it is fresh enough for the on-screen list to warn about it, or null. */
+	@Nullable
+	public Component getHudProblem() {
+		return lastProblem != null && this.level().getGameTime() - lastProblemTime < HUD_WARNING_TICKS ? lastProblem : null;
+	}
+
+	/**
+	 * How far along the work is, for a thin line in the on-screen list: blocks of a mining order, metres
+	 * of tunnel, or how much of a miner's or gatherer's list is in its chest (as last counted). -1 when
+	 * there is nothing to measure.
+	 */
+	public float hudProgress() {
+		if (task == BotTask.MINE && targetCount > 0) {
+			return Math.min(1.0F, (float) collectedCount / targetCount);
+		}
+		if (task == BotTask.TUNNEL && tunnelLength > 0) {
+			return Math.min(1.0F, (float) tunnelProgress / tunnelLength);
+		}
+		if (task == BotTask.NONE && jobs.job().usesList() && jobs.chestCountsTime() != Long.MIN_VALUE) {
+			long have = 0;
+			long wanted = 0;
+			for (JobConfig.Need need : jobs.needs()) {
+				int count = Math.max(0, need.count());
+				have += Math.min(Math.max(0, jobs.knownChestCount(need.item())), count);
+				wanted += count;
+			}
+			return wanted > 0 ? (float) have / wanted : -1.0F;
+		}
+		return -1.0F;
+	}
+
+	/** Lights the "stuck" warning in the owner's on-screen list for {@code ticks} (never cuts a longer one short). */
+	private void markStuck(long ticks) {
+		stuckUntil = Math.max(stuckUntil, this.level().getGameTime() + ticks);
 	}
 
 	/** An item that stands for the bot's work in the on-screen list (air when it has nothing to do). */
@@ -2873,6 +2940,7 @@ public class ButterBotEntity extends PathfinderMob {
 			return false;
 		}
 		hopTo(serverLevel, spot);
+		markStuck(HUD_UNSTUCK_TICKS);
 		long now = serverLevel.getGameTime();
 		if (now - lastUnstuckMessage > 600L) {
 			lastUnstuckMessage = now;
@@ -2897,6 +2965,8 @@ public class ButterBotEntity extends PathfinderMob {
 		brain.reset(this);
 		if (stuck) {
 			say(Component.translatable("butterbot.msg.unstuck"));
+			// Saved with the bot, so the warning comes along to the other dimension.
+			markStuck(HUD_UNSTUCK_TICKS);
 		}
 		here.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
 		this.resetFallDistance();
@@ -3014,6 +3084,8 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/** Says now and then that it can't find a way somewhere (instead of hopping there). */
 	public void sayStuck() {
+		// Called again on every failed try, so the warning stays lit for as long as it can't get there.
+		markStuck(HUD_WARNING_TICKS);
 		long now = this.level().getGameTime();
 		if (now - lastUnstuckMessage > 600L) {
 			lastUnstuckMessage = now;
@@ -3941,6 +4013,7 @@ public class ButterBotEntity extends PathfinderMob {
 		output.putInt("WorkXp", workXp);
 		output.putIntArray("Progress", progress.save());
 		output.putLong("SecondWind", secondWindReadyAt);
+		output.putLong("StuckUntil", stuckUntil);
 		output.putInt("StoredXp", storedXp);
 		output.putBoolean("Guard", guard);
 		output.putBoolean("AutoTorch", autoTorch);
@@ -4018,6 +4091,7 @@ public class ButterBotEntity extends PathfinderMob {
 		// Level and skills decide the backpack size, so they are restored before the backpack.
 		input.getIntArray("Progress").ifPresent(progress::load);
 		secondWindReadyAt = input.getLongOr("SecondWind", 0L);
+		stuckUntil = input.getLongOr("StuckUntil", Long.MIN_VALUE);
 		restoreProgress(input.getIntOr("BotLevel", 1), input.getIntOr("WorkXp", 0));
 		storedXp = input.getIntOr("StoredXp", 0);
 		guard = input.getBooleanOr("Guard", true);

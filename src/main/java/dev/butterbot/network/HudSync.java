@@ -4,6 +4,7 @@ import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.registry.ModEntities;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -61,12 +62,29 @@ public final class HudSync {
 				}
 				int distance = bot.level() == player.level() ? (int) Math.round(Math.sqrt(bot.distanceToSqr(player))) : -1;
 				Item icon = bot.hudIcon();
-				lines.add(new Payloads.HudBot(bot.getName().getString(), bot.getHealth(), bot.getMaxHealth(), bot.describeHudStatus(),
+				int flags = bot.hudFlags();
+				lines.add(new Payloads.HudBot(bot.getName().getString(), bot.getHealth(), bot.getMaxHealth(), status(bot, flags),
 						icon == Items.AIR ? "" : BuiltInRegistries.ITEM.getKey(icon).toString(), distance, bot.countInventoryItems(),
-						bot.getInventory().getContainerSize() * 64));
+						bot.getInventory().getContainerSize() * 64, bot.getUUID(), bot.getBotLevel(), flags, bot.hudProgress(),
+						(float) bot.getX(), (float) bot.getY(), (float) bot.getZ(), bot.getSkinId(), bot.getSkinVariant()));
 			}
 			ServerPlayNetworking.send(player, new Payloads.HudUpdate(lines));
 		}
+	}
+
+	/**
+	 * What the line says: "Stuck!" while the bot can't find its way, then fighting or a paused job, then a
+	 * problem it had lately (only the start of the sentence fits), then its work.
+	 */
+	private static Component status(ButterBotEntity bot, int flags) {
+		if ((flags & Payloads.HudBot.STUCK) != 0) {
+			return Component.translatable("butterbot.hud.s.stuck");
+		}
+		Component problem = bot.getHudProblem();
+		if (problem != null && (flags & (Payloads.HudBot.FIGHTING | Payloads.HudBot.PAUSED)) == 0) {
+			return problem;
+		}
+		return bot.describeHudStatus();
 	}
 
 	private HudSync() {

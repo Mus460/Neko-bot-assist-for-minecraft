@@ -132,7 +132,14 @@ Bot yang punya job **tetap bekerja walaupun kamu jauh**: area kecil di sekitar b
 
 ### Daftar bot di layar (HUD)
 
-Di pojok kiri atas tampil semua bot milikmu: nama, level, bar darah, apa yang sedang dikerjakan, jaraknya darimu (atau "dimensi lain"), dan isi tas. Daftar disembunyikan otomatis saat layar F3 terbuka. Tekan `]` untuk menyembunyikan atau menampilkannya (pilihan ini diingat).
+Di pojok kiri atas tampil semua bot milikmu: level (diwarnai sesuai tier-nya), nama, bar darah, apa yang sedang dikerjakan, jaraknya darimu (atau "dimensi lain"), dan isi tas. Daftar disembunyikan otomatis saat layar F3 terbuka. Tekan `]` untuk menyembunyikan atau menampilkannya (pilihan ini diingat).
+
+Daftar ini juga langsung memberi tahu kalau ada yang tidak beres:
+
+- **`!` kuning berkedip** menggantikan ikon job saat bot **nyangkut** (tulisannya jadi "Nyangkut!") atau baru saja harus melewati sesuatu, misalnya blok yang tidak bisa dicapai (awal pesannya tampil di baris itu). Saat bot mulai nyangkut terdengar satu bunyi "ting" pelan. Tanda ini hilang sendiri: semenit setelah kejadian terakhir, atau sepuluh detik setelah bot berhasil lolos dengan teleport darurat.
+- **Baris berdenyut merah** selama bot diserang (beberapa detik setelah kena pukul) dan selama darahnya di bawah 30%.
+- **Bar darah turun halus**, dan bagian yang baru hilang berkedip putih sebentar, jadi pukulan besar langsung kelihatan.
+- **Garis progres hijau** di bawah baris: jumlah blok pesanan tambang, panjang terowongan, atau seberapa penuh daftar barang penambang/pengumpul di peti job-nya (menurut hitungan terakhir).
 
 ### Tab panel kontrol
 
