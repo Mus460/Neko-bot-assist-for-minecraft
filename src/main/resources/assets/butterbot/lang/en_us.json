@@ -827,5 +827,17 @@
   "butterbot.ui.wheel.guard": "Guard on/off",
   "butterbot.ui.wheel.release": "Let go of %s",
   "butterbot.ui.wheel.panel": "Click: panel",
-  "butterbot.ui.wheel.hint": "Point at an order and let go of %s (or click it)"
+  "butterbot.ui.wheel.hint": "Point at an order and let go of %s (or click it)",
+  "butterbot.ui.wheel.call.desc": "Every bot near you comes and follows you.",
+  "butterbot.ui.wheel.stop.desc": "Every bot near you stops what it is doing and waits.",
+  "butterbot.ui.wheel.home.desc": "Every bot goes back to its Bot Base.",
+  "butterbot.ui.wheel.deliver.desc": "Bots hand you what is in their backpacks (or store it at the base).",
+  "butterbot.ui.wheel.backpack.desc": "Opens the nearest bot's backpack and gear.",
+  "butterbot.ui.wheel.light.desc": "Bots put torches on the dark spots around you.",
+  "butterbot.ui.wheel.jobs.desc": "Pauses or resumes every bot's job.",
+  "butterbot.ui.wheel.guard.desc": "Turns guard mode (fighting monsters) on or off for every bot.",
+  "butterbot.ui.wheel.nearby": "%s bots get these orders",
+  "butterbot.ui.wheel.nearby_none": "No bots of yours in this dimension",
+  "butterbot.ui.wheel.hub": "Panel",
+  "butterbot.ui.wheel.keys": "1-8: pick right away  ·  click the middle: panel  ·  right click / Esc: close"
 }

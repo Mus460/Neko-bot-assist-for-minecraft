@@ -827,5 +827,17 @@
   "butterbot.ui.wheel.guard": "Pengawal",
   "butterbot.ui.wheel.release": "Lepas %s",
   "butterbot.ui.wheel.panel": "Klik: panel",
-  "butterbot.ui.wheel.hint": "Arahkan ke perintah lalu lepas %s (atau klik)"
+  "butterbot.ui.wheel.hint": "Arahkan ke perintah lalu lepas %s (atau klik)",
+  "butterbot.ui.wheel.call.desc": "Semua bot di dekatmu datang dan mengikutimu.",
+  "butterbot.ui.wheel.stop.desc": "Semua bot di dekatmu berhenti dan menunggu.",
+  "butterbot.ui.wheel.home.desc": "Semua bot pulang ke Bot Base-nya.",
+  "butterbot.ui.wheel.deliver.desc": "Bot menyerahkan isi tasnya kepadamu (atau menyimpannya di base).",
+  "butterbot.ui.wheel.backpack.desc": "Membuka tas dan perlengkapan bot terdekat.",
+  "butterbot.ui.wheel.light.desc": "Bot memasang obor di tempat gelap di sekitarmu.",
+  "butterbot.ui.wheel.jobs.desc": "Jeda atau lanjutkan job semua bot.",
+  "butterbot.ui.wheel.guard.desc": "Nyalakan atau matikan mode pengawal (melawan monster) untuk semua bot.",
+  "butterbot.ui.wheel.nearby": "%s bot menerima perintah ini",
+  "butterbot.ui.wheel.nearby_none": "Tidak ada bot milikmu di dimensi ini",
+  "butterbot.ui.wheel.hub": "Panel",
+  "butterbot.ui.wheel.keys": "1-8: pilih langsung  ·  klik tengah: panel  ·  klik kanan / Esc: tutup"
 }
