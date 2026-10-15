@@ -1,11 +1,13 @@
 package dev.butterbot.entity;
 
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.tags.BlockItemTags;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
@@ -52,17 +54,51 @@ public enum BotResource {
 			stack -> stack.is(ItemTags.LOGS)),
 	SAND(null,
 			state -> state.is(BlockTags.SAND),
-			stack -> stack.is(ItemTags.SAND));
+			stack -> stack.is(ItemTags.SAND)),
+	// Ancient debris, only in the Nether and most common around Y 15. Needs a diamond pickaxe.
+	NETHERITE(15, true,
+			state -> state.is(Blocks.ANCIENT_DEBRIS),
+			stack -> stack.is(Items.ANCIENT_DEBRIS) || stack.is(Items.NETHERITE_SCRAP) || stack.is(Items.NETHERITE_INGOT));
 
 	@Nullable
 	private final Integer optimalY;
+	private final boolean nether;
 	private final Predicate<BlockState> blockPredicate;
 	private final Predicate<ItemStack> itemPredicate;
 
 	BotResource(@Nullable Integer optimalY, Predicate<BlockState> blockPredicate, Predicate<ItemStack> itemPredicate) {
+		this(optimalY, false, blockPredicate, itemPredicate);
+	}
+
+	BotResource(@Nullable Integer optimalY, boolean nether, Predicate<BlockState> blockPredicate, Predicate<ItemStack> itemPredicate) {
 		this.optimalY = optimalY;
+		this.nether = nether;
 		this.blockPredicate = blockPredicate;
 		this.itemPredicate = itemPredicate;
+	}
+
+	/** Only found in the Nether. */
+	public boolean isNether() {
+		return nether;
+	}
+
+	/**
+	 * True if it can be dug in {@code dimension}: Nether finds only in the Nether, the overworld's ores
+	 * and stone only in the overworld, gold in both (the Nether has gold ore too). Wood and sand anywhere.
+	 */
+	public boolean foundIn(ResourceKey<Level> dimension) {
+		if (nether) {
+			return dimension.equals(Level.NETHER);
+		}
+		if (!isUnderground()) {
+			return true;
+		}
+		return dimension.equals(Level.OVERWORLD) || (this == GOLD && dimension.equals(Level.NETHER));
+	}
+
+	/** The Y level to dig at in {@code dimension} (Nether gold ore is everywhere above Y 10, not deep down). */
+	public int optimalY(ResourceKey<Level> dimension) {
+		return this == GOLD && dimension.equals(Level.NETHER) ? 15 : optimalY();
 	}
 
 	public String id() {

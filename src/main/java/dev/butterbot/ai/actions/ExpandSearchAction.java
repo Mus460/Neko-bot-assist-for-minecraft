@@ -10,6 +10,7 @@ import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.ai.util.LandRandomPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
@@ -162,6 +163,9 @@ public class ExpandSearchAction implements BotAction {
 			return;
 		}
 		BlockPos landing = forward.below();
+		if (coverLava(bot, level, landing.below())) {
+			return;
+		}
 		if (level.getBlockState(landing.below()).isAir() && level.getBlockState(landing.below(2)).isAir()) {
 			turn();
 			return;
@@ -176,6 +180,9 @@ public class ExpandSearchAction implements BotAction {
 		BlockPos forward = feet.relative(tunnelDirection);
 		BlockPos[] cells = {forward.above(), forward};
 		if (digFirstObstacle(bot, level, cells)) {
+			return;
+		}
+		if (coverLava(bot, level, forward.below())) {
 			return;
 		}
 		if (level.getBlockState(forward.below()).isAir() && level.getBlockState(forward.below(2)).isAir()) {
@@ -227,9 +234,36 @@ public class ExpandSearchAction implements BotAction {
 		roamAngle += (bot.getRandom().nextBoolean() ? 1.0D : -1.0D) * (Math.PI / 2.0D + bot.getRandom().nextDouble() * Math.PI / 4.0D);
 	}
 
+	/**
+	 * Lava under the next step, or right below an open floor there (a lake in the Nether, a pocket
+	 * underground): puts a block on the floor first, so the bot never walks or drops into it. True if
+	 * there was lava (the step waits a tick).
+	 */
+	private boolean coverLava(ButterBotEntity bot, Level level, BlockPos floor) {
+		boolean lava = level.getFluidState(floor).is(FluidTags.LAVA)
+				|| (level.getBlockState(floor).getCollisionShape(level, floor).isEmpty()
+				&& level.getFluidState(floor.below()).is(FluidTags.LAVA));
+		if (!lava) {
+			return false;
+		}
+		if (!bot.plugWithFiller(floor)) {
+			bot.warnLava();
+			turn();
+		}
+		return true;
+	}
+
 	private boolean digFirstObstacle(ButterBotEntity bot, Level level, BlockPos[] cells) {
 		for (BlockPos cell : cells) {
 			BlockState cellState = level.getBlockState(cell);
+			if (cellState.getFluidState().is(FluidTags.LAVA)) {
+				// Lava flowing into the way: turn it into a block, which is then dug like the rest.
+				if (!bot.plugWithFiller(cell)) {
+					bot.warnLava();
+					turn();
+				}
+				return true;
+			}
 			if (cellState.isAir() || cellState.getCollisionShape(level, cell).isEmpty()) {
 				continue;
 			}

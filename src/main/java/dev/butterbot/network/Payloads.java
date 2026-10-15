@@ -106,6 +106,10 @@ public final class Payloads {
 		public static final int SKILL_UP = 33;
 		/** Forget all skills and get the points back. */
 		public static final int SKILL_RESET = 34;
+		/** Rancher: keep {@code args[0]} of the kind of animal {@code text} (an entity type id; empty: every kind). */
+		public static final int JOB_HERD = 35;
+		/** Rancher: {@code args[0]} 1 lets it cull animals over the limit, 0 doesn't. */
+		public static final int JOB_BUTCHER = 36;
 
 		public static final Type<BotCommand> TYPE = typeOf("bot_command");
 		public static final StreamCodec<RegistryFriendlyByteBuf, BotCommand> CODEC = StreamCodec.of(
@@ -269,10 +273,15 @@ public final class Payloads {
 	public record NeedView(String item, int target, int have) {
 	}
 
+	/** One kind of animal on a rancher's panel: {@code count} in the area (-1 while it isn't loaded) and its limit. */
+	public record HerdView(String kind, int count, int limit, boolean custom) {
+	}
+
 	/** A bot's job for the control panel. */
 	public record JobView(int job, boolean paused, Optional<BlockPos> chest, boolean chestOk, Optional<BlockPos> center,
-						  int zone, int radius, int stat, List<NeedView> needs) {
-		public static final JobView NONE = new JobView(0, false, Optional.empty(), false, Optional.empty(), 200, 30, 0, List.of());
+						  int zone, int radius, int stat, int herd, boolean butcher, List<NeedView> needs, List<HerdView> herds) {
+		public static final JobView NONE = new JobView(0, false, Optional.empty(), false, Optional.empty(), 200, 30, 0, 10, false,
+				List.of(), List.of());
 
 		static void write(RegistryFriendlyByteBuf buf, JobView v) {
 			buf.writeVarInt(v.job);
@@ -283,11 +292,20 @@ public final class Payloads {
 			buf.writeVarInt(v.zone);
 			buf.writeVarInt(v.radius);
 			buf.writeVarInt(v.stat);
+			buf.writeVarInt(v.herd);
+			buf.writeBoolean(v.butcher);
 			buf.writeVarInt(v.needs.size());
 			for (NeedView need : v.needs) {
 				buf.writeUtf(need.item, 128);
 				buf.writeVarInt(need.target);
 				buf.writeVarInt(need.have + 1);
+			}
+			buf.writeVarInt(v.herds.size());
+			for (HerdView herd : v.herds) {
+				buf.writeUtf(herd.kind, 64);
+				buf.writeVarInt(herd.count + 1);
+				buf.writeVarInt(herd.limit);
+				buf.writeBoolean(herd.custom);
 			}
 		}
 
@@ -300,12 +318,19 @@ public final class Payloads {
 			int zone = buf.readVarInt();
 			int radius = buf.readVarInt();
 			int stat = buf.readVarInt();
+			int herd = buf.readVarInt();
+			boolean butcher = buf.readBoolean();
 			int size = Math.min(buf.readVarInt(), 16);
 			List<NeedView> needs = new ArrayList<>(size);
 			for (int i = 0; i < size; i++) {
 				needs.add(new NeedView(buf.readUtf(128), buf.readVarInt(), buf.readVarInt() - 1));
 			}
-			return new JobView(job, paused, chest, chestOk, center, zone, radius, stat, needs);
+			int kinds = Math.min(buf.readVarInt(), 16);
+			List<HerdView> herds = new ArrayList<>(kinds);
+			for (int i = 0; i < kinds; i++) {
+				herds.add(new HerdView(buf.readUtf(64), buf.readVarInt() - 1, buf.readVarInt(), buf.readBoolean()));
+			}
+			return new JobView(job, paused, chest, chestOk, center, zone, radius, stat, herd, butcher, needs, herds);
 		}
 	}
 

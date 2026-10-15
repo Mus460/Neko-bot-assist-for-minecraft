@@ -20,6 +20,8 @@ import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
 import dev.butterbot.network.BotAccess;
 import dev.butterbot.network.JobControl;
+import net.minecraft.world.entity.EntityType;
+import dev.butterbot.ai.job.Livestock;
 import dev.butterbot.network.ModNetworking;
 import dev.butterbot.registry.ModEntities;
 import dev.butterbot.registry.ModItems;
@@ -193,7 +195,8 @@ public final class BotCommand {
 
 		LiteralArgumentBuilder<CommandSourceStack> set = Commands.literal("set");
 		String[][] names = {{"none", "NONE"}, {"miner", "MINER"}, {"gatherer", "GATHERER"}, {"guard", "GUARD"}, {"farmer", "FARMER"},
-				{"penambang", "MINER"}, {"pengumpul", "GATHERER"}, {"penjaga", "GUARD"}, {"petani", "FARMER"}, {"asisten", "NONE"}};
+				{"rancher", "RANCHER"}, {"penambang", "MINER"}, {"pengumpul", "GATHERER"}, {"penjaga", "GUARD"}, {"petani", "FARMER"},
+				{"peternak", "RANCHER"}, {"asisten", "NONE"}};
 		for (String[] name : names) {
 			BotJob value = BotJob.valueOf(name[1]);
 			set.then(Commands.literal(name[0]).executes(ctx -> simple(ctx.getSource(), bot ->
@@ -254,9 +257,54 @@ public final class BotCommand {
 										bot.getName(), bot.getJobs().radius())), false);
 							});
 						})));
+		LiteralArgumentBuilder<CommandSourceStack> herd = Commands.literal("herd");
+		herd.then(Commands.argument("count", IntegerArgumentType.integer(JobConfig.MIN_HERD, JobConfig.MAX_HERD))
+				.executes(ctx -> {
+					int count = IntegerArgumentType.getInteger(ctx, "count");
+					return simple(ctx.getSource(), bot -> {
+						bot.getJobs().setHerd(count);
+						ctx.getSource().sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.job_herd_set",
+								bot.getName(), bot.getJobs().herd())), false);
+					});
+				}));
+		String[][] kinds = {{"sheep", "sheep"}, {"domba", "sheep"}, {"cow", "cow"}, {"sapi", "cow"}, {"chicken", "chicken"},
+				{"ayam", "chicken"}, {"pig", "pig"}, {"babi", "pig"}, {"goat", "goat"}, {"kambing", "goat"}, {"rabbit", "rabbit"},
+				{"kelinci", "rabbit"}, {"mooshroom", "mooshroom"}};
+		for (String[] name : kinds) {
+			EntityType<?> kind = Livestock.byId(name[1]);
+			if (kind == null) {
+				continue;
+			}
+			herd.then(Commands.literal(name[0])
+					.then(Commands.argument("count", IntegerArgumentType.integer(JobConfig.MIN_HERD, JobConfig.MAX_HERD))
+							.executes(ctx -> {
+								int count = IntegerArgumentType.getInteger(ctx, "count");
+								return simple(ctx.getSource(), bot -> {
+									bot.getJobs().setHerdLimit(kind, count);
+									ctx.getSource().sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.job_herd_kind_set",
+											bot.getName(), bot.getJobs().herdLimit(kind), kind.getDescription())), false);
+								});
+							})));
+		}
+		job.then(herd);
+		job.then(Commands.literal("butcher")
+				.then(Commands.literal("on").executes(ctx -> butcher(ctx.getSource(), true)))
+				.then(Commands.literal("off").executes(ctx -> butcher(ctx.getSource(), false))));
 		job.then(Commands.literal("pause").executes(ctx -> simple(ctx.getSource(), bot -> JobControl.setPaused(bot, true))));
 		job.then(Commands.literal("resume").executes(ctx -> simple(ctx.getSource(), bot -> JobControl.setPaused(bot, false))));
 		return job;
+	}
+
+	/** {@code /butterbot job butcher on|off}: may a rancher cull animals over the limit? */
+	private static int butcher(CommandSourceStack source, boolean on) throws CommandSyntaxException {
+		return simple(source, bot -> {
+			bot.getJobs().setButcher(on);
+			if (!on) {
+				bot.stopCulling();
+			}
+			source.sendSuccess(() -> Msg.prefixed(Component.translatable(on ? "butterbot.msg.job_butcher_on" : "butterbot.msg.job_butcher_off",
+					bot.getName())), false);
+		});
 	}
 
 	private static int jobInfo(CommandSourceStack source) throws CommandSyntaxException {
@@ -353,7 +401,7 @@ public final class BotCommand {
 		BotProgress learned = bot.getProgress();
 		source.sendSuccess(() -> Component.translatable("butterbot.msg.level_mastery", bot.getSkillPoints(),
 				masteryName(learned, BotJob.MINER), masteryName(learned, BotJob.GATHERER),
-				masteryName(learned, BotJob.GUARD), masteryName(learned, BotJob.FARMER)), false);
+				masteryName(learned, BotJob.GUARD), masteryName(learned, BotJob.FARMER), masteryName(learned, BotJob.RANCHER)), false);
 		return level;
 	}
 

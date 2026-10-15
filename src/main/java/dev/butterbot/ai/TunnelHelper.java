@@ -128,7 +128,9 @@ public final class TunnelHelper {
 				|| state.is(Blocks.END_STONE) || state.is(Blocks.CALCITE) || state.is(Blocks.DRIPSTONE_BLOCK)
 				|| state.is(Blocks.SMOOTH_BASALT) || state.is(Blocks.MAGMA_BLOCK) || state.is(Blocks.SOUL_SAND)
 				|| state.is(Blocks.SOUL_SOIL) || state.is(Blocks.NETHER_QUARTZ_ORE) || state.is(Blocks.NETHER_GOLD_ORE)
-				|| state.is(Blocks.ICE) || state.is(Blocks.PACKED_ICE) || isTrap(state)) {
+				|| state.is(Blocks.ICE) || state.is(Blocks.PACKED_ICE) || isTrap(state)
+				|| state.is(BlockTags.NYLIUM) || state.is(Blocks.NETHER_WART_BLOCK) || state.is(Blocks.WARPED_WART_BLOCK)
+				|| state.is(Blocks.GLOWSTONE) || state.is(Blocks.SHROOMLIGHT)) {
 			return true;
 		}
 		for (BotResource resource : BotResource.values()) {

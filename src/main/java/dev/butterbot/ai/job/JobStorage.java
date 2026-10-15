@@ -116,6 +116,32 @@ public final class JobStorage {
 		return moved;
 	}
 
+	/** Moves up to {@code max} items matching {@code which} from {@code container} into the backpack. Returns how many. */
+	public static int take(ButterBotEntity bot, Container container, Predicate<ItemStack> which, int max) {
+		SimpleContainer backpack = bot.getInventory();
+		int moved = 0;
+		for (int i = 0; i < container.getContainerSize() && moved < max; i++) {
+			ItemStack stack = container.getItem(i);
+			if (stack.isEmpty() || !which.test(stack)) {
+				continue;
+			}
+			int want = Math.min(max - moved, stack.getCount());
+			ItemStack rest = backpack.addItem(stack.copyWithCount(want));
+			int took = want - rest.getCount();
+			if (took <= 0) {
+				// The backpack is full.
+				break;
+			}
+			stack.shrink(took);
+			container.setItem(i, stack);
+			moved += took;
+		}
+		if (moved > 0) {
+			container.setChanged();
+		}
+		return moved;
+	}
+
 	/** Things the bot keeps for itself when it empties its backpack: torches, food and some blocks for plugging lava. */
 	public static boolean isSupply(ItemStack stack) {
 		return stack.is(Items.TORCH) || ButterBotEntity.isSafeFood(stack) || ButterBotEntity.isFiller(stack);

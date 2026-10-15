@@ -7,14 +7,15 @@ import java.util.Locale;
 /**
  * A bot's standing job. Unlike a task, a job never finishes: between orders the bot goes back to it.
  * Miners and gatherers fill one chest until a list of items is in it, guards patrol an area and
- * farmers keep a field going.
+ * farmers keep a field going and ranchers look after the animals.
  */
 public enum BotJob {
 	NONE,
 	MINER,
 	GATHERER,
 	GUARD,
-	FARMER;
+	FARMER,
+	RANCHER;
 
 	public String id() {
 		return name().toLowerCase(Locale.ROOT);
@@ -35,7 +36,7 @@ public enum BotJob {
 
 	/** Jobs that work around a spot the owner picked. */
 	public boolean usesArea() {
-		return this == GUARD || this == FARMER;
+		return this == GUARD || this == FARMER || this == RANCHER;
 	}
 
 	public static BotJob byOrdinal(int ordinal) {

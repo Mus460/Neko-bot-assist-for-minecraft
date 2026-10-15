@@ -87,6 +87,7 @@ Setiap bot bisa diberi **job**: pekerjaan tetap yang terus dikerjakan selama kam
 | **Pengumpul** | Mengumpulkan barang permukaan: 9 jenis kayu, pasir, pasir merah, tanah, tebu, kaktus, labu, semangka, bambu, bola salju, biji gandum |
 | **Penjaga** | Patroli di sekitar titik pilihanmu (radius 30 blok, bisa 6–64), melawan semua monster di area itu, memungut loot dan XP yang tergeletak, lalu menyimpan loot ke peti di area itu |
 | **Petani** | Memanen dan menanam ulang ladang di sekitar titik pilihanmu (radius 16 blok, bisa 6–32) terus-menerus. Hasil panen masuk ke peti pilihanmu (atau Bot Base) |
+| **Peternak** | Merawat hewan ternak di sekitar titik pilihanmu (radius 16 blok, bisa 6–32): mengawinkan, mencukur domba, memerah sapi, memungut telur/wol/bulu, mengusir monster, lalu menyimpan hasilnya di peti |
 
 **Penambang dan Pengumpul** bekerja dengan **satu peti khusus** dan **daftar barang**:
 
@@ -100,6 +101,15 @@ Setiap bot bisa diberi **job**: pekerjaan tetap yang terus dikerjakan selama kam
 Bot yang punya job **tetap bekerja walaupun kamu jauh**: area kecil di sekitar bot tetap dimuat game, jadi penambang 300 blok dari base tidak berhenti. Lokasi yang jauh didatangi dengan teleport (lokasinya dimuat dulu). Setelah menyetor, bot kembali tepat ke terowongannya. Bot ber-job bisa diatur dari panel dan perintah dari jarak berapa pun (di dimensi yang sama), dan selalu muncul di HUD.
 
 **Penjaga**: tekan **Di sini** (titik = tempatmu berdiri) atau **Pilih (Z)**. Peti loot bisa dipilih dengan **Peti (Z)**; dengan **Auto**, bot memakai peti terdekat di area patrolinya. Yang dipungut hanya barang yang tidak dibuang pemain (loot monster dan sejenisnya).
+
+**Peternak**: atur titik, radius dan peti seperti Penjaga. Yang dirawat: sapi, mooshroom, domba, babi, ayam, kelinci dan kambing (hewan peliharaan, kuda dan hewan bernama tidak pernah dipotong).
+
+- **Batas per jenis**: tab Job menampilkan 7 kotak hewan dengan **jumlah di area / batas** (misalnya Domba `24/30`). Klik hewannya lalu atur batasnya dengan −10 / −1 / +1 / +10 (2–99, bawaan 10). Yang dihitung hanya hewan di dalam radius peternakan (misalnya 16 atau 32 blok).
+- **Kawin**: tiap jenis dikawinkan sampai batasnya. Bot memberi makan sepasang hewan dewasa yang berdekatan, langsung keduanya. Pakan diambil dari peti (sampai 32 per jenis): gandum untuk sapi, domba dan kambing, benih untuk ayam, wortel/kentang/bit untuk babi, wortel/dandelion untuk kelinci. Kalau pakannya tidak ada, bot memberitahumu.
+- **Cukur & perah**: domba yang berbulu dicukur (tanpa gunting), sapi diperah kalau ada **ember kosong** di peti (bot membawa sampai 4).
+- **Pungut**: telur, wol, bulu, daging dan kulit yang tergeletak di area dipungut. Kandang berpagar tidak masalah: kalau tidak bisa masuk, bot melompat ke dalam.
+- **Potong lebih** (mati kalau tidak dinyalakan): kalau jumlah satu jenis di area melebihi batasnya (misalnya 34 domba dengan batas 30), hewan dewasa dipotong sampai kembali ke batas. Anak hewan, hewan bernama, yang diikat tali, babi berpelana dan yang sedang kawin tidak pernah disentuh, dan setiap jenis selalu disisakan minimal 2 ekor dewasa.
+- Malam hari bot melawan monster yang masuk area ternak.
 
 **Jeda**: tombol **Jeda / Lanjut** di tab Job, `/butterbot job pause|resume`, atau `[` untuk semua bot sekaligus.
 
@@ -206,6 +216,7 @@ Kerja untuk job juga melatih job itu: Pemula → Magang → Terampil → Ahli �
 | Pengumpul | +6% peluang kayu/tanaman ganda |
 | Penjaga | +8% serangan, +4 darah (dilatih dengan mengalahkan monster) |
 | Petani | +8% peluang panen ganda; Grandmaster: tanaman di sekitarnya tumbuh lebih cepat |
+| Peternak | +8% peluang anak kembar saat mengawinkan ternak |
 
 Halaman **Statistik** di panel menampilkan semua angka bot, mastery, kemampuan level dan jumlah total yang pernah digali, dikalahkan, dipanen dan dibuat.
 
@@ -221,6 +232,15 @@ Tombol **Mulai bertani** di tab **Bertani**, atau ketik `/butterbot farm`. Area 
 - Menabur benih dari tasnya di farmland kosong.
 - Hasil panen disimpan di Bot Base. Bot menyimpan sampai 32 benih atau bibit per jenis untuk ditanam lagi. Tanpa base, hasil diantar ke kamu saat tas penuh.
 - Bot terus bertani sampai kamu menekan **Berhenti** atau mengetik `/butterbot stop`.
+
+### Menambang di Nether (netherite)
+
+Bawa bot ke Nether (bot dalam mode **ikut** ikut masuk portal bersamamu), lalu pilih **Netherite** di tab **Tambang** (atau `/butterbot mine netherite [jumlah]`, atau lihat puing kuno lalu tekan `Z`).
+
+- Bot menggali tangga turun ke **Y 15**, lalu menambang cabang mencari **puing kuno (ancient debris)**. Puing kuno terlihat dari balik dinding seperti bijih lain.
+- Butuh beliung berlian, jadi bot harus **level 5** ke atas. Satu blok butuh sekitar 5 detik.
+- Lava yang mengalir ke jalur atau ada di bawah langkah berikutnya **ditutup dulu** dengan batu, dan rute galian tidak pernah lewat lava. Bot baru **kebal api di level 12**, jadi taruh makanan di tasnya.
+- Hasilnya puing kuno (atau scrap kalau tungku bawaan dinyalakan). Bijih Overworld (berlian, besi, dll.) hanya bisa dipesan di Overworld, netherite hanya di Nether.
 
 ### Rapikan peti
 
@@ -255,7 +275,7 @@ Semua perintah bisa dipakai tanpa cheat. Perintah kerja berlaku untuk bot milikm
 /butterbot menu                   buka panel bot terdekat
 /butterbot getbase                dapat 1 Bot Base
 /butterbot neko <true|false>      telinga & ekor kucing on/off
-/butterbot mine <diamond|iron|gold|copper|coal|redstone|lapis|emerald|stone|wood|sand> [jumlah]
+/butterbot mine <diamond|iron|gold|copper|coal|redstone|lapis|emerald|stone|wood|sand|netherite> [jumlah]
 /butterbot find <sumber>          koordinat blok terdekat (200 blok)
 /butterbot farm                   mulai bertani di sekitar base
 /butterbot sort                   rapikan peti di sekitar base
@@ -277,15 +297,19 @@ Semua perintah bisa dipakai tanpa cheat. Perintah kerja berlaku untuk bot milikm
 /butterbot skin <1-5>             pakai skin neko bawaan nomor 1-5
 /butterbot base | follow | come | deliver | stop | status | list
 /butterbot job                    info job bot terdekat (isi peti, daftar, area)
-/butterbot job set <miner|gatherer|guard|farmer|none>
-                                  (juga: penambang, pengumpul, penjaga, petani, asisten)
+/butterbot job set <miner|gatherer|guard|farmer|rancher|none>
+                                  (juga: penambang, pengumpul, penjaga, petani, peternak, asisten)
 /butterbot job chest [clear]      jadikan peti yang kamu lihat sebagai peti job
 /butterbot job need <item> [jumlah]   tambah/ubah barang di daftar (0 = hapus)
 /butterbot job remove <item>      hapus barang dari daftar
 /butterbot job clear              kosongkan daftar
 /butterbot job zone <0-1000>      zona larangan gali dari base (bawaan 200)
-/butterbot job center             titik kerja penjaga/petani = posisimu
-/butterbot job radius <6-64>      radius patroli/ladang
+/butterbot job center             titik kerja penjaga/petani/peternak = posisimu
+/butterbot job radius <6-64>      radius patroli/ladang/peternakan
+/butterbot job herd <2-99>        peternak: batas yang sama untuk semua jenis hewan
+/butterbot job herd <domba|sapi|ayam|babi|kambing|kelinci|mooshroom> <2-99>
+                                  peternak: batas satu jenis (juga: sheep, cow, chicken, pig, goat, rabbit)
+/butterbot job butcher <on|off>   peternak: potong ternak yang melebihi batas
 /butterbot job pause | resume     jeda / lanjutkan job
 ```
 
