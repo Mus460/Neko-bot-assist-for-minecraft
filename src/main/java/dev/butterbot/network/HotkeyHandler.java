@@ -117,6 +117,7 @@ public final class HotkeyHandler {
 				tell(player, Component.translatable(turnOn ? "butterbot.msg.hotkey_guard_on" : "butterbot.msg.hotkey_guard_off", bots.size()));
 			}
 			case Payloads.Hotkey.LIGHT -> nearest.assignLightTask(player.blockPosition(), LightAreaAction.DEFAULT_RADIUS);
+			case Payloads.Hotkey.DEBUG -> BotDebug.toggle(player, bots);
 			case Payloads.Hotkey.FETCH_HELD -> {
 				ItemStack held = player.getMainHandItem();
 				if (held.isEmpty()) {

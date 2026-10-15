@@ -48,9 +48,11 @@ public class ButterBot implements ModInitializer {
 		});
 		ServerTickEvents.END_SERVER_TICK.register(HudSync::tick);
 		ServerTickEvents.END_SERVER_TICK.register(JobChunks::tick);
+		ServerTickEvents.END_SERVER_TICK.register(dev.butterbot.network.BotDebug::tick);
 
 		ServerLifecycleEvents.SERVER_STARTED.register(ServerSkinStore::init);
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> ServerSkinStore.clear());
+		ServerLifecycleEvents.SERVER_STOPPED.register(server -> dev.butterbot.network.BotDebug.clear());
 
 		LOGGER.info("Butter Bot ready. What is my purpose?");
 	}

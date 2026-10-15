@@ -47,6 +47,7 @@ public final class BotKeys {
 	private static final KeyMapping FETCH = key("fetch", InputConstants.KEY_M);
 	private static final KeyMapping HUD = key("hud", InputConstants.KEY_RBRACKET);
 	private static final KeyMapping JOBS = key("jobs", InputConstants.KEY_LBRACKET);
+	private static final KeyMapping DEBUG = key("debug", InputConstants.KEY_K);
 
 	/** What the next press of the context key picks for a bot's job (set from the Job tab). */
 	public enum PickKind {CHEST, CENTER}
@@ -134,6 +135,7 @@ public final class BotKeys {
 		send(connected, LIGHT, Payloads.Hotkey.LIGHT);
 		send(connected, FETCH, Payloads.Hotkey.FETCH_HELD);
 		send(connected, JOBS, Payloads.Hotkey.JOB_TOGGLE);
+		send(connected, DEBUG, Payloads.Hotkey.DEBUG);
 		if (connected && picking() && pickHintTicks-- <= 0) {
 			pickHintTicks = 20;
 			player.sendOverlayMessage(Component.translatable(pickKind == PickKind.CHEST

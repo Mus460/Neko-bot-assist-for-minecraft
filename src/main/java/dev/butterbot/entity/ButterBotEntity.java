@@ -22,6 +22,8 @@ import dev.butterbot.ai.actions.RecoverItemsAction;
 import dev.butterbot.ai.actions.SortTaskAction;
 import dev.butterbot.ai.actions.TunnelTaskAction;
 import dev.butterbot.ai.job.JobAction;
+import dev.butterbot.ai.path.DigPath;
+import dev.butterbot.ai.path.PathFollower;
 import dev.butterbot.ai.job.JobStorage;
 import dev.butterbot.ai.job.ResourceCatalog;
 import dev.butterbot.block.BotBaseBlockEntity;
@@ -170,6 +172,9 @@ public class ButterBotEntity extends PathfinderMob {
 	/** A buried block counts as this much farther (squared) than one with an open side. */
 	private static final double BURIED_PENALTY = 20.0D;
 	private static final long SECOND_WIND_COOLDOWN = 20L * 60L * 10L;
+	/** Problems are told to the owner at most this often (the rest only show with the debug key). */
+	private static final long PROBLEM_MESSAGE_TICKS = 20L * 60L;
+	private static final long PROBLEM_MEMORY_TICKS = 20L * 60L * 5L;
 	private static final float MAX_DIGGABLE_HARDNESS = 10.0F;
 	/** How long the bot keeps holding its tool after the last block it dug. */
 	private static final int TOOL_HOLD_TICKS = 60;
@@ -232,6 +237,16 @@ public class ButterBotEntity extends PathfinderMob {
 	private BotStats cachedStats;
 	/** Game time from which Second Wind can save the bot again. */
 	private long secondWindReadyAt;
+	/** What the bot is digging its way to and how (shown by the debug key). */
+	@Nullable
+	private BlockPos routeTarget;
+	@Nullable
+	private PathFollower routeFollower;
+	/** The last thing that went wrong, for the status and the debug key. */
+	@Nullable
+	private Component lastProblem;
+	private long lastProblemTime = JobConfig.NEVER;
+	private long lastProblemMessage = JobConfig.NEVER;
 	/** Experience points (from ores, smelting and monsters) waiting to be handed to the owner. */
 	private int storedXp;
 	private boolean guard = true;
@@ -1299,6 +1314,43 @@ public class ButterBotEntity extends PathfinderMob {
 
 	public Component getSpeech() {
 		return this.entityData.get(DATA_SPEECH);
+	}
+
+	public void setRoute(@Nullable BlockPos target, @Nullable PathFollower follower) {
+		this.routeTarget = target == null ? null : target.immutable();
+		this.routeFollower = follower;
+	}
+
+	@Nullable
+	public BlockPos getRouteTarget() {
+		return routeTarget;
+	}
+
+	/** The dig route being followed, or null when walking normally. */
+	@Nullable
+	public DigPath getRoute() {
+		return routeFollower == null || !routeFollower.isActive() ? null : routeFollower.path();
+	}
+
+	public int getRouteProgress() {
+		return routeFollower == null ? 0 : routeFollower.progress();
+	}
+
+	/** Something went wrong (a block it can't get to...): remembered for the debug key, and the owner is told now and then. */
+	public void reportProblem(Component problem) {
+		long now = this.level().getGameTime();
+		lastProblem = problem;
+		lastProblemTime = now;
+		if (now - lastProblemMessage >= PROBLEM_MESSAGE_TICKS) {
+			lastProblemMessage = now;
+			tellOwner(problem.copy().withStyle(ChatFormatting.GOLD));
+		}
+	}
+
+	/** The last problem if it happened in the last few minutes. */
+	@Nullable
+	public Component getLastProblem() {
+		return lastProblem != null && this.level().getGameTime() - lastProblemTime < PROBLEM_MEMORY_TICKS ? lastProblem : null;
 	}
 
 	public void tellOwner(Component message) {
