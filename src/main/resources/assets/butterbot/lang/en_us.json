@@ -519,6 +519,7 @@
   "butterbot.hud.s.lighting": "Lighting %s",
   "butterbot.hud.s.fetching": "Fetching %s",
   "butterbot.hud.s.waiting": "Waiting",
+  "butterbot.hud.s.stuck": "Stuck!",
   "key.category.butterbot.main": "Butter Bot",
   "key.butterbot.panel": "Bot panel (tap) / command wheel (hold)",
   "key.butterbot.call_all": "Call all bots to me",

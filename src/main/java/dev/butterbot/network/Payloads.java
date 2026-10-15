@@ -234,9 +234,27 @@ public final class Payloads {
 	/**
 	 * One line of the on-screen bot list. {@code icon} is the id of an item that stands for what the bot
 	 * is doing (empty when idle); {@code distance} is -1 when the bot is in another dimension.
+	 * {@code flags} holds the warning bits below, {@code progress} how far along its work is (0 to 1, or
+	 * -1 when there is nothing to measure) and {@code x}, {@code y}, {@code z} where it stands.
 	 */
 	public record HudBot(String name, float health, float maxHealth, Component status, String icon, int distance,
-						 int items, int capacity) {
+						 int items, int capacity, UUID id, int level, int flags, float progress, float x, float y, float z,
+						 String skinId, int skinVariant) {
+
+		/** It found no way somewhere lately, or just had to hop out of a tight spot. */
+		public static final int STUCK = 1;
+		/** It had to skip something lately (a block it can't reach...). */
+		public static final int PROBLEM = 2;
+		/** It was hit in the last few seconds. */
+		public static final int HURT = 4;
+		public static final int PAUSED = 8;
+		public static final int FIGHTING = 16;
+		/** Under 30% health. */
+		public static final int LOW_HEALTH = 32;
+
+		public boolean has(int flag) {
+			return (flags & flag) != 0;
+		}
 
 		static void write(RegistryFriendlyByteBuf buf, HudBot bot) {
 			buf.writeUtf(bot.name, 64);
@@ -247,11 +265,22 @@ public final class Payloads {
 			buf.writeVarInt(bot.distance + 1);
 			buf.writeVarInt(bot.items);
 			buf.writeVarInt(bot.capacity);
+			buf.writeUUID(bot.id);
+			buf.writeVarInt(bot.level);
+			buf.writeVarInt(bot.flags);
+			buf.writeFloat(bot.progress);
+			buf.writeFloat(bot.x);
+			buf.writeFloat(bot.y);
+			buf.writeFloat(bot.z);
+			buf.writeUtf(bot.skinId, 64);
+			buf.writeVarInt(bot.skinVariant);
 		}
 
 		static HudBot read(RegistryFriendlyByteBuf buf) {
 			return new HudBot(buf.readUtf(64), buf.readFloat(), buf.readFloat(), ComponentSerialization.TRUSTED_STREAM_CODEC.decode(buf),
-					buf.readUtf(128), buf.readVarInt() - 1, buf.readVarInt(), buf.readVarInt());
+					buf.readUtf(128), buf.readVarInt() - 1, buf.readVarInt(), buf.readVarInt(), buf.readUUID(), buf.readVarInt(),
+					buf.readVarInt(), buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readUtf(64),
+					buf.readVarInt());
 		}
 	}
 

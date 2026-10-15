@@ -519,6 +519,7 @@
   "butterbot.hud.s.lighting": "Menerangi %s",
   "butterbot.hud.s.fetching": "Mengambil %s",
   "butterbot.hud.s.waiting": "Menunggu",
+  "butterbot.hud.s.stuck": "Nyangkut!",
   "key.category.butterbot.main": "Butter Bot",
   "key.butterbot.panel": "Panel bot (tekan) / roda perintah (tahan)",
   "key.butterbot.call_all": "Panggil semua bot ke aku",
