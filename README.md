@@ -76,7 +76,7 @@ Semua tombol bisa diganti di **Options → Controls → Key Binds**, bagian **Bu
 - **peti atau tong** → rapikan peti;
 - **tanaman atau farmland** → bertani di situ;
 - **Bot Base** → jadikan base bot itu lalu pulang ke sana;
-- **monster atau hewan** → semua bot dalam 48 blok menyerangnya (juga saat mode pengawal mati). Penduduk desa, golem, peliharaan dan Warden tidak bisa diserang;
+- **monster atau hewan** → semua bot dalam 48 blok menyerangnya (juga saat mode pengawal mati), termasuk Warden dan boss. Penduduk desa, golem dan peliharaan tidak bisa diserang;
 - **bot milikmu** → buka panelnya;
 - **blok lain** → bot berjalan ke sana lalu **menunggu di situ** sampai diberi perintah lain.
 
@@ -345,6 +345,14 @@ Setiap level menambah darah, serangan, kecepatan gali dan pemulihan, plus **+1 p
 | 28 | **Auman Neko**: awal pertarungan, monster dalam 8 blok kena Weakness dan Slowness II |
 | 29 | **Cakar Hoki**: +25% peluang hasil ganda bijih, kayu dan tanaman |
 | 30 | **Legenda**: +50% darah, serangan, gali dan pemulihan; damage diterima setengah; tidak bisa didorong; kebal jatuh dan tenggelam; Hati Baja tiap 3 menit; kamu mendapat Strength dan Regeneration di dekatnya. **Kekuatan super: Hujan Meteor**, Aura Api jadi api arwah biru |
+
+#### Melawan apa saja yang menyerangmu
+
+Dengan mode pengawal, bot melawan semua monster, termasuk **Warden**, **Wither** dan **Ender Dragon**, serta makhluk apa pun yang menyerang kamu atau bot-botmu: serigala, golem besi, lebah, enderman atau piglin yang marah, dan sebagainya. Makhluk netral dibiarkan selama tidak menyerang. Penduduk desa, peliharaanmu dan bot lain tidak pernah diserang.
+
+- Target yang **tidak terjangkau** (naga yang terbang, phantom, ghast, monster di tempat tinggi atau di seberang jurang) ditembak dengan **tembakan cahaya**: sinar berwarna tingkat bot, 70% kekuatan serangannya, sampai 32 blok (boss sampai 64 blok).
+- Melawan **Ender Dragon**, bot lebih dulu menembak **End Crystal** yang menyembuhkan naga, lalu membidik **kepala naga** (damage penuh).
+- Boss dilawan dari jarak jauh (64 blok), monster biasa dari jarak dekat seperti biasa.
 
 #### Kekuatan super
 

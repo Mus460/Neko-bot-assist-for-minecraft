@@ -63,6 +63,7 @@ import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.ItemLike;
@@ -5073,7 +5074,7 @@ public class ButterBotEntity extends PathfinderMob {
 
 	/**
 	 * Sweeping Blow skill: a hit also catches the monsters right around the target (only ones the bot
-	 * would fight anyway: no Endermen, piglins, Wardens or named mobs that leave it alone).
+	 * would fight anyway: not endermen, piglins or named mobs that leave it alone).
 	 */
 	@Override
 	public boolean doHurtTarget(ServerLevel level, Entity target) {
@@ -5118,6 +5119,32 @@ public class ButterBotEntity extends PathfinderMob {
 			}
 		}
 		return true;
+	}
+
+	/**
+	 * A bolt of light at something out of reach (a flying dragon, a phantom, an end crystal): a beam of particles in
+	 * the tier's colour, and 70% of its attack. The dragon is hit in the head, where it takes full damage.
+	 */
+	public void rangedStrike(ServerLevel level, Entity target) {
+		Vec3 from = this.getEyePosition();
+		Vec3 to = target.getBoundingBox().getCenter();
+		Vec3 step = to.subtract(from);
+		int points = (int) Math.min(64.0D, step.length() * 2.0D);
+		DustParticleOptions beam = new DustParticleOptions(BotTier.of(getBotLevel()).color() & 0xFFFFFF, 1.2F);
+		for (int i = 1; i <= points; i++) {
+			Vec3 at = from.add(step.scale(i / (double) points));
+			level.sendParticles(beam, at.x, at.y, at.z, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+		}
+		level.sendParticles(ParticleTypes.END_ROD, to.x, to.y, to.z, 8, 0.3D, 0.3D, 0.3D, 0.05D);
+		this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+		this.playSound(SoundEvents.AMETHYST_BLOCK_RESONATE, 1.0F, 1.6F);
+		float damage = (float) this.getAttributeValue(Attributes.ATTACK_DAMAGE) * 0.7F;
+		DamageSource source = this.damageSources().mobAttack(this);
+		boolean hit = target instanceof EnderDragon dragon ? dragon.hurt(level, dragon.head, source, damage)
+				: target.hurtServer(level, source, damage);
+		if (hit && stats().lifeSteal() > 0.0F) {
+			this.heal(damage * stats().lifeSteal());
+		}
 	}
 
 	/** Storm Slash (level 27): now and then lightning (light and sound only, no fire) strikes the target for 12 more damage. */

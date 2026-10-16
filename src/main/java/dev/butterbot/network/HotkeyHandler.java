@@ -14,7 +14,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.animal.golem.IronGolem;
-import net.minecraft.world.entity.monster.warden.Warden;
 import net.minecraft.world.entity.npc.Npc;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Blocks;
@@ -232,9 +231,9 @@ public final class HotkeyHandler {
 				|| state.is(Blocks.FARMLAND) || state.is(Blocks.SUGAR_CANE);
 	}
 
-	/** Anything the owner points at, except villagers, golems, pets, other bots and the Warden. */
+	/** Anything the owner points at (the Warden and bosses too), except villagers, golems, pets and other bots. */
 	private static boolean canBeOrderedToAttack(Mob mob) {
-		if (mob instanceof ButterBotEntity || mob instanceof Npc || mob instanceof IronGolem || mob instanceof Warden) {
+		if (mob instanceof ButterBotEntity || mob instanceof Npc || mob instanceof IronGolem) {
 			return false;
 		}
 		return !(mob instanceof TamableAnimal tamable && tamable.isTame());

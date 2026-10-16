@@ -12,12 +12,13 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.NeutralMob;
 import net.minecraft.world.entity.TamableAnimal;
+import net.minecraft.world.entity.npc.Npc;
+import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.wither.WitherBoss;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.monster.creaking.Creaking;
 import net.minecraft.world.entity.monster.piglin.AbstractPiglin;
-import net.minecraft.world.entity.monster.warden.Warden;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.phys.AABB;
@@ -30,9 +31,11 @@ import java.util.Map;
 
 /**
  * Guard mode: fights monsters that come close to the bot or its owner (or the bot it guards, for a
- * bodyguard), then goes back to its job.
- * It never attacks players, animals or pets, leaves neutral mobs (endermen, piglins...) alone until
- * they attack, and stays away from bosses and wardens. When badly hurt with no food it backs off.
+ * bodyguard), then goes back to its job. Wardens, the Wither and the Ender Dragon too, and any creature
+ * (a wolf, a golem, an angry enderman...) that goes after the owner or its bots. Targets out of reach (a
+ * flying dragon, phantoms, ghasts) get bolts of light; against the dragon it first shoots the end crystals
+ * that heal it. It never attacks players, villagers or the owner's pets, and leaves neutral mobs alone until
+ * they attack. When badly hurt with no food it backs off.
  */
 public class GuardAction implements BotAction {
 
@@ -52,6 +55,14 @@ public class GuardAction implements BotAction {
 	private static final double WARD_CHASE_SQ = 20.0D * 20.0D;
 	/** ...but only while it is this close to that bot itself (otherwise it catches up first). */
 	private static final double WARD_LINK_SQ = 20.0D * 20.0D;
+	/** Bosses (the Ender Dragon, the Wither) are fought from this far away. */
+	private static final double BOSS_RANGE = 64.0D;
+	/** Bolts of light reach this far (bosses: {@link #BOSS_RANGE}). */
+	private static final double SHOOT_RANGE_SQ = 32.0D * 32.0D;
+	/** Ticks of chasing without reaching the target before it shoots instead. */
+	private static final int SHOOT_AFTER_TICKS = 40;
+	/** End crystals this close to the bot are shot first in a dragon fight. */
+	private static final double CRYSTAL_RANGE = 64.0D;
 
 	@Nullable
 	private Mob target;
@@ -138,10 +149,55 @@ public class GuardAction implements BotAction {
 					target = null;
 				}
 			}
-		} else if (++chaseTicks > GIVE_UP_TICKS) {
+			return;
+		}
+		chaseTicks++;
+		if (canShoot(bot, current)) {
+			if (attackCooldown <= 0) {
+				attackCooldown = Math.max(10, bot.stats().attackCooldown() * 2);
+				// The dragon heals from its crystals: those go first.
+				EndCrystal crystal = current instanceof EnderDragon ? nearestCrystal(bot, level) : null;
+				bot.rangedStrike(level, crystal != null ? crystal : current);
+				chaseTicks = SHOOT_AFTER_TICKS;
+				if (!current.isAlive()) {
+					bot.onDefeated(current);
+					target = null;
+				}
+			}
+		} else if (chaseTicks > GIVE_UP_TICKS) {
 			ignore(bot, current);
 			target = null;
 		}
+	}
+
+	/**
+	 * Shoots what it can't reach: bosses always, flying or high-up targets at once, anything else once it has
+	 * chased for a couple of seconds without getting there.
+	 */
+	private boolean canShoot(ButterBotEntity bot, Mob mob) {
+		double range = isBoss(mob) ? BOSS_RANGE * BOSS_RANGE : SHOOT_RANGE_SQ;
+		if (bot.distanceToSqr(mob) > range || !bot.getSensing().hasLineOfSight(mob)) {
+			return false;
+		}
+		return isBoss(mob) || !mob.onGround() || mob.getY() - bot.getY() > 2.0D || chaseTicks > SHOOT_AFTER_TICKS;
+	}
+
+	@Nullable
+	private static EndCrystal nearestCrystal(ButterBotEntity bot, ServerLevel level) {
+		EndCrystal best = null;
+		double bestDistance = Double.MAX_VALUE;
+		for (EndCrystal crystal : level.getEntitiesOfClass(EndCrystal.class, bot.getBoundingBox().inflate(CRYSTAL_RANGE))) {
+			double distance = bot.distanceToSqr(crystal);
+			if (crystal.isAlive() && distance < bestDistance && bot.hasLineOfSight(crystal)) {
+				best = crystal;
+				bestDistance = distance;
+			}
+		}
+		return best;
+	}
+
+	private static boolean isBoss(Mob mob) {
+		return mob instanceof EnderDragon || mob instanceof WitherBoss;
 	}
 
 	/** Runs away from the monster towards the owner for a few seconds, then forgets it for a while. */
@@ -193,8 +249,11 @@ public class GuardAction implements BotAction {
 				&& withinChase(bot, mob) && isHostile(bot, mob) && !isIgnored(bot, mob);
 	}
 
-	/** Normally monsters near the bot; a patrolling guard keeps to its area, a bodyguard to the bot it guards. */
+	/** Normally monsters near the bot; a patrolling guard keeps to its area, a bodyguard to the bot it guards. Bosses from far. */
 	private static boolean withinChase(ButterBotEntity bot, Mob mob) {
+		if (isBoss(mob)) {
+			return bot.distanceToSqr(mob) < BOSS_RANGE * BOSS_RANGE;
+		}
 		ButterBotEntity ward = nearWard(bot);
 		if (ward != null && mob.distanceToSqr(ward) < WARD_CHASE_SQ) {
 			return true;
@@ -250,6 +309,17 @@ public class GuardAction implements BotAction {
 				}
 			}
 		}
+		if (best == null) {
+			// Bosses (the dragon flying high, the Wither) from far away.
+			for (Mob mob : bot.level().getEntitiesOfClass(Mob.class, bot.getBoundingBox().inflate(BOSS_RANGE),
+					mob -> isBoss(mob) && isValidTarget(bot, mob))) {
+				double distance = bot.distanceToSqr(mob);
+				if (distance < bestDistance) {
+					best = mob;
+					bestDistance = distance;
+				}
+			}
+		}
 		Player owner = bot.getOwner();
 		if (owner != null && owner.level() == bot.level() && bot.distanceToSqr(owner) < OWNER_LINK_SQ) {
 			AABB aroundOwner = owner.getBoundingBox().inflate(OWNER_RADIUS, 5.0D, OWNER_RADIUS);
@@ -271,21 +341,29 @@ public class GuardAction implements BotAction {
 		return ward != null && ward.level() == bot.level() && bot.distanceToSqr(ward) < WARD_LINK_SQ ? ward : null;
 	}
 
-	/** Monsters only. Neutral mobs and named mobs count only once they go after the bot or its owner. */
+	/**
+	 * What the bot fights: every monster, wardens and bosses included, and any creature at all that goes after the
+	 * bot, its owner or the owner's other bots, or just hurt the owner. Neutral mobs (endermen, piglins, wolves,
+	 * golems...) and named mobs only once they attack; never villagers, other bots or creakings (they can't be
+	 * hurt while their heart stands).
+	 */
 	public static boolean isHostile(ButterBotEntity bot, Mob mob) {
-		if (!mob.isAlive() || mob instanceof ButterBotEntity || mob.isInvulnerable() || !(mob instanceof Enemy)) {
+		if (!mob.isAlive() || mob instanceof ButterBotEntity || mob.isInvulnerable() || mob instanceof Creaking || mob instanceof Npc) {
 			return false;
 		}
-		if (mob instanceof Warden || mob instanceof Creaking || mob instanceof EnderDragon || mob instanceof WitherBoss) {
+		if (isAttackingUs(bot, mob.getTarget()) || hurtOwner(bot, mob)) {
+			return true;
+		}
+		if (!(mob instanceof Enemy) || mob instanceof TamableAnimal tamable && tamable.isTame()) {
 			return false;
 		}
-		if (mob instanceof TamableAnimal tamable && tamable.isTame()) {
-			return false;
-		}
-		if (mob instanceof NeutralMob || mob instanceof AbstractPiglin || mob.hasCustomName()) {
-			return isAttackingUs(bot, mob.getTarget());
-		}
-		return true;
+		return !(mob instanceof NeutralMob || mob instanceof AbstractPiglin || mob.hasCustomName());
+	}
+
+	/** The mob that hurt the owner in the last 10 seconds. */
+	private static boolean hurtOwner(ButterBotEntity bot, Mob mob) {
+		Player owner = bot.getOwner();
+		return owner != null && owner.getLastHurtByMob() == mob && owner.tickCount - owner.getLastHurtByMobTimestamp() < 200;
 	}
 
 	private static boolean isAttackingUs(ButterBotEntity bot, @Nullable LivingEntity victim) {
