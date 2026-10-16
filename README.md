@@ -303,9 +303,20 @@ Armor, telinga, ekor dan aksesori ikut bergerak bersama semua gerakan ini.
 
 Bot mendapat XP kerja dari setiap blok yang digali, tanaman yang dipanen, crafting, item yang dilebur dan monster yang dikalahkan. Kerja yang lebih sulit memberi lebih banyak XP: batu 1, batu bara/tembaga 2, besi/redstone 3, emas/lapis 4, zamrud 8, berlian 10, ancient debris 15; monster sesuai kekuatannya (boss 200). Level tampil di atas kepala bot (`Lv3 Mochi-3F`). Saat naik level ada kembang api dan bot bersorak: melompat sambil berputar, kupingnya tegak dan bergoyang, ekornya berdiri dan bergetar, lalu muncul spiral cahaya berwarna tingkatnya. Untuk level penting muncul judul besar di layarmu.
 
+Setiap level menambah darah, serangan, kecepatan gali dan pemulihan, plus **+1 poin skill**. Level 1–10 cepat dan memberi alat, Fortune dan urat bijih; mulai level 11 pertumbuhannya jauh lebih besar dan **setiap level membuka kemampuan baru**, sampai level 30 bot menjadi **Legenda** yang sangat kuat.
+
+| | Lv1 | Lv10 | Lv20 | Lv30 (Legenda) |
+|---|---|---|---|---|
+| Darah | 30 | 75 | 155 | 352 (235 × 1,5) |
+| Serangan dasar (+5–7 dari pedang) | 2 | 9,2 | 18,2 | 40,8 (27,2 × 1,5) |
+| Kecepatan gali | 1× | 2,35× | 3,55× | 7,1× |
+| Armor / toughness | 4 / 0 | 4 / 0 | 11 / 2 | 14 / 8 |
+| Jeda antar pukulan (tick) | 14 | 10 | 6 | 2 (Serangan Kilat) |
+| Pemulihan darah per detik | 0,6 | 1,5 | 6 | 13,5 |
+| Damage yang diterima | 100% | 100% | 100% | 37,5% |
+
 | Level | Kemampuan baru |
 |---|---|
-| Setiap level | Lebih cepat menggali, HP dan serangan bertambah, **+1 poin skill** |
 | 3 | Menambang seluruh urat bijih sekaligus (sampai 8 blok) |
 | 4 | Tas 27 slot |
 | 5 | Alat berlian, Fortune I |
@@ -314,14 +325,38 @@ Bot mendapat XP kerja dari setiap blok yang digali, tanaman yang dipanen, crafti
 | 8 | Fortune II, baris skill ke-2 terbuka |
 | 9 | Alat netherite, urat bijih sampai 64 blok |
 | 10 | Fortune III |
+| 11 | **Kulit Tebal**: +4 armor |
 | 12 | **Kebal Api**: api dan lava tidak melukai |
+| 13 | **Pelari**: 15% lebih cepat |
 | 14 | **Kebal Racun**: racun dan wither tidak mempan |
+| 15 | **Duri**: monster yang memukulnya ikut kena 30% pukulannya; tas 45 slot |
 | 16 | **Regenerasi Kuat** (pulih 2x lebih cepat), baris skill ke-3 terbuka |
+| 17 | **Cengkeraman Besi**: +40% tahan dorongan, pukulannya melempar monster jauh |
 | 18 | **Tangan Emas**: 10% peluang hasil bijih ganda |
-| 20 | **Tahan Ledakan**: ledakan hanya melukai setengahnya |
-| 24 | Baris skill ke-4 terbuka |
-| 25 | **Hati Baja**: sekali tiap 10 menit, pukulan mematikan menyisakan setengah darah |
-| 30 | **Legenda**: +10% darah, serangan dan kecepatan gali, kilau emas |
+| 19 | **Penyembuh**: memulihkan 1 darahmu tiap 2 detik selama kamu dalam 8 blok |
+| 20 | **Tahan Ledakan**: ledakan hanya melukai setengahnya. **Kekuatan super: Aura Api** |
+| 21 | **Serangan Kilat**: menyerang dua kali lebih sering |
+| 22 | **Aura Pelindung**: kamu mendapat Resistance I dalam 8 blok darinya |
+| 23 | **Mata Elang**: monster dalam 24 blok darimu bersinar tembus tembok |
+| 24 | **Kulit Baja**: damage yang diterima -25%, baris skill ke-4 terbuka |
+| 25 | **Hati Baja**: sekali tiap 10 menit, pukulan mematikan menyisakan setengah darah. **Kekuatan super: Nova Es** |
+| 26 | **Penghisap Nyawa**: setiap pukulan memulihkan seperempat serangannya |
+| 27 | **Tebasan Badai**: pukulan menyapu semua monster dalam 3 blok; 15% peluang petir (tanpa api) +12 damage |
+| 28 | **Auman Neko**: awal pertarungan, monster dalam 8 blok kena Weakness dan Slowness II |
+| 29 | **Cakar Hoki**: +25% peluang hasil ganda bijih, kayu dan tanaman |
+| 30 | **Legenda**: +50% darah, serangan, gali dan pemulihan; damage diterima setengah; tidak bisa didorong; kebal jatuh dan tenggelam; Hati Baja tiap 3 menit; kamu mendapat Strength dan Regeneration di dekatnya. **Kekuatan super: Hujan Meteor**, Aura Api jadi api arwah biru |
+
+#### Kekuatan super
+
+Bot level tinggi bertarung dengan efek besar. Kekuatan super **hanya mengenai monster** (tidak pernah kamu, penduduk desa, hewan peliharaan atau bot lain) dan **tidak pernah menyentuh blok**: tidak ada blok yang terbakar atau hancur, jadi rumahmu aman walaupun pertarungan terjadi di sebelahnya.
+
+| Level | Kekuatan | Efek |
+|---|---|---|
+| 20 | **Aura Api** | Cincin api berputar di sekeliling bot saat ada monster dekat; monster dalam 4 blok terbakar dan kena 2 damage per detik. Di level 30 menjadi api arwah biru (5 blok, 4 per detik). |
+| 25 | **Nova Es** | Tiap 8 detik saat bertarung: ledakan salju, monster dalam 6 blok membeku, sangat lambat dan kena 6 damage. |
+| 30 | **Hujan Meteor** | Tiap 15 detik saat bertarung: meteor berapi jatuh ke sampai 3 monster dalam 12 blok, meledak (24 damage, terbakar, terlempar). Ledakannya hanya cahaya dan suara untuk blok. |
+
+Semua kemampuan dan kekuatan super tampil di halaman **Statistik** panel sebagai lencana level (hijau = terbuka, ungu = kekuatan super); arahkan kursor untuk penjelasannya.
 
 #### Tingkat dan penampilan
 

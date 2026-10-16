@@ -1,7 +1,6 @@
 package dev.butterbot.ai.actions;
 
 import dev.butterbot.ai.BotAction;
-import dev.butterbot.entity.BotLevels;
 import dev.butterbot.entity.BotState;
 import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
@@ -130,7 +129,7 @@ public class GuardAction implements BotAction {
 		}
 		if (bot.isWithinMeleeAttackRange(current) && bot.getSensing().hasLineOfSight(current)) {
 			if (attackCooldown <= 0) {
-				attackCooldown = BotLevels.attackCooldown(bot.getBotLevel());
+				attackCooldown = bot.stats().attackCooldown();
 				bot.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
 				bot.doHurtTarget(level, current);
 				chaseTicks = 0;

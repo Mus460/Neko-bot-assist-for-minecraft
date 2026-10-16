@@ -63,6 +63,7 @@ import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.ItemLike;
 import net.minecraft.util.Mth;
@@ -89,6 +90,7 @@ import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -272,6 +274,13 @@ public class ButterBotEntity extends PathfinderMob {
 	/** A buried block counts as this much farther (squared) than one with an open side. */
 	private static final double BURIED_PENALTY = 20.0D;
 	private static final long SECOND_WIND_COOLDOWN = 20L * 60L * 10L;
+	/** A legend's Second Wind comes back after 3 minutes. */
+	private static final long LEGEND_SECOND_WIND_COOLDOWN = 20L * 60L * 3L;
+	/** Neko Roar (level 28): at most this often, in ticks. */
+	private static final long ROAR_COOLDOWN = 20L * 20L;
+	/** Owner buffs (Guardian Aura, Legend), healing (Healer) and glowing monsters (Hawk Eyes) reach this far. */
+	private static final double AURA_RANGE_SQ = 8.0D * 8.0D;
+	private static final double HAWK_EYES_RANGE = 24.0D;
 	/** Problems are told to the owner at most this often (the rest only show with the debug key). */
 	private static final long PROBLEM_MESSAGE_TICKS = 20L * 60L;
 	private static final long PROBLEM_MEMORY_TICKS = 20L * 60L * 5L;
@@ -351,10 +360,15 @@ public class ButterBotEntity extends PathfinderMob {
 	private BotStats cachedStats;
 	/** What it does with nothing to do: sit, sleep, dance, welcome the owner back... (server side). */
 	private final BotIdle idle = new BotIdle();
+	/** Fire Aura, Frost Nova and Meteor Rain (server side). */
+	private final BotPowers powers = new BotPowers();
 	/** Server side: ticks the thought bubble stays up, the last tick of each emote (so they don't repeat too fast), and when to think of food again. */
 	private int thoughtTicks;
 	private final int[] lastEmoteTick = new int[EMOTE_COUNT];
 	private int hungerThoughtTimer;
+	/** Game time when Neko Roar is ready again, and seconds until Healer heals the owner again. */
+	private long roarReadyAt;
+	private int healTimer;
 	/** Client side: the emote showing and when it started. */
 	private int emoteType = EMOTE_NONE;
 	private int emoteStart = Integer.MIN_VALUE / 2;
@@ -607,6 +621,7 @@ public class ButterBotEntity extends PathfinderMob {
 		tickLevelTour();
 		if (this.level() instanceof ServerLevel serverLevel) {
 			idle.tick(this, serverLevel);
+			powers.tick(this, serverLevel);
 		}
 		if (thoughtTicks > 0 && --thoughtTicks == 0) {
 			this.entityData.set(DATA_THOUGHT, ItemStack.EMPTY);
@@ -713,6 +728,37 @@ public class ButterBotEntity extends PathfinderMob {
 		if (state.is(BlockTags.LOGS)) {
 			serverLevel.sendParticles(ColorParticleOption.create(ParticleTypes.TINTED_LEAVES, 0xFF59A13A), pos.getX() + 0.5D,
 					pos.getY() + 1.5D, pos.getZ() + 0.5D, 3, 0.8D, 0.4D, 0.8D, 0.0D);
+		}
+	}
+
+	/**
+	 * Once a second, abilities that help the owner: Healer (19) heals 1 health every 2 seconds, Guardian Aura (22)
+	 * gives Resistance, Legend (30) Strength and Regeneration (all within 8 blocks), and Hawk Eyes (23) make the
+	 * monsters within 24 blocks of the owner glow through walls.
+	 */
+	private void tickOwnerAbilities(Player owner, double distanceSq) {
+		BotStats stats = stats();
+		if (!(this.level() instanceof ServerLevel level) || owner.level() != level || stats.level() < BotStats.Ability.HEALER.level()) {
+			return;
+		}
+		boolean near = distanceSq < AURA_RANGE_SQ;
+		if (near && stats.has(BotStats.Ability.HEALER) && owner.getHealth() < owner.getMaxHealth() && ++healTimer >= 2) {
+			healTimer = 0;
+			owner.heal(1.0F);
+			level.sendParticles(ParticleTypes.HEART, owner.getX(), owner.getY() + 2.0D, owner.getZ(), 1, 0.2D, 0.1D, 0.2D, 0.0D);
+		}
+		if (near && stats.has(BotStats.Ability.GUARDIAN_AURA)) {
+			owner.addEffect(new MobEffectInstance(MobEffects.RESISTANCE, 60, 0, true, false, true), this);
+		}
+		if (near && stats.has(BotStats.Ability.LEGEND)) {
+			owner.addEffect(new MobEffectInstance(MobEffects.STRENGTH, 60, 0, true, false, true), this);
+			owner.addEffect(new MobEffectInstance(MobEffects.REGENERATION, 60, 0, true, false, true), this);
+		}
+		if (stats.has(BotStats.Ability.HAWK_EYES)) {
+			for (Mob mob : level.getEntitiesOfClass(Mob.class, owner.getBoundingBox().inflate(HAWK_EYES_RANGE),
+					mob -> GuardAction.isHostile(this, mob))) {
+				mob.addEffect(new MobEffectInstance(MobEffects.GLOWING, 40, 0, true, false), this);
+			}
 		}
 	}
 
@@ -848,8 +894,23 @@ public class ButterBotEntity extends PathfinderMob {
 	public void markCombat() {
 		if (this.combatTicks == 0) {
 			emote(EMOTE_SURPRISE);
+			nekoRoar();
 		}
 		this.combatTicks = 40;
+	}
+
+	/** Neko Roar (level 28): a fight starts with a roar that weakens and slows the monsters around for 6 seconds. */
+	private void nekoRoar() {
+		if (!(this.level() instanceof ServerLevel level) || !stats().has(BotStats.Ability.NEKO_ROAR) || level.getGameTime() < roarReadyAt) {
+			return;
+		}
+		roarReadyAt = level.getGameTime() + ROAR_COOLDOWN;
+		for (Mob mob : level.getEntitiesOfClass(Mob.class, this.getBoundingBox().inflate(8.0D), mob -> GuardAction.isHostile(this, mob))) {
+			mob.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, 120, 0), this);
+			mob.addEffect(new MobEffectInstance(MobEffects.SLOWNESS, 120, 1), this);
+		}
+		level.sendParticles(ParticleTypes.SONIC_BOOM, getX(), getY() + 1.2D, getZ(), 1, 0.0D, 0.0D, 0.0D, 0.0D);
+		this.playSound(SoundEvents.RAVAGER_ROAR, 0.7F, 1.8F);
 	}
 
 	public boolean isFighting() {
@@ -2238,6 +2299,11 @@ public class ButterBotEntity extends PathfinderMob {
 				? Component.translatable("butterbot.levelup.ability", ability.displayName(), ability.description())
 				: level <= 10 ? Component.translatable("butterbot.levelup.perk." + level)
 				: Component.translatable("butterbot.levelup.perk.late");
+		BotStats.Power power = BotStats.Power.at(level);
+		if (power != null) {
+			text.append(" ").append(Component.translatable("butterbot.levelup.power", power.displayName(), power.description())
+					.withStyle(ChatFormatting.LIGHT_PURPLE));
+		}
 		if (isSkillRowLevel(level)) {
 			text.append(" ").append(Component.translatable("butterbot.levelup.new_skills"));
 		}
@@ -2315,6 +2381,9 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		setBaseAttribute(Attributes.ATTACK_DAMAGE, stats.attackDamage());
 		setBaseAttribute(Attributes.ARMOR, stats.armor());
+		setBaseAttribute(Attributes.ARMOR_TOUGHNESS, stats.armorToughness());
+		setBaseAttribute(Attributes.KNOCKBACK_RESISTANCE, stats.knockbackResistance());
+		setBaseAttribute(Attributes.ATTACK_KNOCKBACK, stats.attackKnockback());
 		setBaseAttribute(Attributes.MOVEMENT_SPEED, BotStats.BASE_SPEED * stats.speedMultiplier());
 		setBaseAttribute(Attributes.WATER_MOVEMENT_EFFICIENCY, stats.swimmer() ? 1.0D : 0.0D);
 		setBaseAttribute(Attributes.FALL_DAMAGE_MULTIPLIER, stats.feather() ? 0.0D : 1.0D);
@@ -4655,6 +4724,7 @@ public class ButterBotEntity extends PathfinderMob {
 		double distanceSq = this.distanceToSqr(owner);
 		// Time together counts in creative too; feeding the owner and filling their hotbar doesn't.
 		tickBond(owner, distanceSq);
+		tickOwnerAbilities(owner, distanceSq);
 		if (owner.isCreative()) {
 			return;
 		}
@@ -4935,12 +5005,21 @@ public class ButterBotEntity extends PathfinderMob {
 		if (source.getEntity() instanceof Player player && isOwnedBy(player) && !player.isShiftKeyDown()) {
 			return false;
 		}
-		if (source.is(DamageTypeTags.IS_EXPLOSION) && stats().has(BotStats.Ability.BLAST_RESISTANT)) {
+		BotStats stats = stats();
+		if (stats.has(BotStats.Ability.LEGEND) && (source.is(DamageTypeTags.IS_FALL) || source.is(DamageTypeTags.IS_DROWNING))) {
+			// A legend lands on its feet and doesn't need to breathe.
+			return false;
+		}
+		if (source.is(DamageTypeTags.IS_EXPLOSION) && stats.has(BotStats.Ability.BLAST_RESISTANT)) {
 			damage *= 0.5F;
+		}
+		if (!source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+			damage *= stats.damageTaken();
 		}
 		boolean hurt = super.hurtServer(level, source, damage);
 		if (hurt) {
 			lastHurtTick = this.tickCount;
+			thornsBack(level, source, damage, stats);
 			// Only a sneaking owner gets this far.
 			if (source.getEntity() instanceof Player player && isOwnedBy(player)) {
 				pout(level);
@@ -4949,13 +5028,23 @@ public class ButterBotEntity extends PathfinderMob {
 		return hurt;
 	}
 
-	/** Second Wind (level 25): a blow that would destroy the bot leaves it at half health instead, once every 10 minutes. */
+	/** Thorns (level 15): a monster that hits it in melee takes part of the blow back (not the owner). */
+	private void thornsBack(ServerLevel level, DamageSource source, float damage, BotStats stats) {
+		if (stats.thorns() <= 0.0F || source.is(DamageTypes.THORNS) || source.getDirectEntity() != source.getEntity()
+				|| !(source.getEntity() instanceof LivingEntity attacker)
+				|| attacker == this || attacker instanceof Player player && isOwnedBy(player)) {
+			return;
+		}
+		attacker.hurtServer(level, this.damageSources().thorns(this), damage * stats.thorns());
+	}
+
+	/** Second Wind (level 25): a blow that would destroy the bot leaves it at half health instead, once every 10 minutes (3 for a legend). */
 	@Override
 	protected void actuallyHurt(ServerLevel level, DamageSource source, float damage) {
 		super.actuallyHurt(level, source, damage);
 		if (this.isDeadOrDying() && !source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)
 				&& stats().has(BotStats.Ability.SECOND_WIND) && level.getGameTime() >= secondWindReadyAt) {
-			secondWindReadyAt = level.getGameTime() + SECOND_WIND_COOLDOWN;
+			secondWindReadyAt = level.getGameTime() + (stats().has(BotStats.Ability.LEGEND) ? LEGEND_SECOND_WIND_COOLDOWN : SECOND_WIND_COOLDOWN);
 			this.setHealth(this.getMaxHealth() * 0.5F);
 			level.sendParticles(ParticleTypes.TOTEM_OF_UNDYING, getX(), getY() + 1.0D, getZ(), 40, 0.5D, 0.8D, 0.5D, 0.3D);
 			// A burst of light and, for a moment, wings.
@@ -4994,18 +5083,28 @@ public class ButterBotEntity extends PathfinderMob {
 			this.setItemSlot(EquipmentSlot.MAINHAND, held.copy());
 		}
 		boolean hit = super.doHurtTarget(level, target);
+		BotStats stats = stats();
 		if (hit) {
 			slashEffect(level, target);
+			if (stats.lifeSteal() > 0.0F) {
+				// Life Steal (level 26): heals by part of the blow.
+				this.heal((float) this.getAttributeValue(Attributes.ATTACK_DAMAGE) * stats.lifeSteal());
+			}
+			if (stats.has(BotStats.Ability.STORM_SLASH) && this.random.nextFloat() < 0.15F && target instanceof LivingEntity living) {
+				stormStrike(level, living);
+			}
 		}
 		if (hit && !held.isEmpty() && held == getGear(GearSlot.SWORD)) {
 			Weapon weaponData = held.get(DataComponents.WEAPON);
 			wearTool(GearSlot.SWORD, weaponData == null ? 1 : weaponData.itemDamagePerAttack());
 		}
-		float sweep = stats().sweepFraction();
+		float sweep = stats.sweepFraction();
 		if (!hit || sweep <= 0.0F || this.isDeadOrDying()) {
 			return hit;
 		}
-		List<Mob> near = level.getEntitiesOfClass(Mob.class, target.getBoundingBox().inflate(2.0D, 0.5D, 2.0D),
+		// Storm Slash (level 27) reaches every monster within 3 blocks of the target.
+		double reach = stats.has(BotStats.Ability.STORM_SLASH) ? 3.0D : 2.0D;
+		List<Mob> near = level.getEntitiesOfClass(Mob.class, target.getBoundingBox().inflate(reach, 0.5D, reach),
 				mob -> mob != target && GuardAction.isHostile(this, mob));
 		if (near.isEmpty()) {
 			return true;
@@ -5019,6 +5118,19 @@ public class ButterBotEntity extends PathfinderMob {
 			}
 		}
 		return true;
+	}
+
+	/** Storm Slash (level 27): now and then lightning (light and sound only, no fire) strikes the target for 12 more damage. */
+	private void stormStrike(ServerLevel level, LivingEntity target) {
+		LightningBolt bolt = EntityTypes.LIGHTNING_BOLT.create(level, EntitySpawnReason.TRIGGERED);
+		if (bolt != null) {
+			bolt.setVisualOnly(true);
+			bolt.snapTo(target.getX(), target.getY(), target.getZ());
+			level.addFreshEntity(bolt);
+		}
+		if (target.hurtServer(level, this.damageSources().mobAttack(this), 12.0F) && !target.isAlive() && target instanceof Mob mob) {
+			onDefeated(mob);
+		}
 	}
 
 	/**
