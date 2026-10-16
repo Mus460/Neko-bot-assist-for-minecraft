@@ -242,6 +242,8 @@
   "butterbot.msg.level_max": "max level",
   "butterbot.msg.level_progress": "%s/%s XP to the next level",
   "butterbot.msg.level_info": "%s: level %s (%s). Digs %s%% faster, %s backpack slots, %s health, Fortune %s, vein %s blocks, %s XP saved for you.",
+  "butterbot.msg.level_set": "%s is now level %s (%s tier).",
+  "butterbot.msg.level_tour": "%s starts a level tour: from level 1 up to 30, one level every %s s (about %s s). Its learned skills are kept.",
   "butterbot.levelup.perk.2": "Digs faster and has more health.",
   "butterbot.levelup.perk.3": "Now mines whole ore veins (up to 8 blocks)!",
   "butterbot.levelup.perk.4": "Backpack grew to 27 slots!",

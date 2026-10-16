@@ -130,7 +130,7 @@ public class ButterBotItem extends Item {
 		tag.putInt("SkinVariant", bot.getSkinVariant());
 		tag.putString("Script", bot.getLuaScript());
 		tag.putInt("Delivery", bot.getDeliveryMode().ordinal());
-		tag.putInt("Level", bot.getBotLevel());
+		tag.putInt("Level", bot.savedLevel());
 		tag.putInt("WorkXp", core ? 0 : bot.getWorkXp());
 		tag.putIntArray("Progress", bot.getProgress().save());
 		tag.putLong("SecondWind", bot.getSecondWindReadyAt());

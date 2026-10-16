@@ -307,6 +307,10 @@ public class ButterBotEntity extends PathfinderMob {
 	private final BotProgress progress = new BotProgress();
 	@Nullable
 	private BotStats cachedStats;
+	/** Level tour (command): the next level to show, 0 when no tour runs; and the ticks between levels. */
+	private int tourLevel;
+	private int tourTimer;
+	private int tourInterval;
 	/** Client side: the tick the last level-up cheer started. */
 	private int levelUpAnimStart = Integer.MIN_VALUE / 2;
 	/** Client side: the ticks the bond reaction playing started and ends, and which one it is. */
@@ -537,6 +541,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (!this.isAlive()) {
 			return;
 		}
+		tickLevelTour();
 
 		if (!skinVariantChosen && ownerUuid != null) {
 			chooseFreeSkinVariant();
@@ -1713,6 +1718,61 @@ public class ButterBotEntity extends PathfinderMob {
 		return this.entityData.get(DATA_LEVEL);
 	}
 
+	/**
+	 * Sets the level at once (command), with one cheer when it goes up. Going down gives back skill points the
+	 * bot can no longer afford. Stops a level tour.
+	 */
+	public void setLevelByCommand(int level) {
+		tourLevel = 0;
+		int from = getBotLevel();
+		int to = Math.max(1, Math.min(BotLevels.MAX_LEVEL, level));
+		workXp = 0;
+		this.entityData.set(DATA_LEVEL, to);
+		applyLevelStats();
+		this.setHealth(this.getMaxHealth());
+		if (to > from) {
+			celebrateLevelUp(to - 1, to);
+		}
+	}
+
+	/**
+	 * Level tour (command): back to level 1, then up one level every {@code secondsPerLevel} seconds to 30, with
+	 * the cheer, tier looks and titles of each, to watch how a bot grows. Learned skills are kept: they only
+	 * count again once the tour is over, at level 30.
+	 */
+	public void startLevelTour(int secondsPerLevel) {
+		workXp = 0;
+		this.entityData.set(DATA_LEVEL, 1);
+		applyLevelAttributes();
+		this.setHealth(this.getMaxHealth());
+		tourInterval = Math.max(1, secondsPerLevel) * 20;
+		tourTimer = tourInterval;
+		tourLevel = 2;
+	}
+
+	private void tickLevelTour() {
+		if (tourLevel <= 0 || --tourTimer > 0) {
+			return;
+		}
+		int level = tourLevel;
+		this.entityData.set(DATA_LEVEL, level);
+		if (level >= BotLevels.MAX_LEVEL) {
+			tourLevel = 0;
+			applyLevelStats();
+		} else {
+			applyLevelAttributes();
+			tourLevel = level + 1;
+			tourTimer = tourInterval;
+		}
+		this.setHealth(this.getMaxHealth());
+		celebrateLevelUp(level - 1, level);
+	}
+
+	/** The level to save: a bot on a level tour is saved (and packed) at the level the tour ends on. */
+	public int savedLevel() {
+		return tourLevel > 0 ? BotLevels.MAX_LEVEL : getBotLevel();
+	}
+
 	/** Sets only the level shown on the model (tier looks), for a stand-in drawn in a screen. */
 	public void showLevel(int level) {
 		this.entityData.set(DATA_LEVEL, Math.max(1, Math.min(BotLevels.MAX_LEVEL, level)));
@@ -1972,6 +2032,11 @@ public class ButterBotEntity extends PathfinderMob {
 	/** Applies the level, skills and mastery to the bot's attributes and backpack. */
 	private void applyLevelStats() {
 		progress.fixOverspent(getBotLevel());
+		applyLevelAttributes();
+	}
+
+	/** Like {@link #applyLevelStats()} but keeps every learned skill even if the level can't pay for it (level tour). */
+	private void applyLevelAttributes() {
 		cachedStats = null;
 		BotStats stats = stats();
 		setBaseAttribute(Attributes.MAX_HEALTH, stats.maxHealth());
@@ -4338,7 +4403,7 @@ public class ButterBotEntity extends PathfinderMob {
 		output.putInt("CollectedCount", collectedCount);
 		output.putBoolean("ReturnRequested", returnRequested);
 		output.putString("Delivery", deliveryMode.name());
-		output.putInt("BotLevel", getBotLevel());
+		output.putInt("BotLevel", savedLevel());
 		output.putInt("WorkXp", workXp);
 		output.putIntArray("Progress", progress.save());
 		output.putLong("SecondWind", secondWindReadyAt);

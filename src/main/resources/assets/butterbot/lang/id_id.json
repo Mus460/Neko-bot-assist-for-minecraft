@@ -242,6 +242,8 @@
   "butterbot.msg.level_max": "level maksimal",
   "butterbot.msg.level_progress": "%s/%s XP ke level berikutnya",
   "butterbot.msg.level_info": "%s: level %s (%s). Gali %s%% lebih cepat, tas %s slot, HP %s, Fortune %s, urat bijih %s blok, %s XP disimpan untukmu.",
+  "butterbot.msg.level_set": "%s sekarang level %s (tingkat %s).",
+  "butterbot.msg.level_tour": "%s mulai tur level: dari level 1 sampai 30, naik tiap %s detik (sekitar %s detik). Skill yang sudah dipelajari tetap aman.",
   "butterbot.levelup.perk.2": "Menggali lebih cepat dan HP bertambah.",
   "butterbot.levelup.perk.3": "Sekarang menambang seluruh urat bijih (sampai 8 blok)!",
   "butterbot.levelup.perk.4": "Tas jadi 27 slot!",
