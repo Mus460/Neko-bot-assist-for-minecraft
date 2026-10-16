@@ -35,6 +35,11 @@ public class ButterBotRenderState extends AvatarRenderState {
 	public boolean scarf;
 	public boolean sunglasses;
 	public boolean umbrella;
+	/** The idle pose (ButterBotEntity.ACTION_*), and the one-off move playing (GESTURE_*), its time and strength. */
+	public int action;
+	public int gesture;
+	public float gestureTime = -1.0F;
+	public float gestureStrength;
 	/** Drawn on the panel card: no light pillar there. */
 	public boolean inPanel;
 	/** Asked to be shown ("Show" in the panel): glows through walls and sends a beam up. */
