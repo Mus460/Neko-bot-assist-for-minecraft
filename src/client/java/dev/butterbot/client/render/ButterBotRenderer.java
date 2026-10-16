@@ -18,15 +18,20 @@ import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.HumanoidMobRenderer;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.ClientAsset;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FormattedText;
 import net.minecraft.network.chat.Style;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.ARGB;
+import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.player.PlayerModelType;
 import net.minecraft.world.entity.player.PlayerSkin;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -45,6 +50,8 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 	private static final int SPEECH_COLOR = 0xFFF4C2;
 	/** Height of one name tag line, in blocks (as vanilla stacks the score line under a name). */
 	private static final float LINE_HEIGHT = 9.0F * 1.15F * 0.025F;
+	/** Within this distance of the camera (5 blocks) the bot is happy to have its owner close. */
+	private static final double OWNER_NEAR_SQ = 25.0D;
 	/** Same proportions as real players. */
 	private static final float PLAYER_SCALE = 0.9375F;
 	/** The "Show" beam starts just over the head and reaches this far up. */
@@ -142,7 +149,17 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		state.neko = entity.isNeko();
 		state.working = entity.isWorkingClient();
 		state.tier = BotTier.of(entity.getBotLevel());
+		state.level = entity.getBotLevel();
 		state.levelUpTime = entity.levelUpAnimTime(partialTicks);
+		state.levelUpTier = entity.levelUpTier();
+		state.levelUpTierUp = entity.levelUpWasTierUp();
+		// Mood, for the ears and tail.
+		state.fighting = entity.isFightingClient();
+		state.scared = state.hasRedOverlay;
+		state.lowHealth = entity.getHealth() < entity.getMaxHealth() * 0.3F;
+		state.ownerNear = state.distanceToCameraSq < OWNER_NEAR_SQ && !state.fighting;
+		state.faceColor = skin.faceColor();
+		dressForWeather(entity, state);
 		state.focused = BotFocus.isFocused(entity.getUUID());
 		if (state.focused) {
 			// The vanilla glowing outline, drawn through walls.
@@ -153,6 +170,7 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		state.reactionTime = entity.reactionTime(partialTicks);
 		state.reaction = state.reactionTime >= 0.0F ? entity.reactionType() : ButterBotEntity.REACTION_NONE;
 		state.reactionStrength = ReactionAnimation.strength(state.reactionTime, entity.reactionLeft(partialTicks));
+		state.lidsClosed = lidsClosed(entity, state);
 		if (state.reaction != ButterBotEntity.REACTION_NONE) {
 			// Leaning into a pat, chewing nods, or a pout's head turned aside with the chin up.
 			state.xRot += ReactionAnimation.headPitch(state.reaction, state.reactionTime, state.reactionStrength);
@@ -170,6 +188,31 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 			lines.add(Component.literal(line.getString()).withColor(SPEECH_COLOR));
 		}
 		return lines;
+	}
+
+	/** Blinks every few seconds, each bot on its own rhythm; squints happily while petted or eating a treat. */
+	private static float lidsClosed(ButterBotEntity entity, ButterBotRenderState state) {
+		float squint = state.reaction == ButterBotEntity.REACTION_PET || state.reaction == ButterBotEntity.REACTION_TREAT
+				? 0.5F * state.reactionStrength : 0.0F;
+		int period = 80 + Math.floorMod(entity.getId() * 37, 50);
+		float cycle = (state.ageInTicks + Math.floorMod(entity.getId() * 13, period)) % period;
+		return Math.max(squint, cycle < 3.0F ? 1.0F : 0.0F);
+	}
+
+	/** A scarf where it snows, sunglasses in the desert sun, an umbrella under rain. Not for panel stand-ins. */
+	private static void dressForWeather(ButterBotEntity entity, ButterBotRenderState state) {
+		Level level = entity.level();
+		if (entity.getId() < 0) {
+			state.scarf = false;
+			state.sunglasses = false;
+			state.umbrella = false;
+			return;
+		}
+		BlockPos pos = entity.blockPosition();
+		Biome biome = level.getBiome(pos).value();
+		state.umbrella = level.isRainingAt(pos.above(2));
+		state.scarf = biome.coldEnoughToSnow(pos, level.getSeaLevel());
+		state.sunglasses = !state.umbrella && !biome.hasPrecipitation() && biome.getBaseTemperature() >= 1.5F && level.isBrightOutside();
 	}
 
 	private PlayerSkin playerSkinFor(ClientSkinManager.SkinInfo skin) {
@@ -205,6 +248,24 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		if (state.focused) {
 			submitBeam(state, poseStack, collector);
 		}
+		if (state.levelUpTime >= 0.0F && !state.inPanel) {
+			submitLevelUpPillar(state, poseStack, collector);
+		}
+	}
+
+	/** On a level up, a pillar of light in the tier's colour shoots up and thins out; taller and wider for a new tier. */
+	private static void submitLevelUpPillar(ButterBotRenderState state, PoseStack poseStack, SubmitNodeCollector collector) {
+		float duration = state.levelUpTierUp ? 40.0F : 28.0F;
+		if (state.levelUpTime >= duration) {
+			return;
+		}
+		float radius = (state.levelUpTierUp ? 0.45F : 0.3F) * (1.0F - state.levelUpTime / duration);
+		poseStack.pushPose();
+		// The beam centres itself on a block (+0.5): take that back so it comes out of the bot.
+		poseStack.translate(-0.5F, 0.0F, -0.5F);
+		BeaconRenderer.submitBeaconBeam(poseStack, collector, BeaconRenderer.BEAM_LOCATION, 1.0F, state.levelUpTime, 0,
+				state.levelUpTierUp ? 64 : 32, ARGB.opaque(state.levelUpTier.colorAt(state.ageInTicks)), radius, radius * 1.5F);
+		poseStack.popPose();
 	}
 
 	/**
@@ -225,6 +286,14 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 				poseStack.translate(0.0F, LINE_HEIGHT, 0.0F);
 				collector.submitNameTag(poseStack, state.nameTagAttachment, 0, state.speechLines.get(i), !state.isDiscrete,
 						state.lightCoords, camera);
+			}
+			if (state.levelUpTime >= 0.0F) {
+				// "LEVEL UP! Lv N" floats up above everything during the cheer.
+				poseStack.translate(0.0F, LINE_HEIGHT + 0.6F * state.levelUpTime / ButterBotEntity.LEVEL_UP_ANIM_TICKS, 0.0F);
+				Component text = Component.translatable(state.levelUpTierUp ? "butterbot.levelup.float_tier" : "butterbot.levelup.float",
+						state.level, state.levelUpTier.displayName()).withStyle(ChatFormatting.BOLD)
+						.withColor(state.levelUpTier.colorAt(state.ageInTicks) & 0xFFFFFF);
+				collector.submitNameTag(poseStack, state.nameTagAttachment, 0, text, true, LightCoordsUtil.FULL_BRIGHT, camera);
 			}
 		}
 		poseStack.popPose();

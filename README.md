@@ -300,19 +300,25 @@ Bot mendapat XP kerja dari setiap blok yang digali, tanaman yang dipanen, crafti
 
 #### Tingkat dan penampilan
 
-Setiap 5 level bot naik **tingkat**, dan penampilannya ikut berubah. Warna tingkat dipakai untuk lonceng, pita ekor, tulisan `Lv` di atas kepala, dan judul saat naik level. Tingkat juga tampil di panel (**Lainnya**), di sebelah level.
+Setiap 5 level bot naik **tingkat**, penampilannya ikut berubah dan ia mendapat aksesori baru. Warna tingkat dipakai untuk lonceng, pita, tulisan `Lv` di atas kepala dan judul saat naik level. Tingkat juga tampil di panel (**Lainnya**), di sebelah level. Tonton semuanya dengan `/butterbot level tour`.
 
 | Level | Tingkat | Yang terlihat |
 |---|---|---|
-| 1–4 | Anak kucing | Kuping dan ekor biasa |
-| 5–9 | Perunggu | Kalung merah dengan lonceng dan pita di ekor; ekor sedikit lebih panjang dan tebal |
-| 10–14 | Perak | Kilau putih keperakan sesekali di dekat ekor |
-| 15–19 | Emas | Lonceng dan pita ekor menyala dalam gelap (dengan shader ikut bersinar), kilau emas |
-| 20–24 | Berlian | Bagian dalam kuping ikut menyala, kilau biru muda |
-| 25–29 | Kecubung | Kilau ungu, dan huruf sihir meja enchant melayang ke arah bot |
-| 30 | **Nekomata** | Dua ekor berujung api arwah biru, warna pelangi, bintang ★ di depan level |
+| 1–4 | Anak kucing | Kuping dan ekor berbulu lebat |
+| 5–9 | Perunggu | Kalung merah dengan lonceng dan pita di ekor; ekor makin panjang dan tebal |
+| 10–14 | Perak | **Pita** di pangkal ekor, kilau putih keperakan sesekali |
+| 15–19 | Emas | **Bulu putih** di dalam kuping; lonceng dan pita menyala dalam gelap (dengan shader ikut bersinar), kilau emas |
+| 20–24 | Berlian | **Tiara** kecil dengan permata menyala (tidak saat memakai helm); bagian dalam kuping menyala, kilau biru muda |
+| 25–29 | Kecubung | Dua **bola arwah** ungu mengorbit bot, kilau ungu, huruf sihir meja enchant melayang ke arah bot |
+| 30 | **Nekomata** | Dua ekor berujung api arwah biru, tiga **api arwah** mengorbit, warna pelangi, bintang ★ di depan level |
 
-Kilau mengikuti pengaturan Partikel di Minecraft. Ekor dan kalung hanya tampil pada bot neko. Kalau bot memakai baju zirah dada, loncengnya dipasang di depan baju zirah. Bot non-neko tetap mendapat warna level, kilau, dan sorakan lompat-berputar.
+Saat naik level: bot melompat sambil berputar, kuping tegak dan bergoyang, ekor berdiri dan bergetar, **pilar cahaya** berwarna tingkatnya menjulang ke langit, **cincin cahaya** meluas di tanah, kilau berjatuhan di atas kepala, dan tulisan **"NAIK LEVEL! Lv X"** melayang naik. Saat naik tingkat semuanya lebih besar.
+
+Kuping dan ekor juga menunjukkan **suasana hati**: tegak dan bergoyang riang saat kamu dekat, rebah ke belakang dan ekor mengembang saat takut (baru terluka) atau bertarung, terkulai saat darahnya di bawah 30%. Matanya **berkedip** sesekali dan menyipit senang saat dielus atau makan camilan.
+
+Bot berpakaian sesuai cuaca: **syal** di daerah bersalju, **kacamata hitam** di gurun yang terik, dan **payung** kuning saat kehujanan.
+
+Kilau mengikuti pengaturan Partikel di Minecraft. Ekor, kuping dan aksesori hanya tampil pada bot neko. Kalau bot memakai baju zirah dada, loncengnya dipasang di depan baju zirah. Bot non-neko tetap mendapat warna level, kilau dan efek naik level.
 
 #### Pohon skill
 

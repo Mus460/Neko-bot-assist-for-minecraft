@@ -18,8 +18,25 @@ public class ButterBotRenderState extends AvatarRenderState {
 	public boolean working;
 	/** Looks earned with levels: collar bell, tail band, sparkles, and two tails at level 30. */
 	public BotTier tier = BotTier.KITTEN;
-	/** Ticks into the level-up cheer, or -1 when it is not playing. */
+	public int level = 1;
+	/** Ticks into the level-up cheer, or -1 when it is not playing; the tier it reached and whether that is new. */
 	public float levelUpTime = -1.0F;
+	public BotTier levelUpTier = BotTier.KITTEN;
+	public boolean levelUpTierUp;
+	/** Mood, shown by the ears and tail: the owner close by, scared (just hurt), fighting, badly hurt. */
+	public boolean ownerNear;
+	public boolean scared;
+	public boolean fighting;
+	public boolean lowHealth;
+	/** The skin tone for the eyelids (0: none), and how far they are closed (0 open, 0.5 a happy squint, 1 a blink). */
+	public int faceColor;
+	public float lidsClosed;
+	/** Dressed for the weather: a scarf in the snow, sunglasses in the desert sun, an umbrella in the rain. */
+	public boolean scarf;
+	public boolean sunglasses;
+	public boolean umbrella;
+	/** Drawn on the panel card: no light pillar there. */
+	public boolean inPanel;
 	/** Asked to be shown ("Show" in the panel): glows through walls and sends a beam up. */
 	public boolean focused;
 	/** The beam's colour (the glow colour) and its animation clock, which loops every 40 ticks. */

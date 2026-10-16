@@ -254,6 +254,8 @@
   "butterbot.levelup.perk.9": "Alat netherite dan urat bijih sampai 64 blok!",
   "butterbot.levelup.perk.10": "Fortune III!",
   "butterbot.levelup.perk.late": "Makin kuat, tangguh dan cepat.",
+  "butterbot.levelup.float": "NAIK LEVEL! Lv %s",
+  "butterbot.levelup.float_tier": "NAIK LEVEL! Lv %s · %s",
   "butterbot.levelup.ability": "Kemampuan baru: %s! %s",
   "butterbot.levelup.new_skills": "Baris skill baru terbuka!",
   "butterbot.levelup.new_skills_short": "skill baru",

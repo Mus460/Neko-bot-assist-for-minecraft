@@ -181,6 +181,9 @@ public class ButterBotEntity extends PathfinderMob {
 			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.INT);
 	private static final EntityDataAccessor<Integer> DATA_LEVEL =
 			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.INT);
+	/** Fighting right now: the ears flatten and the tail puffs up. */
+	private static final EntityDataAccessor<Boolean> DATA_FIGHTING =
+			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.BOOLEAN);
 
 	/** Entity events {@code LEVEL_UP_EVENT + tier} tell watching clients to play the level-up cheer. */
 	private static final byte LEVEL_UP_EVENT = 100;
@@ -313,6 +316,9 @@ public class ButterBotEntity extends PathfinderMob {
 	private int tourInterval;
 	/** Client side: the tick the last level-up cheer started. */
 	private int levelUpAnimStart = Integer.MIN_VALUE / 2;
+	/** Client side: the tier the last level up reached, and whether it was a new tier. */
+	private BotTier levelUpTier = BotTier.KITTEN;
+	private boolean levelUpTierUp;
 	/** Client side: the ticks the bond reaction playing started and ends, and which one it is. */
 	private int reactionStart = Integer.MIN_VALUE / 2;
 	private int reactionEnd = Integer.MIN_VALUE / 2;
@@ -508,6 +514,7 @@ public class ButterBotEntity extends PathfinderMob {
 		builder.define(DATA_NEKO, true);
 		builder.define(DATA_SKIN_VARIANT, 0);
 		builder.define(DATA_LEVEL, 1);
+		builder.define(DATA_FIGHTING, false);
 	}
 
 	@Override
@@ -535,6 +542,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (this.level().isClientSide()) {
 			if (this.isAlive()) {
 				tickTierAura();
+				tickLevelUpEffects();
 			}
 			return;
 		}
@@ -626,6 +634,14 @@ public class ButterBotEntity extends PathfinderMob {
 		if (!looksSame(this.getMainHandItem(), wanted)) {
 			this.setItemSlot(EquipmentSlot.MAINHAND, wanted.copy());
 		}
+		if (this.entityData.get(DATA_FIGHTING) != combatTicks > 0) {
+			this.entityData.set(DATA_FIGHTING, combatTicks > 0);
+		}
+	}
+
+	/** Fighting right now (synced to clients for the ears and tail). */
+	public boolean isFightingClient() {
+		return this.entityData.get(DATA_FIGHTING);
 	}
 
 	/** Same item with the same enchantments (wear doesn't matter): no need to swap what the bot holds. */
@@ -1439,7 +1455,9 @@ public class ButterBotEntity extends PathfinderMob {
 		if (id >= LEVEL_UP_EVENT && id < LEVEL_UP_EVENT + BotTier.values().length) {
 			levelUpAnimStart = this.tickCount;
 			// The event comes before the new level is synced, so it carries the new tier itself.
-			spawnLevelUpBurst(BotTier.byIndex(id - LEVEL_UP_EVENT));
+			levelUpTier = BotTier.byIndex(id - LEVEL_UP_EVENT);
+			levelUpTierUp = levelUpTier != BotTier.of(getBotLevel());
+			spawnLevelUpBurst(levelUpTier);
 		} else if (id == PET_EVENT || id == POUT_EVENT || id == TREAT_EVENT) {
 			int type = id == PET_EVENT ? REACTION_PET : id == POUT_EVENT ? REACTION_POUT : REACTION_TREAT;
 			// The same reaction again while it plays (a held pat) only lasts longer, so it never snaps back to the start.
@@ -1450,6 +1468,52 @@ public class ButterBotEntity extends PathfinderMob {
 			reactionEnd = this.tickCount + REACTION_TICKS;
 		} else {
 			super.handleEntityEvent(id);
+		}
+	}
+
+	/** The tier the last level up reached. Client side. */
+	public BotTier levelUpTier() {
+		return levelUpTier;
+	}
+
+	/** Whether the last level up reached a new tier. Client side. */
+	public boolean levelUpWasTierUp() {
+		return levelUpTierUp;
+	}
+
+	/**
+	 * For a moment after a level up: rings of light spreading over the ground and glitter falling around the bot,
+	 * twice as much for a new tier. Client side.
+	 */
+	private void tickLevelUpEffects() {
+		int age = this.tickCount - levelUpAnimStart;
+		if (age < 0 || age > LEVEL_UP_ANIM_TICKS || this.isInvisible()) {
+			return;
+		}
+		int color = levelUpTier.color() & 0xFFFFFF;
+		if (age <= 14 && age % 2 == 0) {
+			DustParticleOptions ringDust = new DustParticleOptions(color, 1.1F);
+			int rings = levelUpTierUp ? 2 : 1;
+			for (int ring = 0; ring < rings; ring++) {
+				double radius = 0.5D + age * 0.18D + ring * 0.6D;
+				int points = 14 + age;
+				for (int i = 0; i < points; i++) {
+					double angle = i * Mth.TWO_PI / points;
+					this.level().addParticle(ringDust, getX() + Math.cos(angle) * radius, getY() + 0.1D, getZ() + Math.sin(angle) * radius,
+							0.0D, 0.0D, 0.0D);
+				}
+			}
+		}
+		if (age <= 24) {
+			DustParticleOptions glitter = new DustParticleOptions(color, 0.6F);
+			for (int i = levelUpTierUp ? 4 : 2; i > 0; i--) {
+				this.level().addParticle(glitter, getX() + (this.random.nextDouble() - 0.5D) * 1.6D, getY() + 2.1D + this.random.nextDouble() * 0.8D,
+						getZ() + (this.random.nextDouble() - 0.5D) * 1.6D, 0.0D, -0.02D, 0.0D);
+			}
+			if (this.random.nextInt(levelUpTierUp ? 2 : 3) == 0) {
+				this.level().addParticle(ParticleTypes.END_ROD, getX() + (this.random.nextDouble() - 0.5D) * 1.2D, getY() + 2.6D,
+						getZ() + (this.random.nextDouble() - 0.5D) * 1.2D, 0.0D, -0.04D, 0.0D);
+			}
 		}
 	}
 
