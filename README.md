@@ -405,6 +405,10 @@ Semua perintah bisa dipakai tanpa cheat. Perintah kerja berlaku untuk bot milikm
 /butterbot feed <true|false>      suapi aku saat lapar on/off
 /butterbot smelt <off|ores|all>   tungku bawaan: mati / bijih & makanan / semua
 /butterbot level                  level, kemampuan dan XP yang disimpan
+/butterbot level set <1-30>       langsung jadikan bot terdekat level itu
+/butterbot level tour [1-10]      tur level: bot mulai dari level 1 lalu naik satu level tiap
+                                  beberapa detik (bawaan 3) sampai 30, untuk melihat sorakan,
+                                  tingkat dan efeknya berganti; skill yang sudah dipelajari aman
 /butterbot skill                  daftar skill dan sisa poin
 /butterbot skill <nama>           pelajari skill (contoh: quick_dig, magnet)
 /butterbot skill reset            lupakan semua skill, poin kembali

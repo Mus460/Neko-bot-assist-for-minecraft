@@ -11,6 +11,7 @@ import dev.butterbot.ai.StorageFinder;
 import dev.butterbot.ai.actions.LightAreaAction;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
+import dev.butterbot.entity.BotTier;
 import dev.butterbot.entity.BotProgress;
 import dev.butterbot.entity.BotResource;
 import dev.butterbot.entity.BotSkill;
@@ -96,7 +97,14 @@ public final class BotCommand {
 		root.then(smelt);
 		root.then(Commands.literal("farm").executes(ctx -> simple(ctx.getSource(), ButterBotEntity::assignFarmTask)));
 		root.then(Commands.literal("sort").executes(ctx -> simple(ctx.getSource(), ButterBotEntity::assignSortTask)));
-		root.then(Commands.literal("level").executes(ctx -> level(ctx.getSource())));
+		root.then(Commands.literal("level").executes(ctx -> level(ctx.getSource()))
+				.then(Commands.literal("set")
+						.then(Commands.argument("level", IntegerArgumentType.integer(1, BotLevels.MAX_LEVEL))
+								.executes(ctx -> setLevel(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "level")))))
+				.then(Commands.literal("tour")
+						.executes(ctx -> levelTour(ctx.getSource(), DEFAULT_TOUR_SECONDS))
+						.then(Commands.argument("seconds", IntegerArgumentType.integer(1, 10))
+								.executes(ctx -> levelTour(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "seconds"))))));
 		LiteralArgumentBuilder<CommandSourceStack> skill = Commands.literal("skill").executes(ctx -> skills(ctx.getSource()));
 		for (BotSkill each : BotSkill.values()) {
 			skill.then(Commands.literal(each.id()).executes(ctx -> learnSkill(ctx.getSource(), each)));
@@ -371,6 +379,9 @@ public final class BotCommand {
 	}
 
 	@Nullable
+	/** Seconds between levels on a level tour, when none are given. */
+	private static final int DEFAULT_TOUR_SECONDS = 3;
+
 	private static ButterBotEntity nearest(CommandSourceStack source) throws CommandSyntaxException {
 		ServerPlayer player = source.getPlayerOrException();
 		List<ButterBotEntity> bots = BotAccess.listBots(player, Optional.empty());
@@ -450,6 +461,31 @@ public final class BotCommand {
 				masteryName(learned, BotJob.MINER), masteryName(learned, BotJob.GATHERER),
 				masteryName(learned, BotJob.GUARD), masteryName(learned, BotJob.FARMER), masteryName(learned, BotJob.RANCHER)), false);
 		return level;
+	}
+
+	/** Sets the nearest bot's level at once. */
+	private static int setLevel(CommandSourceStack source, int level) throws CommandSyntaxException {
+		ButterBotEntity bot = nearest(source);
+		if (bot == null) {
+			return 0;
+		}
+		bot.setLevelByCommand(level);
+		BotTier tier = BotTier.of(bot.getBotLevel());
+		source.sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.level_set", bot.getName(), bot.getBotLevel(),
+				tier.displayName())), false);
+		return bot.getBotLevel();
+	}
+
+	/** Runs the nearest bot through every level from 1 to 30, to watch it grow. */
+	private static int levelTour(CommandSourceStack source, int seconds) throws CommandSyntaxException {
+		ButterBotEntity bot = nearest(source);
+		if (bot == null) {
+			return 0;
+		}
+		bot.startLevelTour(seconds);
+		source.sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.level_tour", bot.getName(), seconds,
+				(BotLevels.MAX_LEVEL - 1) * seconds)), false);
+		return 1;
 	}
 
 	private static Component masteryName(BotProgress progress, BotJob job) {
