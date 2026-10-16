@@ -1,5 +1,6 @@
 package dev.butterbot.client.render;
 
+import dev.butterbot.ButterBot;
 import dev.butterbot.entity.BotTier;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
@@ -42,6 +43,9 @@ final class NekoModel extends PlayerModel {
 			{-10.3F, -9.3F, 2.2F, 4.2F},
 			{-11.3F, -10.3F, 3.2F, 4.2F},
 	};
+
+	/** Set once a pose failed; the parts then stay hidden instead of taking the game down. */
+	private static boolean failed;
 
 	private final Group group;
 	/** Ear pivots, outer rows and pink insides; index 0 is the ear on the +x side. */
@@ -172,9 +176,19 @@ final class NekoModel extends PlayerModel {
 		boolean legend = tier == BotTier.LEGEND;
 		// An elytra fills the chest slot but draws nothing on the torso, so only real chestplates hide the collar.
 		boolean armored = !state.chestEquipment.isEmpty() && !state.chestEquipment.has(DataComponents.GLIDER);
-		showGroup(tier != BotTier.KITTEN, armored, legend);
-		poseEars(state);
-		poseTails(state, legend);
+		try {
+			showGroup(tier != BotTier.KITTEN, armored, legend);
+			poseEars(state);
+			poseTails(state, legend);
+		} catch (RuntimeException exception) {
+			// Ears and tail are looks only: never let them crash the game.
+			head.visible = false;
+			body.visible = false;
+			if (!failed) {
+				failed = true;
+				ButterBot.LOGGER.error("Butter Bot neko parts could not be posed, hiding them", exception);
+			}
+		}
 	}
 
 	/** Shows only this instance's colour group (the collar and band from bronze on, the second tail at level 30). */

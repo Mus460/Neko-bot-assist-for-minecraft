@@ -39,6 +39,7 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 	private final Map<NekoModel.Group, NekoModel> wide = new EnumMap<>(NekoModel.Group.class);
 	private final Map<NekoModel.Group, NekoModel> slim = new EnumMap<>(NekoModel.Group.class);
 	private boolean reported;
+	private boolean failed;
 
 	public NekoLayer(RenderLayerParent<ButterBotRenderState, PlayerModel> renderer) {
 		super(renderer);
@@ -59,6 +60,18 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 		if (!state.neko || state.isInvisible) {
 			return;
 		}
+		try {
+			submitParts(poseStack, collector, lightCoords, state);
+		} catch (RuntimeException exception) {
+			// Ears and tail are looks only: never let them crash the game.
+			if (!failed) {
+				failed = true;
+				ButterBot.LOGGER.error("Butter Bot neko parts could not be drawn", exception);
+			}
+		}
+	}
+
+	private void submitParts(PoseStack poseStack, SubmitNodeCollector collector, int lightCoords, ButterBotRenderState state) {
 		Map<NekoModel.Group, NekoModel> models = state.slim ? slim : wide;
 		int overlay = LivingEntityRenderer.getOverlayCoords(state, 0.0F);
 		BotTier tier = state.tier;

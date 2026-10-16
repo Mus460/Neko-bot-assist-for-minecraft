@@ -15,6 +15,12 @@
     "main": ["dev.butterbot.ButterBot"],
     "client": ["dev.butterbot.client.ButterBotClient"]
   },
+  "mixins": [
+    {
+      "config": "butterbot.client.mixins.json",
+      "environment": "client"
+    }
+  ],
   "depends": {
     "fabricloader": ">=0.19.5",
     "minecraft": "~26.3",
