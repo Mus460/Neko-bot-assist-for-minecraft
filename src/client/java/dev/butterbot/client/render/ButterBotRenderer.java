@@ -8,7 +8,6 @@ import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.entity.BotTier;
 import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.ChatFormatting;
-import net.minecraft.client.gui.Font;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.model.player.PlayerModel;
@@ -21,13 +20,15 @@ import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.ClientAsset;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.FormattedText;
+import net.minecraft.network.chat.Style;
 import net.minecraft.resources.Identifier;
-import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.player.PlayerModelType;
 import net.minecraft.world.entity.player.PlayerSkin;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +42,9 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 
 	private static final double INFO_DISTANCE_SQ = 24.0D * 24.0D;
 	private static final int SPEECH_WRAP_WIDTH = 140;
+	private static final int SPEECH_COLOR = 0xFFF4C2;
+	/** Height of one name tag line, in blocks (as vanilla stacks the score line under a name). */
+	private static final float LINE_HEIGHT = 9.0F * 1.15F * 0.025F;
 	/** Same proportions as real players. */
 	private static final float PLAYER_SCALE = 0.9375F;
 	/** The "Show" beam starts just over the head and reaches this far up. */
@@ -51,6 +55,7 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 	private final PlayerModel slimModel;
 	private final Map<Identifier, PlayerSkin> playerSkins = new HashMap<>();
 	private final Map<Integer, Identifier> lastTextures = new HashMap<>();
+	private boolean reported;
 
 	public ButterBotRenderer(EntityRendererProvider.Context context) {
 		super(context, new PlayerModel(context.bakeLayer(ModelLayers.PLAYER), false), 0.5F);
@@ -72,9 +77,19 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		return BotFocus.isFocused(entity.getUUID()) || super.shouldRender(entity, culler, camX, camY, camZ, partialTicks);
 	}
 
+	/** The "Lv name" line shows within 24 blocks, drawn as a vanilla name tag. */
 	@Override
 	protected boolean shouldShowName(ButterBotEntity entity, double distanceToCameraSq) {
-		return false;
+		return distanceToCameraSq < INFO_DISTANCE_SQ && !entity.isInvisible();
+	}
+
+	/** The level in the tier's colour, then the name; a nekomata (level 30) gets a star and a rainbow. */
+	@Override
+	protected Component getNameTag(ButterBotEntity entity) {
+		BotTier tier = BotTier.of(entity.getBotLevel());
+		String level = (tier == BotTier.LEGEND ? "\u2605" : "") + "Lv" + entity.getBotLevel() + " ";
+		return Component.literal(level).withColor(tier.colorAt(entity.tickCount) & 0xFFFFFF)
+				.append(entity.getName().copy().withStyle(ChatFormatting.WHITE));
 	}
 
 	@Override
@@ -144,18 +159,17 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 			state.yRot += ReactionAnimation.headTurn(state.reaction, state.reactionStrength);
 		}
 
-		boolean close = state.distanceToCameraSq < INFO_DISTANCE_SQ && !entity.isInvisible();
-		if (close) {
-			// The level shows in the tier's colour; a nekomata (level 30) gets a star and a rainbow.
-			String level = (state.tier == BotTier.LEGEND ? "★" : "") + "Lv" + entity.getBotLevel() + " ";
-			state.infoLine = Component.literal(level).withColor(state.tier.colorAt(state.ageInTicks) & 0xFFFFFF)
-					.append(entity.getName().copy().withStyle(ChatFormatting.WHITE));
-			Component speech = entity.getSpeech();
-			state.speech = speech.getString().isEmpty() ? null : speech;
-		} else {
-			state.infoLine = null;
-			state.speech = null;
+		// Speech bubbles show over the name tag, wrapped into short lines.
+		Component speech = state.nameTag != null ? entity.getSpeech() : Component.empty();
+		state.speechLines = speech.getString().isEmpty() ? List.of() : wrap(speech);
+	}
+
+	private List<Component> wrap(Component speech) {
+		List<Component> lines = new ArrayList<>();
+		for (FormattedText line : getFont().getSplitter().splitLines(speech, SPEECH_WRAP_WIDTH, Style.EMPTY)) {
+			lines.add(Component.literal(line.getString()).withColor(SPEECH_COLOR));
 		}
+		return lines;
 	}
 
 	private PlayerSkin playerSkinFor(ClientSkinManager.SkinInfo skin) {
@@ -182,13 +196,38 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 	@Override
 	public void submit(ButterBotRenderState state, PoseStack poseStack, SubmitNodeCollector collector, CameraRenderState camera) {
 		this.model = state.slim ? slimModel : wideModel;
+		if (!reported) {
+			reported = true;
+			ButterBot.LOGGER.info("Butter Bot renderer: first draw (layers {}, name tag {}, distance {})", layers.size(),
+					state.nameTag != null, Math.sqrt(state.distanceToCameraSq));
+		}
 		super.submit(state, poseStack, collector, camera);
 		if (state.focused) {
 			submitBeam(state, poseStack, collector);
 		}
-		if (state.infoLine != null) {
-			submitLabels(state, poseStack, collector, camera);
+	}
+
+	/**
+	 * The vanilla name tag ("Lv name"), with the speech bubble's lines above it. During the level-up cheer they
+	 * rise with the hop and make room for the perked-up ears.
+	 */
+	@Override
+	protected void submitNameDisplay(ButterBotRenderState state, PoseStack poseStack, SubmitNodeCollector collector,
+									 CameraRenderState camera) {
+		float lift = state.levelUpTime >= 0.0F
+				? LevelUpAnimation.hop(state.levelUpTime) * state.scale + 0.15F * LevelUpAnimation.strength(state.levelUpTime) : 0.0F;
+		poseStack.pushPose();
+		poseStack.translate(0.0F, lift, 0.0F);
+		super.submitNameDisplay(state, poseStack, collector, camera);
+		if (state.nameTag != null) {
+			for (int i = state.speechLines.size() - 1; i >= 0; i--) {
+				// One line up each time, as vanilla stacks the score line.
+				poseStack.translate(0.0F, LINE_HEIGHT, 0.0F);
+				collector.submitNameTag(poseStack, state.nameTagAttachment, 0, state.speechLines.get(i), !state.isDiscrete,
+						state.lightCoords, camera);
+			}
 		}
+		poseStack.popPose();
 	}
 
 	/** A beacon beam in the glow colour from just over the head up to the sky, wider far away like a beacon's. */
@@ -199,32 +238,6 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		poseStack.translate(-0.5F, 0.0F, -0.5F);
 		BeaconRenderer.submitBeaconBeam(poseStack, collector, BeaconRenderer.BEAM_LOCATION, 1.0F, state.beamTime, BEAM_START,
 				BEAM_HEIGHT, state.focusColor, 0.2F * width, 0.25F * width);
-		poseStack.popPose();
-	}
-
-	private void submitLabels(ButterBotRenderState state, PoseStack poseStack, SubmitNodeCollector collector, CameraRenderState camera) {
-		Font font = getFont();
-		poseStack.pushPose();
-		// During the level-up cheer the label rises with the hop and makes room for the perked-up ears.
-		float lift = state.levelUpTime >= 0.0F
-				? LevelUpAnimation.hop(state.levelUpTime) * state.scale + 0.15F * LevelUpAnimation.strength(state.levelUpTime) : 0.0F;
-		poseStack.translate(0.0F, state.boundingBoxHeight + 0.5F + lift, 0.0F);
-		poseStack.rotate(camera.orientation);
-		poseStack.scale(0.025F, -0.025F, 0.025F);
-
-		FormattedCharSequence info = state.infoLine.getVisualOrderText();
-		collector.submitText(poseStack, -font.width(info) / 2.0F, 0.0F, info, false, Font.DisplayMode.NORMAL,
-				state.lightCoords, 0xFFFFFFFF, 0x40000000, 0);
-
-		if (state.speech != null) {
-			List<FormattedCharSequence> lines = font.split(state.speech, SPEECH_WRAP_WIDTH);
-			float y = -6.0F - lines.size() * 10.0F;
-			for (FormattedCharSequence line : lines) {
-				collector.submitText(poseStack, -font.width(line) / 2.0F, y, line, false, Font.DisplayMode.NORMAL,
-						state.lightCoords, 0xFFFFF4C2, 0x90201008, 0);
-				y += 10.0F;
-			}
-		}
 		poseStack.popPose();
 	}
 }
