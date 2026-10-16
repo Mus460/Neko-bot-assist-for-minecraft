@@ -3,6 +3,7 @@ package dev.butterbot.client.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import dev.butterbot.ButterBot;
 import dev.butterbot.entity.BotTier;
+import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
@@ -41,6 +42,8 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 	private static final int UMBRELLA_POLE_COLOR = 0xFF6B4423;
 	/** The soul-fire blue a nekomata's tail tips and wisps glow in. */
 	private static final int SOUL_FIRE_COLOR = 0xFF7FE8FF;
+	/** Warm white wings of light (Second Wind). */
+	private static final int WING_COLOR = 0xFFFFF4D6;
 	/** Opacity of the emissive overlay on glowing parts. */
 	private static final int GLOW_ALPHA = 0x99;
 
@@ -130,6 +133,10 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 			parts.draw(NekoModel.Group.UMBRELLA, false, UMBRELLA_COLOR);
 			parts.draw(NekoModel.Group.UMBRELLA_POLE, false, UMBRELLA_POLE_COLOR);
 		}
+		boolean winged = state.gesture == ButterBotEntity.GESTURE_WINGS;
+		if (winged) {
+			parts.draw(NekoModel.Group.WING, true, WING_COLOR);
+		}
 
 		// The glowing parts again as an emissive overlay.
 		if (glowingEars) {
@@ -147,6 +154,9 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 		}
 		if (legend) {
 			parts.glow(NekoModel.Group.TAIL_TIP, tipColor);
+		}
+		if (winged) {
+			parts.glow(NekoModel.Group.WING, WING_COLOR);
 		}
 	}
 

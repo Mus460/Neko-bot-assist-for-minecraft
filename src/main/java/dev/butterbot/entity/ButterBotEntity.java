@@ -55,12 +55,16 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.particles.DustParticleOptions;
+import net.minecraft.core.particles.ColorParticleOption;
+import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ItemParticleOption;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.ItemLike;
 import net.minecraft.util.Mth;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -184,6 +188,9 @@ public class ButterBotEntity extends PathfinderMob {
 	/** Fighting right now: the ears flatten and the tail puffs up. */
 	private static final EntityDataAccessor<Boolean> DATA_FIGHTING =
 			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.BOOLEAN);
+	/** An item it is thinking of (a tool that broke, a chest when storage is full...), shown in a bubble. */
+	private static final EntityDataAccessor<ItemStack> DATA_THOUGHT =
+			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.ITEM_STACK);
 	/** What the bot does with nothing to do ({@link #ACTION_SIT}...), for its pose. */
 	private static final EntityDataAccessor<Integer> DATA_ACTION =
 			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.INT);
@@ -215,8 +222,23 @@ public class ButterBotEntity extends PathfinderMob {
 	public static final int GESTURE_SHAKE = 3;
 	public static final int GESTURE_WAVE = 4;
 	public static final int GESTURE_HIGH_FIVE = 5;
+	public static final int GESTURE_CROUCH = 6;
+	public static final int GESTURE_WINGS = 7;
 	private static final byte GESTURE_EVENT = 112;
-	private static final int[] GESTURE_TICKS = {0, 40, 20, 24, 36, 24};
+	private static final int[] GESTURE_TICKS = {0, 40, 20, 24, 36, 24, 14, 50};
+	/** Emote icons over the head ({@link #emoteType()}), sent as entity events {@code EMOTE_EVENT + type}. */
+	public static final int EMOTE_NONE = 0;
+	public static final int EMOTE_HEART = 1;
+	public static final int EMOTE_SURPRISE = 2;
+	public static final int EMOTE_QUESTION = 3;
+	public static final int EMOTE_ANGER = 4;
+	public static final int EMOTE_MUSIC = 5;
+	public static final int EMOTE_CHECK = 6;
+	private static final int EMOTE_COUNT = 7;
+	private static final byte EMOTE_EVENT = 120;
+	public static final int EMOTE_TICKS = 40;
+	/** How long a thought bubble stays up, in ticks. */
+	private static final int THOUGHT_TICKS = 120;
 	/**
 	 * A click this high on the bot (in blocks above its feet, at scale 1) pats its head instead of opening the
 	 * panel: only the top of the head counts, since a straight-ahead click from a player's eyes lands near 1.62.
@@ -329,6 +351,13 @@ public class ButterBotEntity extends PathfinderMob {
 	private BotStats cachedStats;
 	/** What it does with nothing to do: sit, sleep, dance, welcome the owner back... (server side). */
 	private final BotIdle idle = new BotIdle();
+	/** Server side: ticks the thought bubble stays up, the last tick of each emote (so they don't repeat too fast), and when to think of food again. */
+	private int thoughtTicks;
+	private final int[] lastEmoteTick = new int[EMOTE_COUNT];
+	private int hungerThoughtTimer;
+	/** Client side: the emote showing and when it started. */
+	private int emoteType = EMOTE_NONE;
+	private int emoteStart = Integer.MIN_VALUE / 2;
 	/** Client side: the gesture playing, and when it started and ends. */
 	private int gestureType = GESTURE_NONE;
 	private int gestureStart = Integer.MIN_VALUE / 2;
@@ -539,6 +568,7 @@ public class ButterBotEntity extends PathfinderMob {
 		builder.define(DATA_LEVEL, 1);
 		builder.define(DATA_FIGHTING, false);
 		builder.define(DATA_ACTION, BotIdle.NONE);
+		builder.define(DATA_THOUGHT, ItemStack.EMPTY);
 	}
 
 	@Override
@@ -578,6 +608,9 @@ public class ButterBotEntity extends PathfinderMob {
 		if (this.level() instanceof ServerLevel serverLevel) {
 			idle.tick(this, serverLevel);
 		}
+		if (thoughtTicks > 0 && --thoughtTicks == 0) {
+			this.entityData.set(DATA_THOUGHT, ItemStack.EMPTY);
+		}
 
 		if (!skinVariantChosen && ownerUuid != null) {
 			chooseFreeSkinVariant();
@@ -593,6 +626,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (working && --ambientSoundTimer <= 0) {
 			ambientSoundTimer = 500 + this.random.nextInt(400);
 			speak(ModSounds.VOICE_AMBIENT, ModSounds.BOT_AMBIENT, 0.8F, false);
+			emote(EMOTE_MUSIC);
 		}
 
 		if (speechTicks > 0 && --speechTicks == 0) {
@@ -645,9 +679,11 @@ public class ButterBotEntity extends PathfinderMob {
 			wanted = weapon();
 		} else if (digPos != null) {
 			toolHoldTicks = TOOL_HOLD_TICKS;
-			wanted = diggingTool(this.level().getBlockState(digPos));
+			BlockState digState = this.level().getBlockState(digPos);
+			wanted = diggingTool(digState);
 			if (this.tickCount % SWING_INTERVAL_TICKS == 0) {
 				this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
+				workChips(digPos, digState);
 			}
 		} else if (displayTicks > 0) {
 			displayTicks--;
@@ -665,6 +701,56 @@ public class ButterBotEntity extends PathfinderMob {
 		if (this.entityData.get(DATA_FIGHTING) != combatTicks > 0) {
 			this.entityData.set(DATA_FIGHTING, combatTicks > 0);
 		}
+	}
+
+	/** Chips of the block flying off with every swing; leaves too when chopping wood. */
+	private void workChips(BlockPos pos, BlockState state) {
+		if (!(this.level() instanceof ServerLevel serverLevel) || state.isAir()) {
+			return;
+		}
+		serverLevel.sendParticles(new BlockParticleOption(ParticleTypes.BLOCK, state), pos.getX() + 0.5D, pos.getY() + 0.5D,
+				pos.getZ() + 0.5D, 6, 0.3D, 0.3D, 0.3D, 0.05D);
+		if (state.is(BlockTags.LOGS)) {
+			serverLevel.sendParticles(ColorParticleOption.create(ParticleTypes.TINTED_LEAVES, 0xFF59A13A), pos.getX() + 0.5D,
+					pos.getY() + 1.5D, pos.getZ() + 0.5D, 3, 0.8D, 0.4D, 0.8D, 0.0D);
+		}
+	}
+
+	/** Shows an item in a thought bubble for a while: something it needs. */
+	public void think(ItemLike item) {
+		this.entityData.set(DATA_THOUGHT, new ItemStack(item));
+		thoughtTicks = THOUGHT_TICKS;
+	}
+
+	/** The item in its thought bubble, or empty. */
+	public ItemStack thought() {
+		return this.entityData.get(DATA_THOUGHT);
+	}
+
+	/** Pops an emote icon over its head on watching clients (each one at most every two seconds). */
+	public void emote(int emote) {
+		if (emote <= EMOTE_NONE || emote >= EMOTE_COUNT || !(this.level() instanceof ServerLevel serverLevel)
+				|| this.tickCount - lastEmoteTick[emote] < EMOTE_TICKS && lastEmoteTick[emote] != 0) {
+			return;
+		}
+		lastEmoteTick[emote] = this.tickCount;
+		serverLevel.broadcastEntityEvent(this, (byte) (EMOTE_EVENT + emote));
+	}
+
+	/** The emote showing, or {@link #EMOTE_NONE}. Client side. */
+	public int emoteType() {
+		return emoteTime(0.0F) >= 0.0F ? emoteType : EMOTE_NONE;
+	}
+
+	/** Ticks into the emote, or -1 when none shows. Client side. */
+	public float emoteTime(float partialTicks) {
+		float time = this.tickCount - emoteStart + partialTicks;
+		return time >= 0.0F && time < EMOTE_TICKS ? time : -1.0F;
+	}
+
+	private void showEmote(int emote) {
+		emoteType = emote;
+		emoteStart = this.tickCount;
 	}
 
 	/** Fighting right now (synced to clients for the ears and tail). */
@@ -708,10 +794,29 @@ public class ButterBotEntity extends PathfinderMob {
 		return gestureEnd - (this.tickCount + partialTicks);
 	}
 
-	/** Notes over a dancing bot and water flying off one shaking itself dry. Client side. */
+	/**
+	 * Notes over a dancing bot, water flying off one shaking itself dry, and footsteps: dust (or snow) kicked up
+	 * while running and splashes while swimming. Client side.
+	 */
 	private void tickIdleEffects() {
 		if (this.isInvisible()) {
 			return;
+		}
+		double dx = getX() - this.xo;
+		double dz = getZ() - this.zo;
+		double speedSq = dx * dx + dz * dz;
+		if (this.onGround() && speedSq > 0.012D && this.tickCount % 3 == 0) {
+			BlockPos feet = this.blockPosition();
+			BlockState at = this.level().getBlockState(feet);
+			BlockState ground = at.is(Blocks.SNOW) ? at : this.level().getBlockState(feet.below());
+			if (ground.getRenderShape() != RenderShape.INVISIBLE) {
+				this.level().addParticle(new BlockParticleOption(ParticleTypes.BLOCK, ground), getX() + (this.random.nextDouble() - 0.5D) * 0.4D,
+						getY() + 0.05D, getZ() + (this.random.nextDouble() - 0.5D) * 0.4D, -dx * 2.0D, 0.08D, -dz * 2.0D);
+			}
+		}
+		if (this.isInWater() && speedSq > 0.003D && this.tickCount % 2 == 0) {
+			this.level().addParticle(ParticleTypes.SPLASH, getX() + (this.random.nextDouble() - 0.5D) * 0.6D, getY() + 1.2D,
+					getZ() + (this.random.nextDouble() - 0.5D) * 0.6D, 0.0D, 0.1D, 0.0D);
 		}
 		if (idleAction() == ACTION_DANCE && this.tickCount % 10 == 0) {
 			this.level().addParticle(ParticleTypes.NOTE, getX(), getY() + 2.3D, getZ(), this.random.nextInt(25) / 24.0D, 0.0D, 0.0D);
@@ -739,8 +844,11 @@ public class ButterBotEntity extends PathfinderMob {
 		this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
 	}
 
-	/** Called every tick while the bot is fighting: it holds its sword. */
+	/** Called every tick while the bot is fighting: it holds its sword. A new fight pops a "!". */
 	public void markCombat() {
+		if (this.combatTicks == 0) {
+			emote(EMOTE_SURPRISE);
+		}
 		this.combatTicks = 40;
 	}
 
@@ -914,6 +1022,7 @@ public class ButterBotEntity extends PathfinderMob {
 			level.sendParticles(new ItemParticleOption(ParticleTypes.ITEM, broken.getItem()), getX(), getY() + 1.2D, getZ(),
 					8, 0.2D, 0.2D, 0.2D, 0.05D);
 			tellOwner(Component.translatable("butterbot.msg.gear_broke", broken.getHoverName()).withStyle(ChatFormatting.RED));
+			think(broken.getItem());
 		});
 		if (stack.isEmpty()) {
 			setGear(slot, ItemStack.EMPTY);
@@ -1010,6 +1119,7 @@ public class ButterBotEntity extends PathfinderMob {
 		super.onEquippedItemBroken(brokenItem, inSlot);
 		if (inSlot.isArmor()) {
 			tellOwner(Component.translatable("butterbot.msg.armor_broke", brokenItem.getHoverName()).withStyle(ChatFormatting.RED));
+			think(brokenItem.getItem());
 		}
 	}
 
@@ -1544,7 +1654,17 @@ public class ButterBotEntity extends PathfinderMob {
 			gestureType = id - GESTURE_EVENT;
 			gestureStart = this.tickCount;
 			gestureEnd = this.tickCount + GESTURE_TICKS[gestureType];
+			switch (gestureType) {
+				case GESTURE_STARTLE -> showEmote(EMOTE_SURPRISE);
+				case GESTURE_WAVE -> showEmote(EMOTE_HEART);
+				case GESTURE_HIGH_FIVE -> showEmote(EMOTE_MUSIC);
+				default -> {
+				}
+			}
+		} else if (id > EMOTE_EVENT && id < EMOTE_EVENT + EMOTE_COUNT) {
+			showEmote(id - EMOTE_EVENT);
 		} else if (id == PET_EVENT || id == POUT_EVENT || id == TREAT_EVENT) {
+			showEmote(id == POUT_EVENT ? EMOTE_ANGER : EMOTE_HEART);
 			int type = id == PET_EVENT ? REACTION_PET : id == POUT_EVENT ? REACTION_POUT : REACTION_TREAT;
 			// The same reaction again while it plays (a held pat) only lasts longer, so it never snaps back to the start.
 			if (type != reactionType()) {
@@ -2419,6 +2539,7 @@ public class ButterBotEntity extends PathfinderMob {
 		if (now - lastProblemMessage >= PROBLEM_MESSAGE_TICKS) {
 			lastProblemMessage = now;
 			tellOwner(problem.copy().withStyle(ChatFormatting.GOLD));
+			emote(EMOTE_QUESTION);
 		}
 	}
 
@@ -3170,7 +3291,16 @@ public class ButterBotEntity extends PathfinderMob {
 	public void playTaskCompleteSound() {
 		// Not "important": right after handing something over, the hand-over line is enough.
 		speak(ModSounds.VOICE_DONE, ModSounds.BOT_SPAWN, 0.45F, false);
+		emote(EMOTE_CHECK);
+		if (this.level() instanceof ServerLevel serverLevel) {
+			// A little confetti.
+			for (int color : CONFETTI) {
+				serverLevel.sendParticles(new DustParticleOptions(color, 1.0F), getX(), getY() + 2.1D, getZ(), 5, 0.45D, 0.25D, 0.45D, 0.1D);
+			}
+		}
 	}
+
+	private static final int[] CONFETTI = {0xFF5C7A, 0xFFD447, 0x5CEBE0, 0x8CFF7A, 0xC08CFF};
 
 	/** One of the neko girl's voice lines, not more often than every {@link #VOICE_GAP_TICKS} (except important ones). */
 	public void speak(SoundEvent line) {
@@ -3504,7 +3634,7 @@ public class ButterBotEntity extends PathfinderMob {
 			// Saved with the bot, so the warning comes along to the other dimension.
 			markStuck(HUD_UNSTUCK_TICKS);
 		}
-		here.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
+		portalSwirl(here);
 		this.resetFallDistance();
 		this.teleport(new net.minecraft.world.level.portal.TeleportTransition(destination,
 				new Vec3(spot.getX() + 0.5D, spot.getY(), spot.getZ() + 0.5D), Vec3.ZERO, this.getYRot(), this.getXRot(),
@@ -3568,7 +3698,7 @@ public class ButterBotEntity extends PathfinderMob {
 	}
 
 	private void hopTo(ServerLevel level, BlockPos spot) {
-		level.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
+		portalSwirl(level);
 		this.getNavigation().stop();
 		this.miner.cancel();
 		this.pillarBase = null;
@@ -3577,7 +3707,21 @@ public class ButterBotEntity extends PathfinderMob {
 		this.setDeltaMovement(Vec3.ZERO);
 		this.teleportTo(spot.getX() + 0.5D, spot.getY(), spot.getZ() + 0.5D);
 		this.playSound(SoundEvents.CHORUS_FRUIT_TELEPORT, 0.6F, 1.2F);
+		sparklePoof(level);
+	}
+
+	/** Purple portal swirls where it leaves from. */
+	private void portalSwirl(ServerLevel level) {
+		level.sendParticles(ParticleTypes.REVERSE_PORTAL, getX(), getY() + 1.0D, getZ(), 40, 0.3D, 0.7D, 0.3D, 0.05D);
+		level.sendParticles(ParticleTypes.PORTAL, getX(), getY() + 0.8D, getZ(), 30, 0.4D, 0.6D, 0.4D, 0.4D);
+	}
+
+	/** A sparkling poof where it arrives. */
+	private void sparklePoof(ServerLevel level) {
 		level.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.9D, getZ(), 10, 0.3D, 0.5D, 0.3D, 0.02D);
+		level.sendParticles(ParticleTypes.END_ROD, getX(), getY() + 1.0D, getZ(), 20, 0.3D, 0.6D, 0.3D, 0.06D);
+		level.sendParticles(ParticleTypes.FIREWORK, getX(), getY() + 1.0D, getZ(), 12, 0.3D, 0.6D, 0.3D, 0.1D);
+		this.playSound(SoundEvents.AMETHYST_BLOCK_CHIME, 0.8F, 1.4F);
 	}
 
 	/**
@@ -3627,6 +3771,7 @@ public class ButterBotEntity extends PathfinderMob {
 			lastUnstuckMessage = now;
 			say(Component.translatable("butterbot.msg.stuck"));
 			speak(ModSounds.VOICE_STUCK);
+			emote(EMOTE_QUESTION);
 		}
 	}
 
@@ -4496,6 +4641,12 @@ public class ButterBotEntity extends PathfinderMob {
 		if (this.getHealth() < this.getMaxHealth() * 0.5F && eatCooldown == 0) {
 			eatFromBackpack();
 		}
+		hungerThoughtTimer = Math.max(0, hungerThoughtTimer - 20);
+		if (this.getHealth() < this.getMaxHealth() * 0.4F && hungerThoughtTimer == 0 && bestFoodSlot() < 0) {
+			// Hurt and nothing to eat: it dreams of a steak.
+			hungerThoughtTimer = 600;
+			think(Items.COOKED_BEEF);
+		}
 
 		Player owner = getOwner();
 		if (owner == null || !owner.isAlive() || owner.isSpectator()) {
@@ -4807,7 +4958,11 @@ public class ButterBotEntity extends PathfinderMob {
 			secondWindReadyAt = level.getGameTime() + SECOND_WIND_COOLDOWN;
 			this.setHealth(this.getMaxHealth() * 0.5F);
 			level.sendParticles(ParticleTypes.TOTEM_OF_UNDYING, getX(), getY() + 1.0D, getZ(), 40, 0.5D, 0.8D, 0.5D, 0.3D);
+			// A burst of light and, for a moment, wings.
+			level.sendParticles(ParticleTypes.END_ROD, getX(), getY() + 1.2D, getZ(), 60, 0.6D, 0.9D, 0.6D, 0.15D);
+			playGesture(GESTURE_WINGS);
 			this.playSound(SoundEvents.TOTEM_USE, 0.8F, 1.2F);
+			this.playSound(SoundEvents.BEACON_ACTIVATE, 0.8F, 1.4F);
 			tellOwner(Component.translatable("butterbot.msg.second_wind", getName()).withStyle(ChatFormatting.GOLD));
 		}
 	}
@@ -4839,6 +4994,9 @@ public class ButterBotEntity extends PathfinderMob {
 			this.setItemSlot(EquipmentSlot.MAINHAND, held.copy());
 		}
 		boolean hit = super.doHurtTarget(level, target);
+		if (hit) {
+			slashEffect(level, target);
+		}
 		if (hit && !held.isEmpty() && held == getGear(GearSlot.SWORD)) {
 			Weapon weaponData = held.get(DataComponents.WEAPON);
 			wearTool(GearSlot.SWORD, weaponData == null ? 1 : weaponData.itemDamagePerAttack());
@@ -4861,6 +5019,32 @@ public class ButterBotEntity extends PathfinderMob {
 			}
 		}
 		return true;
+	}
+
+	/**
+	 * A slash of light in the tier's colour in front of the bot with every hit; one hit in five flashes like a
+	 * critical one, and one in four it steps back out of reach.
+	 */
+	private void slashEffect(ServerLevel level, Entity target) {
+		DustParticleOptions dust = new DustParticleOptions(BotTier.of(getBotLevel()).color() & 0xFFFFFF, 0.9F);
+		float yaw = this.getYRot() * Mth.DEG_TO_RAD;
+		double forwardX = -Mth.sin(yaw);
+		double forwardZ = Mth.cos(yaw);
+		for (int i = -3; i <= 3; i++) {
+			double side = i / 3.0D;
+			double ahead = 0.8D - 0.25D * side * side;
+			level.sendParticles(dust, getX() + forwardX * ahead - forwardZ * side * 0.8D, getY() + 1.2D + side * 0.25D,
+					getZ() + forwardZ * ahead + forwardX * side * 0.8D, 1, 0.0D, 0.0D, 0.0D, 0.0D);
+		}
+		if (this.random.nextFloat() < 0.2F) {
+			level.sendParticles(ParticleTypes.CRIT, target.getX(), target.getY(0.6D), target.getZ(), 12, 0.3D, 0.3D, 0.3D, 0.3D);
+			level.sendParticles(ParticleTypes.ENCHANTED_HIT, target.getX(), target.getY(0.6D), target.getZ(), 8, 0.3D, 0.3D, 0.3D, 0.2D);
+			this.playSound(SoundEvents.PLAYER_ATTACK_CRIT, 0.7F, 1.0F);
+		}
+		if (this.onGround() && this.random.nextFloat() < 0.25F) {
+			this.setDeltaMovement(this.getDeltaMovement().add(-forwardX * 0.35D, 0.22D, -forwardZ * 0.35D));
+			this.needsSync = true;
+		}
 	}
 
 	/** Bots tiptoe through fields: landing on farmland never tramples it. */

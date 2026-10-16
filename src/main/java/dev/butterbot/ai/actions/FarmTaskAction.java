@@ -226,6 +226,9 @@ public class FarmTaskAction implements BotAction {
 		boolean base = pos.equals(bot.getBasePos());
 		if (base) {
 			bot.tellOwner(Component.translatable(full ? "butterbot.msg.base_full" : "butterbot.msg.cant_reach_base"));
+			if (full) {
+				bot.think(Items.CHEST);
+			}
 		} else {
 			bot.tellOwner(Component.translatable(full ? "butterbot.msg.job_chest_full" : "butterbot.msg.job_chest_unreachable",
 					pos.toShortString()));
@@ -469,6 +472,8 @@ public class FarmTaskAction implements BotAction {
 		}
 		level.levelEvent(2001, pos, Block.getId(ripe));
 		level.setBlock(pos, replanted ? young : Blocks.AIR.defaultBlockState(), 3);
+		// It kneels down to harvest and plant.
+		bot.playGesture(ButterBotEntity.GESTURE_CROUCH);
 		boolean bonus = bonusHarvest(bot);
 		for (ItemStack drop : drops) {
 			if (bonus && !drop.isEmpty()) {

@@ -506,6 +506,7 @@ public class JobAction implements BotAction {
 		if (full[0] || (extraFull[0] && bot.freeSlots() < 4)) {
 			jobs.setPhase(JobConfig.Phase.CHEST_PROBLEM);
 			warn(bot, Component.translatable("butterbot.msg.job_chest_full", chestPos.toShortString()));
+			bot.think(Items.CHEST);
 			return -1;
 		}
 		return stored;
@@ -736,6 +737,7 @@ public class JobAction implements BotAction {
 		}
 		if (full[0]) {
 			warn(bot, Component.translatable("butterbot.msg.job_chest_full", chestPos.toShortString()));
+			bot.think(Items.CHEST);
 			blockDeposit(now);
 		}
 		if (ranch) {

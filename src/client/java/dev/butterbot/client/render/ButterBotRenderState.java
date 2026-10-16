@@ -3,6 +3,7 @@ package dev.butterbot.client.render;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.entity.BotTier;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
@@ -40,6 +41,12 @@ public class ButterBotRenderState extends AvatarRenderState {
 	public int gesture;
 	public float gestureTime = -1.0F;
 	public float gestureStrength;
+	/** The emote icon over the head (ButterBotEntity.EMOTE_*) and ticks into it. */
+	public int emote;
+	public float emoteTime = -1.0F;
+	/** An item in a thought bubble (something it needs), and whether there is one. */
+	public final ItemStackRenderState thought = new ItemStackRenderState();
+	public boolean thinking;
 	/** Drawn on the panel card: no light pillar there. */
 	public boolean inPanel;
 	/** Asked to be shown ("Show" in the panel): glows through walls and sends a beam up. */

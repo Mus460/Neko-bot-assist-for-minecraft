@@ -31,7 +31,7 @@ final class NekoModel extends BotModel {
 	/** Parts drawn in one colour. */
 	enum Group {
 		HAIR, FUR, INNER_EAR, EAR_FLUFF, TAIL_TIP, BAND, COLLAR, BELL, BELL_SLIT, BOW, BOW_KNOT, CROWN, GEM, ORB, EYELID,
-		GLASSES, SCARF, UMBRELLA, UMBRELLA_POLE
+		GLASSES, SCARF, UMBRELLA, UMBRELLA_POLE, WING
 	}
 
 	static final int TAIL_SEGMENTS = 8;
@@ -83,6 +83,8 @@ final class NekoModel extends BotModel {
 	private final ModelPart umbrellaPole;
 	private final ModelPart umbrella;
 	private final ModelPart[] orbs = new ModelPart[MAX_ORBS];
+	/** Wings of light that unfold for a moment when Second Wind saves the bot; index 0 on the +x side. */
+	private final ModelPart[] wings = new ModelPart[2];
 	private final Tail[] tails = new Tail[2];
 
 	/**
@@ -122,6 +124,8 @@ final class NekoModel extends BotModel {
 		for (int i = 0; i < MAX_ORBS; i++) {
 			orbs[i] = root.getChild("neko_orb" + i);
 		}
+		wings[0] = body.getChild("neko_wing_plus");
+		wings[1] = body.getChild("neko_wing_minus");
 		for (int t = 0; t < 2; t++) {
 			ModelPart[] pitch = new ModelPart[TAIL_SEGMENTS];
 			ModelPart[] yaw = new ModelPart[TAIL_SEGMENTS];
@@ -217,6 +221,17 @@ final class NekoModel extends BotModel {
 		for (int i = 0; i < MAX_ORBS; i++) {
 			root.addOrReplaceChild("neko_orb" + i, box(-0.9F, -0.9F, -0.9F, 0.9F, 0.9F, 0.9F), PartPose.ZERO);
 		}
+		// Feathered wings on the upper back: three rows of feathers, longest at the top.
+		for (int i = 0; i < 2; i++) {
+			int side = i == 0 ? 1 : -1;
+			CubeListBuilder feathers = CubeListBuilder.create();
+			float[][] rows = {{-2.0F, 4.0F, 9.0F}, {4.0F, 7.0F, 7.0F}, {7.0F, 9.5F, 4.5F}};
+			for (float[] row : rows) {
+				float x0 = side > 0 ? 0.0F : -row[2];
+				feathers.addBox(x0, row[0], 0.0F, row[2], row[1] - row[0], 0.4F);
+			}
+			body.addOrReplaceChild(i == 0 ? "neko_wing_plus" : "neko_wing_minus", feathers, PartPose.offset(side * 1.5F, 1.5F, 2.2F));
+		}
 
 		for (int t = 0; t < 2; t++) {
 			PartDefinition parent = body;
@@ -277,6 +292,7 @@ final class NekoModel extends BotModel {
 			poseLids(state);
 			poseTails(state);
 			poseOrbs(state);
+			poseWings(state);
 		} catch (RuntimeException exception) {
 			// Ears and tail are looks only: never let them crash the game.
 			head.visible = false;
@@ -323,6 +339,9 @@ final class NekoModel extends BotModel {
 		umbrella.visible = group == Group.UMBRELLA && state.umbrella;
 		for (int i = 0; i < MAX_ORBS; i++) {
 			orbs[i].visible = group == Group.ORB && i < orbCount;
+		}
+		for (ModelPart wing : wings) {
+			wing.visible = group == Group.WING && state.gesture == ButterBotEntity.GESTURE_WINGS;
 		}
 		for (int t = 0; t < 2; t++) {
 			Tail tail = tails[t];
@@ -450,6 +469,19 @@ final class NekoModel extends BotModel {
 		part.xScale = thickness;
 		part.yScale = thickness;
 		part.zScale = length;
+	}
+
+	/** The wings unfold with the gesture and beat slowly. */
+	private void poseWings(ButterBotRenderState state) {
+		float open = state.gesture == ButterBotEntity.GESTURE_WINGS ? state.gestureStrength : 0.0F;
+		float beat = Mth.sin(Math.max(0.0F, state.gestureTime) * 0.9F);
+		for (int i = 0; i < 2; i++) {
+			int side = i == 0 ? 1 : -1;
+			ModelPart wing = wings[i];
+			wing.yRot = -side * (0.35F + 0.35F * beat) * open;
+			wing.xScale = Math.max(0.01F, open);
+			wing.yScale = Math.max(0.01F, open);
+		}
 	}
 
 	/** Spirit orbs circle the bot at chest height, bobbing and spinning. */

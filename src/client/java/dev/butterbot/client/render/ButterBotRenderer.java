@@ -8,10 +8,12 @@ import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.entity.BotTier;
 import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.renderer.blockentity.BeaconRenderer;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
@@ -27,8 +29,11 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.util.ARGB;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.util.Mth;
+import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.Pose;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.entity.player.PlayerModelType;
 import net.minecraft.world.entity.player.PlayerSkin;
 import net.minecraft.world.level.Level;
@@ -51,6 +56,9 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 	private static final int SPEECH_COLOR = 0xFFF4C2;
 	/** Height of one name tag line, in blocks (as vanilla stacks the score line under a name). */
 	private static final float LINE_HEIGHT = 9.0F * 1.15F * 0.025F;
+	/** The emote icons and colours, by ButterBotEntity.EMOTE_*. */
+	private static final String[] EMOTE_ICONS = {"", "\u2665", "!", "?", "#", "\u266a", "\u2714"};
+	private static final int[] EMOTE_COLORS = {0, 0xFF5C8A, 0xFFE14D, 0x6FD8FF, 0xFF3B3B, 0xC08CFF, 0x6CFF6C};
 	/** Within this distance of the camera (5 blocks) the bot is happy to have its owner close. */
 	private static final double OWNER_NEAR_SQ = 25.0D;
 	/** Same proportions as real players. */
@@ -187,6 +195,19 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		state.gestureTime = entity.gestureTime(partialTicks);
 		state.gesture = state.gestureTime >= 0.0F ? entity.gestureType() : ButterBotEntity.GESTURE_NONE;
 		state.gestureStrength = ReactionAnimation.strength(state.gestureTime, entity.gestureLeft(partialTicks));
+		state.emoteTime = entity.emoteTime(partialTicks);
+		state.emote = state.emoteTime >= 0.0F ? entity.emoteType() : ButterBotEntity.EMOTE_NONE;
+		ItemStack thought = entity.thought();
+		state.thinking = !thought.isEmpty() && state.nameTag != null;
+		if (state.thinking) {
+			this.itemModelResolver.updateForTopItem(state.thought, thought, ItemDisplayContext.FIXED, entity.level(), null, entity.getId());
+		} else {
+			state.thought.clear();
+		}
+		if (state.gesture == ButterBotEntity.GESTURE_CROUCH) {
+			// Kneeling to harvest and plant.
+			state.isCrouching = true;
+		}
 		if (state.action == ButterBotEntity.ACTION_SIT) {
 			// The vanilla sitting pose (legs forward), lowered onto the ground in setupRotations.
 			state.isPassenger = true;
@@ -277,6 +298,46 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		}
 	}
 
+	/**
+	 * Over the name: an emote icon that pops up, bobs and fades (♥ ! ? # ♪ ✔), or an item in a thought bubble with
+	 * little bubbles under it.
+	 */
+	private void submitBubble(ButterBotRenderState state, PoseStack poseStack, SubmitNodeCollector collector, CameraRenderState camera) {
+		if (state.nameTagAttachment == null) {
+			return;
+		}
+		poseStack.pushPose();
+		poseStack.translate(state.nameTagAttachment.x, state.nameTagAttachment.y + 0.6D, state.nameTagAttachment.z);
+		poseStack.rotate(camera.orientation);
+		Font font = getFont();
+		if (state.thinking) {
+			poseStack.pushPose();
+			poseStack.translate(0.0F, 0.18F + 0.03F * Mth.sin(state.ageInTicks * 0.15F), 0.0F);
+			poseStack.scale(0.45F, 0.45F, 0.45F);
+			poseStack.rotateDegrees(Axis.YP, 180.0F);
+			state.thought.submit(poseStack, collector, LightCoordsUtil.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, 0);
+			poseStack.popPose();
+			poseStack.pushPose();
+			poseStack.scale(0.025F, -0.025F, 0.025F);
+			FormattedCharSequence dots = Component.literal("\u00b0 o").getVisualOrderText();
+			collector.submitText(poseStack, -font.width(dots) / 2.0F, 2.0F, dots, false, Font.DisplayMode.NORMAL, LightCoordsUtil.FULL_BRIGHT,
+					0xFFFFFFFF, 0, 0);
+			poseStack.popPose();
+		} else {
+			float time = Math.max(0.0F, state.emoteTime);
+			float pop = time < 4.0F ? 1.0F + 0.35F * Mth.sin(time / 4.0F * Mth.PI) : 1.0F;
+			float fade = Mth.clamp((ButterBotEntity.EMOTE_TICKS - time) / 8.0F, 0.0F, 1.0F);
+			poseStack.translate(0.0F, 0.04F * Mth.sin(state.ageInTicks * 0.2F), 0.0F);
+			float scale = 0.025F * 1.8F * pop;
+			poseStack.scale(scale, -scale, scale);
+			FormattedCharSequence icon = Component.literal(EMOTE_ICONS[state.emote]).withStyle(ChatFormatting.BOLD).getVisualOrderText();
+			int alpha = Math.max(8, (int) (fade * 255.0F)) << 24;
+			collector.submitText(poseStack, -font.width(icon) / 2.0F, -4.0F, icon, false, Font.DisplayMode.NORMAL, LightCoordsUtil.FULL_BRIGHT,
+					alpha | EMOTE_COLORS[state.emote], 0, 0);
+		}
+		poseStack.popPose();
+	}
+
 	/** On a level up, a pillar of light in the tier's colour shoots up and thins out; taller and wider for a new tier. */
 	private static void submitLevelUpPillar(ButterBotRenderState state, PoseStack poseStack, SubmitNodeCollector collector) {
 		float duration = state.levelUpTierUp ? 40.0F : 28.0F;
@@ -319,6 +380,10 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 				poseStack.translate(0.0F, LINE_HEIGHT, 0.0F);
 				collector.submitNameTag(poseStack, state.nameTagAttachment, 0, state.speechLines.get(i), !state.isDiscrete,
 						state.lightCoords, camera);
+			}
+			if (state.emote != ButterBotEntity.EMOTE_NONE || state.thinking) {
+				poseStack.translate(0.0F, LINE_HEIGHT, 0.0F);
+				submitBubble(state, poseStack, collector, camera);
 			}
 			if (state.levelUpTime >= 0.0F) {
 				// "LEVEL UP! Lv N" floats up above everything during the cheer.

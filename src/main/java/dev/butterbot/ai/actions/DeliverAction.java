@@ -1,5 +1,6 @@
 package dev.butterbot.ai.actions;
 
+import net.minecraft.world.item.Items;
 import dev.butterbot.ai.BotAction;
 import dev.butterbot.ai.Travel;
 import dev.butterbot.ai.Walker;
@@ -137,6 +138,7 @@ public class DeliverAction implements BotAction {
 		boolean empty = bot.depositInto(base);
 		if (!empty) {
 			bot.tellOwner(Component.translatable("butterbot.msg.base_full"));
+			bot.think(Items.CHEST);
 		}
 		complete(bot);
 	}
