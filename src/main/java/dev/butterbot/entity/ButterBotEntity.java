@@ -184,6 +184,9 @@ public class ButterBotEntity extends PathfinderMob {
 	/** Fighting right now: the ears flatten and the tail puffs up. */
 	private static final EntityDataAccessor<Boolean> DATA_FIGHTING =
 			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.BOOLEAN);
+	/** What the bot does with nothing to do ({@link #ACTION_SIT}...), for its pose. */
+	private static final EntityDataAccessor<Integer> DATA_ACTION =
+			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.INT);
 
 	/** Entity events {@code LEVEL_UP_EVENT + tier} tell watching clients to play the level-up cheer. */
 	private static final byte LEVEL_UP_EVENT = 100;
@@ -200,6 +203,20 @@ public class ButterBotEntity extends PathfinderMob {
 	public static final int REACTION_TREAT = 3;
 	/** How long a reaction (folded ears, fast tail, head down into the pat...) lasts, in ticks. */
 	public static final int REACTION_TICKS = 40;
+	/** Idle poses ({@link #idleAction()}): sitting by a still owner, sleeping by the owner's bed, dancing to a jukebox. */
+	public static final int ACTION_NONE = BotIdle.NONE;
+	public static final int ACTION_SIT = BotIdle.SIT;
+	public static final int ACTION_SLEEP = BotIdle.SLEEP;
+	public static final int ACTION_DANCE = BotIdle.DANCE;
+	/** One-off moves played on watching clients ({@link #gestureType()}), sent as entity events {@code GESTURE_EVENT + type}. */
+	public static final int GESTURE_NONE = 0;
+	public static final int GESTURE_STRETCH = 1;
+	public static final int GESTURE_STARTLE = 2;
+	public static final int GESTURE_SHAKE = 3;
+	public static final int GESTURE_WAVE = 4;
+	public static final int GESTURE_HIGH_FIVE = 5;
+	private static final byte GESTURE_EVENT = 112;
+	private static final int[] GESTURE_TICKS = {0, 40, 20, 24, 36, 24};
 	/**
 	 * A click this high on the bot (in blocks above its feet, at scale 1) pats its head instead of opening the
 	 * panel: only the top of the head counts, since a straight-ahead click from a player's eyes lands near 1.62.
@@ -310,6 +327,12 @@ public class ButterBotEntity extends PathfinderMob {
 	private final BotProgress progress = new BotProgress();
 	@Nullable
 	private BotStats cachedStats;
+	/** What it does with nothing to do: sit, sleep, dance, welcome the owner back... (server side). */
+	private final BotIdle idle = new BotIdle();
+	/** Client side: the gesture playing, and when it started and ends. */
+	private int gestureType = GESTURE_NONE;
+	private int gestureStart = Integer.MIN_VALUE / 2;
+	private int gestureEnd = Integer.MIN_VALUE / 2;
 	/** Level tour (command): the next level to show, 0 when no tour runs; and the ticks between levels. */
 	private int tourLevel;
 	private int tourTimer;
@@ -515,6 +538,7 @@ public class ButterBotEntity extends PathfinderMob {
 		builder.define(DATA_SKIN_VARIANT, 0);
 		builder.define(DATA_LEVEL, 1);
 		builder.define(DATA_FIGHTING, false);
+		builder.define(DATA_ACTION, BotIdle.NONE);
 	}
 
 	@Override
@@ -543,6 +567,7 @@ public class ButterBotEntity extends PathfinderMob {
 			if (this.isAlive()) {
 				tickTierAura();
 				tickLevelUpEffects();
+				tickIdleEffects();
 			}
 			return;
 		}
@@ -550,6 +575,9 @@ public class ButterBotEntity extends PathfinderMob {
 			return;
 		}
 		tickLevelTour();
+		if (this.level() instanceof ServerLevel serverLevel) {
+			idle.tick(this, serverLevel);
+		}
 
 		if (!skinVariantChosen && ownerUuid != null) {
 			chooseFreeSkinVariant();
@@ -642,6 +670,60 @@ public class ButterBotEntity extends PathfinderMob {
 	/** Fighting right now (synced to clients for the ears and tail). */
 	public boolean isFightingClient() {
 		return this.entityData.get(DATA_FIGHTING);
+	}
+
+	BotIdle idle() {
+		return idle;
+	}
+
+	/** The idle pose ({@link #ACTION_SIT}...), synced to clients. */
+	public int idleAction() {
+		return this.entityData.get(DATA_ACTION);
+	}
+
+	void syncIdleAction(int action) {
+		this.entityData.set(DATA_ACTION, action);
+	}
+
+	/** Plays a one-off move ({@link #GESTURE_STRETCH}...) on watching clients. */
+	public void playGesture(int gesture) {
+		if (gesture > GESTURE_NONE && gesture < GESTURE_TICKS.length && this.level() instanceof ServerLevel serverLevel) {
+			serverLevel.broadcastEntityEvent(this, (byte) (GESTURE_EVENT + gesture));
+		}
+	}
+
+	/** The gesture playing, or {@link #GESTURE_NONE}. Client side. */
+	public int gestureType() {
+		return gestureTime(0.0F) >= 0.0F ? gestureType : GESTURE_NONE;
+	}
+
+	/** Ticks into the gesture (with the partial tick), or -1 when none is playing. Client side. */
+	public float gestureTime(float partialTicks) {
+		float time = this.tickCount - gestureStart + partialTicks;
+		return time >= 0.0F && this.tickCount + partialTicks < gestureEnd ? time : -1.0F;
+	}
+
+	/** Ticks left of the gesture. Client side. */
+	public float gestureLeft(float partialTicks) {
+		return gestureEnd - (this.tickCount + partialTicks);
+	}
+
+	/** Notes over a dancing bot and water flying off one shaking itself dry. Client side. */
+	private void tickIdleEffects() {
+		if (this.isInvisible()) {
+			return;
+		}
+		if (idleAction() == ACTION_DANCE && this.tickCount % 10 == 0) {
+			this.level().addParticle(ParticleTypes.NOTE, getX(), getY() + 2.3D, getZ(), this.random.nextInt(25) / 24.0D, 0.0D, 0.0D);
+		}
+		float shake = gestureType() == GESTURE_SHAKE ? gestureTime(0.0F) : -1.0F;
+		if (shake >= 0.0F && shake < 14.0F) {
+			for (int i = 0; i < 4; i++) {
+				double angle = this.random.nextDouble() * Mth.TWO_PI;
+				this.level().addParticle(ParticleTypes.SPLASH, getX() + Math.cos(angle) * 0.45D, getY() + 0.5D + this.random.nextDouble() * 1.1D,
+						getZ() + Math.sin(angle) * 0.45D, Math.cos(angle) * 0.2D, 0.1D, Math.sin(angle) * 0.2D);
+			}
+		}
 	}
 
 	/** Same item with the same enchantments (wear doesn't matter): no need to swap what the bot holds. */
@@ -1458,6 +1540,10 @@ public class ButterBotEntity extends PathfinderMob {
 			levelUpTier = BotTier.byIndex(id - LEVEL_UP_EVENT);
 			levelUpTierUp = levelUpTier != BotTier.of(getBotLevel());
 			spawnLevelUpBurst(levelUpTier);
+		} else if (id > GESTURE_EVENT && id < GESTURE_EVENT + GESTURE_TICKS.length) {
+			gestureType = id - GESTURE_EVENT;
+			gestureStart = this.tickCount;
+			gestureEnd = this.tickCount + GESTURE_TICKS[gestureType];
 		} else if (id == PET_EVENT || id == POUT_EVENT || id == TREAT_EVENT) {
 			int type = id == PET_EVENT ? REACTION_PET : id == POUT_EVENT ? REACTION_POUT : REACTION_TREAT;
 			// The same reaction again while it plays (a held pat) only lasts longer, so it never snaps back to the start.
@@ -4515,6 +4601,7 @@ public class ButterBotEntity extends PathfinderMob {
 		output.putBoolean("AutoRefill", autoRefill);
 		output.putBoolean("FarTeleport", farTeleport);
 		output.putInt("Bond", bond);
+		output.putLong("OwnerSeenAt", idle.ownerSeenAt());
 		output.putInt("BondFav", getFavoriteTreat());
 		output.putBoolean("BondFavKnown", favoriteKnown);
 		output.putInt("BondNear", nearOwnerSeconds);
@@ -4612,6 +4699,7 @@ public class ButterBotEntity extends PathfinderMob {
 		farTeleport = input.getBooleanOr("FarTeleport", true);
 		// Bots from before the bond start friendly; their favourite treat is picked from the UUID.
 		bond = BotBond.clamp(input.getIntOr("Bond", BotBond.DEFAULT));
+		idle.setOwnerSeenAt(input.getLongOr("OwnerSeenAt", 0L));
 		favoriteTreat = input.getIntOr("BondFav", -1);
 		favoriteKnown = input.getBooleanOr("BondFavKnown", false);
 		nearOwnerSeconds = input.getIntOr("BondNear", 0);

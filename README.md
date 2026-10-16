@@ -274,6 +274,20 @@ Setiap bot punya meter **Kedekatan ♥** (0–100) denganmu. Bot baru, dan bot d
 
 Naik tingkat diberitahukan di chat. Kedekatan tampil di kartu bot di panel (♥ di baris darah, arahkan kursor untuk rinciannya), di halaman **Statistik** (bar merah muda, tingkat dan camilan favorit), dan di tooltip item bot yang dikemas maupun Inti Memorinya. Kedekatan dan camilan favorit ikut tersimpan saat bot dikemas jadi item, dan tetap utuh di Inti Memori kalau bot hancur.
 
+### Kehidupan sehari-hari
+
+Saat tidak punya tugas (tanpa perintah, job sedang tidak jalan dan tidak bertarung), bot hidup seperti kucing peliharaan:
+
+- **Duduk santai**: kalau kamu diam 10 detik dalam 6 blok darinya, bot duduk di sebelahmu, ekornya rebahan di tanah, dan sesekali **menggeliat** sambil menguap. Begitu kamu bergerak, ia berdiri lagi.
+- **Tidur di samping kasur**: saat kamu tidur, bot dalam 16 blok berjalan ke dekat kasurmu lalu berbaring dengan tulisan "z Z z". Paginya ia bangun, menggeliat, menyapa "Ohayou, Tuan!" dan kadang (30%) membawakan **hadiah kecil** seperti kucing sungguhan.
+- **Joget**: kalau ada jukebox yang memutar musik dalam 10 blok, bot berjoget: kepala mengangguk mengikuti irama, tangan terangkat bergantian, ekor bergoyang cepat dan muncul not musik.
+- **Kaget petir**: saat petir menyambar di dekatnya, bot melompat kaget dengan tangan terangkat (kadang teriak "Kyaa! Petir!").
+- **Mengibas air**: habis kehujanan atau berenang, begitu kering bot mengibaskan badannya dan air memercik.
+- **Okaeri!**: kalau kamu pergi lebih dari 3 menit lalu kembali, bot melambai sambil berkata "Okaeri, Tuan!" dengan hati.
+- **High-five**: dua bot milikmu yang sedang santai berdekatan sesekali saling tos.
+
+Armor, telinga, ekor dan aksesori ikut bergerak bersama semua gerakan ini.
+
 ### Level (1 sampai 30)
 
 Bot mendapat XP kerja dari setiap blok yang digali, tanaman yang dipanen, crafting, item yang dilebur dan monster yang dikalahkan. Kerja yang lebih sulit memberi lebih banyak XP: batu 1, batu bara/tembaga 2, besi/redstone 3, emas/lapis 4, zamrud 8, berlian 10, ancient debris 15; monster sesuai kekuatannya (boss 200). Level tampil di atas kepala bot (`Lv3 Mochi-3F`). Saat naik level ada kembang api dan bot bersorak: melompat sambil berputar, kupingnya tegak dan bergoyang, ekornya berdiri dan bergetar, lalu muncul spiral cahaya berwarna tingkatnya. Untuk level penting muncul judul besar di layarmu.

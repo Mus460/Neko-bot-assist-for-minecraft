@@ -23,10 +23,10 @@ public class BotArmorLayer extends RenderLayer<ButterBotRenderState, PlayerModel
 		super(renderer);
 		RenderLayerParent<AvatarRenderState, PlayerModel> parent = renderer::getModel;
 		this.wide = new HumanoidArmorLayer<>(parent,
-				ArmorModelSet.bake(ModelLayers.PLAYER_ARMOR, context.getModelSet(), part -> new PlayerModel(part, false)),
+				ArmorModelSet.bake(ModelLayers.PLAYER_ARMOR, context.getModelSet(), part -> new BotModel(part, false)),
 				context.getEquipmentRenderer());
 		this.slim = new HumanoidArmorLayer<>(parent,
-				ArmorModelSet.bake(ModelLayers.PLAYER_SLIM_ARMOR, context.getModelSet(), part -> new PlayerModel(part, true)),
+				ArmorModelSet.bake(ModelLayers.PLAYER_SLIM_ARMOR, context.getModelSet(), part -> new BotModel(part, true)),
 				context.getEquipmentRenderer());
 	}
 

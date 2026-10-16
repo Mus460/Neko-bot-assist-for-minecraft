@@ -2,6 +2,7 @@ package dev.butterbot.client.render;
 
 import dev.butterbot.ButterBot;
 import dev.butterbot.entity.BotTier;
+import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
@@ -25,7 +26,7 @@ import java.util.List;
  * state as the bot's body, so they follow its head and hips exactly. The player cubes themselves are never drawn.
  * One instance draws one colour {@link Group}; {@link NekoLayer} tints each group.
  */
-final class NekoModel extends PlayerModel {
+final class NekoModel extends BotModel {
 
 	/** Parts drawn in one colour. */
 	enum Group {
@@ -396,7 +397,8 @@ final class NekoModel extends PlayerModel {
 		float thickness = (1.0F + 0.04F * grow) * (1.0F + 0.3F * cheer) * puff;
 		float sway = 6.0F + 14.0F * Mth.clamp(state.walkAnimationSpeed, 0.0F, 1.0F) + (state.working ? 4.0F : 0.0F)
 				+ (state.ownerNear ? 6.0F : 0.0F);
-		float swaySpeed = state.working ? 0.2F : state.ownerNear ? 0.26F : 0.12F;
+		boolean dancing = state.action == ButterBotEntity.ACTION_DANCE;
+		float swaySpeed = dancing ? 0.4F : state.working ? 0.2F : state.ownerNear ? 0.26F : 0.12F;
 		if (state.lowHealth) {
 			sway *= 0.4F;
 			swaySpeed *= 0.6F;
@@ -404,9 +406,10 @@ final class NekoModel extends PlayerModel {
 		float wag = state.reactionStrength;
 		float wagTime = Math.max(0.0F, state.reactionTime) * ReactionAnimation.wagSpeed(state.reaction);
 		float wagSway = ReactionAnimation.wagSway(state.reaction);
-		// A badly hurt bot's tail hangs low and barely curls.
-		float restPitch = state.lowHealth ? -45.0F : -20.0F;
-		float restBend = state.lowHealth ? 6.0F : 13.0F;
+		// A badly hurt bot's tail hangs low and barely curls; a sitting one lies along the ground and curls up at the end.
+		boolean sitting = state.action == ButterBotEntity.ACTION_SIT;
+		float restPitch = state.lowHealth ? -45.0F : sitting ? 8.0F : -20.0F;
+		float restBend = state.lowHealth ? 6.0F : sitting ? 9.0F : 13.0F;
 		for (int t = 0; t < 2; t++) {
 			Tail tail = tails[t];
 			float spread = legend ? (t == 0 ? -TWIN_SPREAD : TWIN_SPREAD) : 0.0F;

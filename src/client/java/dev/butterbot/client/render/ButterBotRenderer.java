@@ -26,6 +26,7 @@ import net.minecraft.network.chat.Style;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.ARGB;
 import net.minecraft.util.LightCoordsUtil;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.player.PlayerModelType;
@@ -65,9 +66,9 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 	private boolean reported;
 
 	public ButterBotRenderer(EntityRendererProvider.Context context) {
-		super(context, new PlayerModel(context.bakeLayer(ModelLayers.PLAYER), false), 0.5F);
+		super(context, new BotModel(context.bakeLayer(ModelLayers.PLAYER), false), 0.5F);
 		this.wideModel = this.model;
-		this.slimModel = new PlayerModel(context.bakeLayer(ModelLayers.PLAYER_SLIM), true);
+		this.slimModel = new BotModel(context.bakeLayer(ModelLayers.PLAYER_SLIM), true);
 		this.addLayer(new BotArmorLayer(this, context));
 		this.addLayer(new BotItemInHandLayer(this));
 		this.addLayer(new NekoLayer(this));
@@ -118,9 +119,20 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 			// Hop before the rotations, while up is still up (a bot named Dinnerbone is drawn upside down).
 			poseStack.translate(0.0F, LevelUpAnimation.hop(state.levelUpTime), 0.0F);
 		}
+		if (standing && state.action == ButterBotEntity.ACTION_SIT) {
+			poseStack.translate(0.0F, -0.55F, 0.0F);
+		}
+		if (standing && state.gesture == ButterBotEntity.GESTURE_STARTLE && state.gestureTime < 10.0F) {
+			// A jump at the thunder.
+			poseStack.translate(0.0F, 0.3F * Mth.sin(state.gestureTime / 10.0F * Mth.PI), 0.0F);
+		}
 		super.setupRotations(state, poseStack, bodyRot, entityScale);
 		if (cheering) {
 			poseStack.rotateDegrees(Axis.YP, LevelUpAnimation.twirl(state.levelUpTime));
+		}
+		if (standing && state.gesture == ButterBotEntity.GESTURE_SHAKE) {
+			// Shaking itself dry like a wet cat.
+			poseStack.rotateDegrees(Axis.YP, Mth.sin(state.gestureTime * 2.6F) * 18.0F * state.gestureStrength);
 		}
 		float turn = standing ? ReactionAnimation.bodyTurn(state.reaction, state.reactionStrength) : 0.0F;
 		if (turn != 0.0F) {
@@ -171,6 +183,18 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		state.reaction = state.reactionTime >= 0.0F ? entity.reactionType() : ButterBotEntity.REACTION_NONE;
 		state.reactionStrength = ReactionAnimation.strength(state.reactionTime, entity.reactionLeft(partialTicks));
 		state.lidsClosed = lidsClosed(entity, state);
+		state.action = entity.idleAction();
+		state.gestureTime = entity.gestureTime(partialTicks);
+		state.gesture = state.gestureTime >= 0.0F ? entity.gestureType() : ButterBotEntity.GESTURE_NONE;
+		state.gestureStrength = ReactionAnimation.strength(state.gestureTime, entity.gestureLeft(partialTicks));
+		if (state.action == ButterBotEntity.ACTION_SIT) {
+			// The vanilla sitting pose (legs forward), lowered onto the ground in setupRotations.
+			state.isPassenger = true;
+		} else if (state.action == ButterBotEntity.ACTION_SLEEP) {
+			// Lying on the floor, turned the way it faced.
+			state.pose = Pose.SLEEPING;
+			state.bedOrientation = null;
+		}
 		if (state.reaction != ButterBotEntity.REACTION_NONE) {
 			// Leaning into a pat, chewing nods, or a pout's head turned aside with the chin up.
 			state.xRot += ReactionAnimation.headPitch(state.reaction, state.reactionTime, state.reactionStrength);
@@ -278,8 +302,17 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		float lift = state.levelUpTime >= 0.0F
 				? LevelUpAnimation.hop(state.levelUpTime) * state.scale + 0.15F * LevelUpAnimation.strength(state.levelUpTime) : 0.0F;
 		poseStack.pushPose();
-		poseStack.translate(0.0F, lift, 0.0F);
+		// A sleeping bot lies on the floor: its name comes down with it.
+		boolean asleep = state.action == ButterBotEntity.ACTION_SLEEP;
+		poseStack.translate(0.0F, lift - (asleep ? 1.2F : 0.0F), 0.0F);
 		super.submitNameDisplay(state, poseStack, collector, camera);
+		if (asleep && state.nameTag != null) {
+			poseStack.pushPose();
+			poseStack.translate(0.0F, LINE_HEIGHT + 0.08F * Mth.sin(state.ageInTicks * 0.1F), 0.0F);
+			collector.submitNameTag(poseStack, state.nameTagAttachment, 0,
+					Component.translatable("butterbot.idle.zzz").withColor(0xA8C8FF), false, state.lightCoords, camera);
+			poseStack.popPose();
+		}
 		if (state.nameTag != null) {
 			for (int i = state.speechLines.size() - 1; i >= 0; i--) {
 				// One line up each time, as vanilla stacks the score line.
