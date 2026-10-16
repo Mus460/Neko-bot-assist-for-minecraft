@@ -276,6 +276,8 @@ Naik tingkat diberitahukan di chat. Kedekatan tampil di kartu bot di panel (♥ 
 
 ### Kehidupan sehari-hari
 
+Baru: setiap pagi bot menyapa dengan **hitungan hari bersama** ("Selamat pagi! Ini hari ke-23 kita bersama~"); tiap **100 hari** ada **ulang tahun** dengan kembang api, judul di layar dan **kue** untukmu; dengan kedekatan 90+ ia membawakan **bunga** tiap pagi. Bot berkomentar saat masuk **tempat baru** (gurun, salju, hutan sakura, Deep Dark, Nether, The End, dan 16 lainnya) dan saat **hujan / petir** mulai, **melihat berlian, zamrud atau ancient debris** di dekatnya (tanda "!" dan kilau di bloknya), **bersin** di padang bunga, **menguap** di malam hari, melihat **bintang jatuh**, ditemani **kunang-kunang** di malam hari, **mengejar ekornya** sendiri, **menyapa hewan peliharaanmu**, dan menyanyikan **lagu tidur** saat kamu tidur. Kumpulkan semua botmu untuk **pesta** dengan `/butterbot party`.
+
 Saat tidak punya tugas (tanpa perintah, job sedang tidak jalan dan tidak bertarung), bot hidup seperti kucing peliharaan:
 
 - **Duduk santai**: kalau kamu diam 10 detik dalam 6 blok darinya, bot duduk di sebelahmu, ekornya rebahan di tanah, dan sesekali **menggeliat** sambil menguap. Begitu kamu bergerak, ia berdiri lagi.
@@ -346,6 +348,8 @@ Setiap level menambah darah, serangan, kecepatan gali dan pemulihan, plus **+1 p
 | 29 | **Cakar Hoki**: +25% peluang hasil ganda bijih, kayu dan tanaman |
 | 30 | **Legenda**: +50% darah, serangan, gali dan pemulihan; damage diterima setengah; tidak bisa didorong; kebal jatuh dan tenggelam; Hati Baja tiap 3 menit; kamu mendapat Strength dan Regeneration di dekatnya. **Kekuatan super: Hujan Meteor**, Aura Api jadi api arwah biru |
 
+Selain kemampuan di atas, level 8 sampai 30 juga membuka **kekuatan super**, **trik bertarung** dan **bantuan untukmu** yang baru: lihat tabel-tabelnya di bawah.
+
 #### Melawan apa saja yang menyerangmu
 
 Dengan mode pengawal, bot melawan semua monster, termasuk **Warden**, **Wither** dan **Ender Dragon**, serta makhluk apa pun yang menyerang kamu atau bot-botmu: serigala, golem besi, lebah, enderman atau piglin yang marah, dan sebagainya. Makhluk netral dibiarkan selama tidak menyerang. Penduduk desa, peliharaanmu dan bot lain tidak pernah diserang.
@@ -358,13 +362,82 @@ Dengan mode pengawal, bot melawan semua monster, termasuk **Warden**, **Wither**
 
 Bot level tinggi bertarung dengan efek besar. Kekuatan super **hanya mengenai monster** (tidak pernah kamu, penduduk desa, hewan peliharaan atau bot lain) dan **tidak pernah menyentuh blok**: tidak ada blok yang terbakar atau hancur, jadi rumahmu aman walaupun pertarungan terjadi di sebelahnya.
 
+Ada **15 kekuatan super**, satu tiap satu atau dua level dari level 12 sampai 30. Damage-nya ikut kekuatan serangan bot, jadi makin tinggi level (dan bintang) makin dahsyat. Paling banyak satu kekuatan aktif dimulai tiap detik, dan yang besar diserukan di gelembung bicara ("✦ Petir Berantai!").
+
 | Level | Kekuatan | Efek |
 |---|---|---|
-| 20 | **Aura Api** | Cincin api berputar di sekeliling bot saat ada monster dekat; monster dalam 4 blok terbakar dan kena 2 damage per detik. Di level 30 menjadi api arwah biru (5 blok, 4 per detik). |
-| 25 | **Nova Es** | Tiap 8 detik saat bertarung: ledakan salju, monster dalam 6 blok membeku, sangat lambat dan kena 6 damage. |
-| 30 | **Hujan Meteor** | Tiap 15 detik saat bertarung: meteor berapi jatuh ke sampai 3 monster dalam 12 blok, meledak (24 damage, terbakar, terlempar). Ledakannya hanya cahaya dan suara untuk blok. |
+| 12 | **Hentakan Bumi** | 2 monster atau lebih dekat (atau satu boss): bot menghentak tanah, monster dalam 4,5 blok terpental, 60% serangan. Tiap 8 detik. |
+| 14 | **Pedang Roh** | Tiga pedang cahaya berputar di sekeliling bot saat bertarung; tiap detik memotong monster dalam 3 blok (25% serangan). |
+| 16 | **Petir Berantai** | Petir melompat dari monster ke monster (5, Legenda 8), 60% serangan masing-masing. Hanya cahaya, tidak membakar. Tiap 10 detik. |
+| 18 | **Mekar Penyembuh** | Saat bot atau kamu di bawah setengah nyawa: bunga cahaya mekar, menyembuhkan bot, kamu dan bot-botmu yang dekat. Tiap 30 detik. |
+| 20 | **Aura Api** | Cincin api berputar saat ada monster dekat; monster dalam 4 blok terbakar, 10% serangan per detik. Level 30: api arwah biru (5 blok, 15%). |
+| 21 | **Langkah Bayangan** | Menghilang dalam asap dan muncul di belakang monster 4-12 blok jauhnya; pukulan berikutnya 2x lipat. Tiap 6 detik. |
+| 22 | **Perisai Cahaya** | Nyawamu di bawah 40% dalam bahaya: kubah cahaya, hati emas tambahan dan Resistance untukmu. Tiap 60 detik (Legenda 30). |
+| 23 | **Lubang Hitam** | Di antara 3 monster atau lebih: lubang hitam menyedot mereka berkumpul lalu meledak (100% serangan). Tiap 20 detik. |
+| 24 | **Pilar Suci** | Pilar cahaya menghantam monster terkuat dalam 16 blok: 120% serangan, 2x ke undead. Tiap 12 detik. |
+| 25 | **Nova Es** | Ledakan salju: monster dalam 6 blok membeku, sangat lambat, 40% serangan. Tiap 8 detik. |
+| 26 | **Napas Naga** | Napas naga ungu ke depan selama 2 detik (7 blok), 35% serangan berkali-kali. Tiap 8 detik. |
+| 27 | **Badai Pedang** | Dikepung 3 monster atau lebih: bot berputar seperti angin puyuh 3 detik, 50% serangan tiap setengah detik ke semua dalam 4 blok. Tiap 20 detik. |
+| 28 | **Wujud Avatar** | Nyawa di bawah 30% saat bertarung: sembuh setengah, Strength III, Resistance II, Speed II, Regeneration III selama 15 detik, dengan cahaya dan api arwah. Tiap 3 menit. |
+| 29 | **Penghakiman** | Khusus boss: pedang cahaya raksasa jatuh dari langit, 300% serangan. Tiap 30 detik. |
+| 30 | **Hujan Meteor** | Meteor berapi jatuh ke sampai 3 monster (Legenda 5) dalam 12 blok: 80% serangan (paling sedikit 24), terbakar, terlempar. Tiap 15 detik. |
 
-Semua kemampuan dan kekuatan super tampil di halaman **Statistik** panel sebagai lencana level (hijau = terbuka, ungu = kekuatan super); arahkan kursor untuk penjelasannya.
+Kekuatan bisa dimatikan satu per satu, misalnya kalau kamu tidak mau Badai Pedang di dekat kebun: `/butterbot power blade_storm false` (nyalakan lagi dengan `true`). `/butterbot power` menampilkan semuanya: terkunci, siap, atau berapa detik lagi.
+
+Semua kemampuan dan kekuatan super tampil di halaman **Statistik** panel sebagai lencana level (hijau = kemampuan, ungu = kekuatan super); arahkan kursor untuk penjelasannya. Arahkan kursor ke baris statistik paling bawah untuk kritikal, menghindar, boss, combo dan rekor lainnya.
+
+#### Trik bertarung
+
+| Level | Trik | Penjelasan |
+|---|---|---|
+| semua | **Combo** | Pukulan beruntun (jeda kurang dari 3 detik) menambah damage 3% tiap pukulan, sampai +60%. Tulisan `x7 COMBO!` muncul di atas kepala, makin panas warnanya; combo 10+ membuat cakarnya menyala api, 20+ api arwah. |
+| semua | **Kritikal sungguhan** | Peluang 5% +1% tiap level setelah 10 (+10% Legenda, +1% tiap bintang). Damage 1,5x (Legenda 2x), dengan percikan dan suara kritikal. |
+| semua | **Angka damage** | Angka melayang di atas monster yang kena (emas untuk kritikal, ungu untuk eksekusi). Matikan dengan `/butterbot popups false`. |
+| 8 | **Ramuan darurat** | Nyawa di bawah 30%: minum ramuan, sembuh 30%. Tiap 60 detik. |
+| 10 | **Pancingan** | Saat nyawamu di bawah setengah, monster yang mengejarmu dipancing untuk menyerang bot. |
+| 12 | **Menghindar** | 3% sampai 12% peluang menghindari pukulan atau panah (Legenda +10%), melompat ke samping dalam kepulan awan. |
+| 13 | **Cakar Api** | Setiap pukulan membakar monster (hanya monsternya, tidak pernah blok). |
+| 14 | **Amukan** | Nyawa di bawah 35% saat bertarung: marah 10 detik, +40% damage dan Speed. Tiap 60 detik. |
+| 15 | **Penembak Creeper** | Creeper ditembak dari jauh sebelum sempat meledak; bot tidak mendekat. |
+| 16 | **Tangkis** | 50% (Legenda 80%) peluang memantulkan panah, trisula atau bola api ke penembaknya. |
+| 17 | **Cakar Es** | Setiap pukulan memperlambat monster. |
+| 19 | **Eksekusi** | Monster (bukan boss) di bawah 15% nyawa (Legenda 25%) langsung tumbang. |
+| 20 | **Pembantai Boss** | +50% damage ke Warden, Wither, Naga Ender dan Elder Guardian (Legenda +100%). |
+| 23 | **Cakar Petir** | 1 dari 4 pukulan memercikkan listrik ke 2 monster di sebelahnya (30% serangan). |
+
+- **Kill streak**: 5 monster dalam 20 detik = *AMUKAN!*, 10 = *TAK TERHENTIKAN!*, 15 = *SEPERTI DEWA!* (di layarmu, dengan kembang api).
+- **Bar nyawa boss**: selama melawan boss, nyawa bot tampil sebagai bar boss berwarna tingkatnya, di samping bar boss musuh.
+- **Boss tumbang**: judul besar *BOSS TUMBANG!*, kembang api dan sayap cahaya. XP boss lebih besar: naga dan Wither 500, Warden 300, Elder Guardian 150.
+- **Bar nyawa** kecil di bawah nama saat bot terluka atau bertarung.
+- Bot juga membela **hewan peliharaanmu** (serigala, kucing, burung beo) dari apa pun yang menyerang mereka, dan tidak kabur saat sedang mengamuk atau dalam Wujud Avatar.
+
+#### Menjaga pemiliknya
+
+| Level | Bantuan |
+|---|---|
+| 11 | **Night Vision** saat kamu di tempat gelap (dalam 16 blok dari bot) |
+| 13 | **Water Breathing** saat kamu di bawah air |
+| 15 | **Fire Resistance** saat kamu terbakar atau di lava |
+| 17 | **Jatuh pelan**: jatuh lebih dari 5 blok, kamu melayang turun (Slow Falling) |
+| 19 | **Penyembuhan cepat**: nyawamu di bawah 25%, langsung +8 nyawa (tiap 45 detik) |
+| 20 | **Pembersihan**: racun, wither, buta, Darkness, mual, lemah, lambat dan efek buruk lain dihapus |
+| 21 | **Haste** di dekat bot (Legenda Haste II) |
+| 24 | **Speed** saat kamu berlari di dekat bot |
+| 28 | **Malaikat Pelindung**: pukulan yang seharusnya membunuhmu (dalam 48 blok dari bot) membuatmu tetap hidup dengan 40% nyawa, Regeneration, Absorption dan Fire Resistance. Tiap 10 menit (Legenda 5). Tidak berlaku untuk void dan `/kill`. |
+
+Di semua level: peringatan **creeper di belakangmu** dan **Warden di dekatmu** (di layar), bot marah saat kamu diserang, ikut belajar (setengah XP) dari monster yang kamu kalahkan di dekatnya, merayakan boss yang kamu kalahkan, bersorak saat level XP-mu naik, dan menghiburmu (plus Regeneration) setelah kamu respawn.
+
+#### Bintang setelah level 30
+
+Di level 30, XP kerja berubah menjadi **bintang ★** (maksimal 10). Bintang pertama butuh 3.000 XP, tiap bintang berikutnya 1.500 lebih banyak. Setiap bintang menambah **+4% nyawa, serangan, kecepatan gali dan pemulihan** (10 bintang = +40%), juga sedikit peluang kritikal dan menghindar. Bintang tampil di nama (`★3 Lv30`), di bar nyawa boss dan di panel, dan bot berkilau emas (10 bintang: berkilau pelangi). Coba langsung dengan `/butterbot stars set <0-10>`.
+
+#### Pencapaian
+
+20 pencapaian, masing-masing memberi +2 kedekatan dan 150 XP kerja, dengan pesan dan kembang api: Darah Pertama, Pemburu (100 monster), Pembantai (1.000), Pemburu Boss, Penakluk Warden, Penakluk Wither, Pembunuh Naga, Raja Combo (combo 20), Tak Terhentikan (10 beruntun), Seperti Dewa (15 beruntun), Penambang Sejati (1.000 blok), Petani Sejati (1.000 panen), Tangan Ajaib (100 craft), Belahan Jiwa (kedekatan 100), Legenda (level 30), Lahir dari Bintang, Mitos (10 bintang), Malaikat Pelindung, Pantang Menyerah (Hati Baja) dan Penguasa Kekuatan (100 kekuatan super). Lihat dengan `/butterbot achievements`, atau arahkan kursor ke `★ ✦` di halaman Statistik panel.
+
+#### Efek kecil
+
+Jejak kaki berwarna tingkat (Perak ke atas), debu saat berlari, kepulan salju, cipratan saat masuk air, jejak cahaya Legenda, halo emas (level 28+), percikan listrik saat badai petir (27+), kelopak sakura saat duduk (18+), pusaran di kaki saat bertarung (15+), asap saat nyawa sedikit, tiga bintang kecil mengitari kepala Legenda, lingkaran cahaya saat bot pertama kali jadi milikmu dan pilar jiwa saat bot hancur. Matikan dengan `/butterbot fx false`.
 
 #### Tingkat dan penampilan
 
@@ -512,7 +585,34 @@ Semua perintah bisa dipakai tanpa cheat. Perintah kerja berlaku untuk bot milikm
 /butterbot job smelt <on|off>     kurir: lebur bijih mentah di jalan
 /butterbot job ward <nama bot>    pengawal: bot yang dikawal (clear = tidak ada)
 /butterbot job pause | resume     jeda / lanjutkan job
+/butterbot stats                  statistik bertarung, rekor, bintang dan hari bersama
+/butterbot achievements           daftar pencapaian
+/butterbot power                  daftar kekuatan super (terkunci / siap / jeda)
+/butterbot power <nama> <true|false>   nyalakan / matikan satu kekuatan (contoh: meteor_rain)
+/butterbot stars set <0-10>       bot level 30: langsung beri bintang (untuk mencoba)
+/butterbot fx <true|false>        efek kecil (jejak kaki, halo, cahaya...) on/off
+/butterbot popups <true|false>    angka damage on/off
+/butterbot emote <heart|surprise|question|anger|music|done>
+/butterbot party                  semua botmu dalam 16 blok berpesta
 ```
+
+## Daftar upgrade versi 2 (105 upgrade)
+
+**Kekuatan super (1-18):** 1 Hentakan Bumi · 2 Pedang Roh · 3 Petir Berantai · 4 Mekar Penyembuh · 5 Langkah Bayangan · 6 Perisai Cahaya · 7 Lubang Hitam · 8 Pilar Suci · 9 Napas Naga · 10 Badai Pedang · 11 Wujud Avatar · 12 Penghakiman · 13 Aura Api ikut kuat serangan · 14 Nova Es ikut kuat serangan · 15 Hujan Meteor 5 meteor untuk Legenda · 16 jeda antar kekuatan (tidak keluar sekaligus) · 17 kekuatan bisa dimatikan satu per satu · 18 seruan nama kekuatan.
+
+**Bertarung (19-40):** 19 combo · 20 bonus damage combo · 21 kritikal sungguhan · 22 kritikal 2x untuk Legenda · 23 menghindar · 24 tangkis panah/bola api · 25 eksekusi · 26 cakar api · 27 cakar es · 28 cakar petir · 29 amukan · 30 ramuan darurat · 31 pancingan · 32 kill streak · 33 pembantai boss · 34 perayaan boss tumbang · 35 bar nyawa boss · 36 angka damage melayang · 37 penembak creeper · 38 membela hewan peliharaan · 39 tidak kabur saat mengamuk/avatar · 40 XP boss lebih besar.
+
+**Menjaga pemilik (41-55):** 41 Night Vision · 42 Water Breathing · 43 Fire Resistance · 44 jatuh pelan · 45 penyembuhan cepat · 46 pembersihan efek buruk · 47 Haste · 48 Speed · 49 Malaikat Pelindung · 50 belajar dari monster yang kamu kalahkan · 51 hiburan setelah respawn · 52 peringatan creeper · 53 peringatan Warden · 54 marah saat kamu diserang · 55 sorakan saat level XP-mu naik.
+
+**Kehidupan sehari-hari (56-69):** 56 sapaan pagi + hitungan hari · 57 ulang tahun + kue · 58 bunga tiap pagi · 59 komentar 22 tempat · 60 komentar cuaca · 61 mata harta karun · 62 kunang-kunang · 63 bersin · 64 menguap · 65 bintang jatuh · 66 mengejar ekor (animasi baru) · 67 menyapa peliharaan · 68 lagu tidur · 69 merayakan boss yang kamu kalahkan.
+
+**Efek visual (70-86):** 70 jejak kaki · 71 debu lari · 72 kepulan salju · 73 jejak cahaya Legenda · 74 cipratan air · 75 halo emas · 76 percikan badai · 77 kelopak sakura · 78 pusaran bertarung · 79 asap saat terluka · 80 cakar menyala saat combo · 81 bintang mengitari kepala Legenda · 82 kilau bintang · 83 lingkaran cahaya saat jadi milikmu · 84 pilar jiwa saat hancur · 85 aura merah amukan · 86 aura Wujud Avatar.
+
+**Tampilan (87-92):** 87 tulisan combo di atas kepala · 88 bar nyawa di bawah nama · 89 ★ bintang di nama · 90 15 lencana kekuatan di panel · 91 bintang & pencapaian di panel · 92 tooltip statistik bertarung.
+
+**Perkembangan (93-96):** 93 sistem bintang setelah level 30 · 94 +4% per bintang · 95 perayaan bintang · 96 20 pencapaian dengan hadiah.
+
+**Perintah (97-105):** 97 `stats` · 98 `achievements` · 99 `power` · 100 `power <nama> true/false` · 101 `stars set` · 102 `fx` · 103 `popups` · 104 `emote` · 105 `party`.
 
 ## Skin
 

@@ -64,7 +64,6 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
-import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.ItemLike;
 import net.minecraft.util.Mth;
@@ -91,7 +90,6 @@ import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -109,6 +107,8 @@ import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.SpawnGroupData;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.behavior.BehaviorUtils;
@@ -197,6 +197,15 @@ public class ButterBotEntity extends PathfinderMob {
 	/** What the bot does with nothing to do ({@link #ACTION_SIT}...), for its pose. */
 	private static final EntityDataAccessor<Integer> DATA_ACTION =
 			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.INT);
+	/** The hits of the combo running now, shown over its head. */
+	private static final EntityDataAccessor<Integer> DATA_COMBO =
+			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.INT);
+	/** Stars earned past level 30, for the name tag and the sparkle. */
+	private static final EntityDataAccessor<Integer> DATA_STARS =
+			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.INT);
+	/** Footprints, trails, halo and the other small effects on watching clients (off with a command). */
+	private static final EntityDataAccessor<Boolean> DATA_FX =
+			SynchedEntityData.defineId(ButterBotEntity.class, EntityDataSerializers.BOOLEAN);
 
 	/** Entity events {@code LEVEL_UP_EVENT + tier} tell watching clients to play the level-up cheer. */
 	private static final byte LEVEL_UP_EVENT = 100;
@@ -227,8 +236,12 @@ public class ButterBotEntity extends PathfinderMob {
 	public static final int GESTURE_HIGH_FIVE = 5;
 	public static final int GESTURE_CROUCH = 6;
 	public static final int GESTURE_WINGS = 7;
+	/** Chasing its own tail: two quick turns on the spot. */
+	public static final int GESTURE_SPIN = 8;
 	private static final byte GESTURE_EVENT = 112;
-	private static final int[] GESTURE_TICKS = {0, 40, 20, 24, 36, 24, 14, 50};
+	private static final int[] GESTURE_TICKS = {0, 40, 20, 24, 36, 24, 14, 50, 30};
+	/** Damage numbers are text displays with this tag (dropped if a saved chunk still has one). */
+	public static final String POPUP_TAG = BotCombat.POPUP_TAG;
 	/** Emote icons over the head ({@link #emoteType()}), sent as entity events {@code EMOTE_EVENT + type}. */
 	public static final int EMOTE_NONE = 0;
 	public static final int EMOTE_HEART = 1;
@@ -361,8 +374,17 @@ public class ButterBotEntity extends PathfinderMob {
 	private BotStats cachedStats;
 	/** What it does with nothing to do: sit, sleep, dance, welcome the owner back... (server side). */
 	private final BotIdle idle = new BotIdle();
-	/** Fire Aura, Frost Nova and Meteor Rain (server side). */
+	/** The super powers, from Shockwave to Meteor Rain (server side). */
 	private final BotPowers powers = new BotPowers();
+	/** Combos, critical blows, dodging, rage, kill streaks, damage numbers and the boss-fight health bar (server side). */
+	private final BotCombat combat = new BotCombat();
+	/** Looking after the owner and everyday life together (server side). */
+	private final BotCompanion companion = new BotCompanion();
+	/** Powers switched off with a command, one bit per {@link BotStats.Power}. */
+	private int powersOff;
+	private boolean showPopups = true;
+	/** Client side: whether the bot was in water last tick, for the splash. */
+	private boolean wasInWaterFx;
 	/** Server side: ticks the thought bubble stays up, the last tick of each emote (so they don't repeat too fast), and when to think of food again. */
 	private int thoughtTicks;
 	private final int[] lastEmoteTick = new int[EMOTE_COUNT];
@@ -584,6 +606,9 @@ public class ButterBotEntity extends PathfinderMob {
 		builder.define(DATA_FIGHTING, false);
 		builder.define(DATA_ACTION, BotIdle.NONE);
 		builder.define(DATA_THOUGHT, ItemStack.EMPTY);
+		builder.define(DATA_COMBO, 0);
+		builder.define(DATA_STARS, 0);
+		builder.define(DATA_FX, true);
 	}
 
 	@Override
@@ -613,6 +638,7 @@ public class ButterBotEntity extends PathfinderMob {
 				tickTierAura();
 				tickLevelUpEffects();
 				tickIdleEffects();
+				tickCosmetics();
 			}
 			return;
 		}
@@ -623,6 +649,12 @@ public class ButterBotEntity extends PathfinderMob {
 		if (this.level() instanceof ServerLevel serverLevel) {
 			idle.tick(this, serverLevel);
 			powers.tick(this, serverLevel);
+			combat.tick(this, serverLevel);
+			companion.tick(this, serverLevel);
+			if (this.tickCount % 100 == 0) {
+				// Mining, farming, crafting, the bond and the level are counted elsewhere: their achievements come from here.
+				BotAchievements.check(this);
+			}
 		}
 		if (thoughtTicks > 0 && --thoughtTicks == 0) {
 			this.entityData.set(DATA_THOUGHT, ItemStack.EMPTY);
@@ -935,6 +967,9 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		gainWorkXp(xp);
 		collectNearbyDrops(victim.position(), 3.0D);
+		if (this.level() instanceof ServerLevel serverLevel) {
+			combat.onKill(this, serverLevel, victim);
+		}
 		if (jobs.job() == BotJob.GUARD || jobs.job() == BotJob.BODYGUARD || (jobs.job() == BotJob.RANCHER && victim instanceof Animal)) {
 			jobs.addStat(1);
 		}
@@ -1272,6 +1307,17 @@ public class ButterBotEntity extends PathfinderMob {
 			chooseFreeSkinVariant();
 		}
 		linkToNearbyBase();
+		if (this.level() instanceof ServerLevel serverLevel) {
+			// A circle of light and enchanting letters: the bond begins.
+			for (int i = 0; i < 24; i++) {
+				double angle = i * Mth.TWO_PI / 24.0D;
+				serverLevel.sendParticles(ParticleTypes.END_ROD, getX() + Math.cos(angle) * 1.2D, getY() + 0.1D, getZ() + Math.sin(angle) * 1.2D,
+						1, 0.0D, 0.02D, 0.0D, 0.01D);
+			}
+			serverLevel.sendParticles(ParticleTypes.ENCHANT, getX(), getY() + 1.0D, getZ(), 60, 0.8D, 1.0D, 0.8D, 0.5D);
+			serverLevel.sendParticles(ParticleTypes.HEART, getX(), getY() + 2.1D, getZ(), 3, 0.3D, 0.1D, 0.3D, 0.0D);
+			this.playSound(SoundEvents.BEACON_ACTIVATE, 0.6F, 1.6F);
+		}
 	}
 
 	/** Picks the built-in skin the fewest of the owner's other bots wear, so five bots get five different skins. */
@@ -1845,6 +1891,209 @@ public class ButterBotEntity extends PathfinderMob {
 				this.random.nextDouble() * 0.8D - 1.2D, (this.random.nextDouble() - 0.5D) * 2.0D);
 	}
 
+	// ------------------------------------------------------------------ powers, combat and companion
+
+	BotCombat combat() {
+		return combat;
+	}
+
+	BotCompanion companion() {
+		return companion;
+	}
+
+	public boolean powerEnabled(BotStats.Power power) {
+		return (powersOff & (1 << power.ordinal())) == 0;
+	}
+
+	public void setPowerEnabled(BotStats.Power power, boolean enabled) {
+		powersOff = enabled ? powersOff & ~(1 << power.ordinal()) : powersOff | (1 << power.ordinal());
+	}
+
+	/** Seconds until {@code power} can be used again. Server side. */
+	public int powerCooldown(BotStats.Power power) {
+		return powers.cooldownSeconds(power, this.level().getGameTime());
+	}
+
+	/** Seconds until Guardian Angel can save the owner again. Server side. */
+	public int guardianCooldown() {
+		return companion.guardianSeconds(this.level().getGameTime());
+	}
+
+	/** Days since the bot first had an owner. Server side. */
+	public int daysTogether() {
+		return this.level() instanceof ServerLevel serverLevel ? companion.daysTogether(serverLevel) : 1;
+	}
+
+	/** A power went off: counted, and the big ones are called out in the speech bubble. */
+	void onPowerUsed(BotStats.Power power, boolean shout) {
+		progress.addStat(BotProgress.Stat.POWERS_USED, 1);
+		if (shout) {
+			say(Component.translatable("butterbot.power.shout", power.displayName()));
+		}
+		if (progress.stat(BotProgress.Stat.POWERS_USED) % 25 == 0) {
+			BotAchievements.check(this);
+		}
+	}
+
+	/** In rage or avatar form: it fights on instead of backing off when badly hurt. */
+	public boolean isEmpowered() {
+		long now = this.level().getGameTime();
+		return combat.isRaging(now) || powers.isAvatar(now);
+	}
+
+	void syncCombo(int combo) {
+		if (this.entityData.get(DATA_COMBO) != combo) {
+			this.entityData.set(DATA_COMBO, combo);
+		}
+	}
+
+	/** The hits of the running combo. Synced: works on both sides. */
+	public int getCombo() {
+		return this.entityData.get(DATA_COMBO);
+	}
+
+	public boolean showsPopups() {
+		return showPopups;
+	}
+
+	public void setShowPopups(boolean showPopups) {
+		this.showPopups = showPopups;
+	}
+
+	public boolean fxEnabled() {
+		return this.entityData.get(DATA_FX);
+	}
+
+	public void setFx(boolean fx) {
+		this.entityData.set(DATA_FX, fx);
+	}
+
+	/** The new settings and memories, for packing the bot into an item ({@link dev.butterbot.item.ButterBotItem}). */
+	public void savePerks(CompoundTag tag) {
+		tag.putInt("PowersOff", powersOff);
+		tag.putBoolean("Popups", showPopups);
+		tag.putBoolean("Fx", fxEnabled());
+		companion.saveTo(tag, this.level().getGameTime());
+	}
+
+	public void loadPerks(CompoundTag tag) {
+		powersOff = tag.getIntOr("PowersOff", 0);
+		showPopups = tag.getBooleanOr("Popups", true);
+		setFx(tag.getBooleanOr("Fx", true));
+		companion.loadFrom(tag, this.level().getGameTime());
+	}
+
+	/** Called for any player about to die: a bot of theirs close by may save them (Guardian Angel). True if saved. */
+	public static boolean rescueOwner(ServerPlayer player, DamageSource source) {
+		return BotCompanion.rescue(player, source);
+	}
+
+	/** The owner killed something: their bots close by learn from it too. */
+	public static void onOwnerKill(ServerLevel level, ServerPlayer player, LivingEntity victim) {
+		BotCompanion.onOwnerKill(level, player, victim);
+	}
+
+	public static void onOwnerRespawn(ServerPlayer player) {
+		BotCompanion.onOwnerRespawn(player);
+	}
+
+	/**
+	 * Small touches while it moves and lives, client side (off with "/butterbot fx off"): footprints in its tier's colour,
+	 * a legend's trail of light, dust when running, a splash into water, puffs of snow, a halo from level 28, sparks in
+	 * a thunderstorm, falling petals while it sits, a swirl at its feet in a fight, smoke when badly hurt, flames on its
+	 * paw in a long combo, stars circling a legend's head and a golden glitter for a bot with stars.
+	 */
+	private void tickCosmetics() {
+		if (!fxEnabled() || this.isInvisible()) {
+			return;
+		}
+		int lv = getBotLevel();
+		BotTier tier = BotTier.of(lv);
+		Level level = this.level();
+		double dx = getX() - this.xo;
+		double dz = getZ() - this.zo;
+		double moveSq = dx * dx + dz * dz;
+		boolean moving = moveSq > 0.0025D;
+		int color = tier.colorAt(this.tickCount) & 0xFFFFFF;
+		if (moving && this.onGround()) {
+			if (tier.atLeast(BotTier.SILVER) && this.tickCount % 6 == 0) {
+				level.addParticle(new DustParticleOptions(color, 0.5F), getX(), getY() + 0.05D, getZ(), 0.0D, 0.0D, 0.0D);
+			}
+			if (moveSq > 0.04D && this.tickCount % 3 == 0) {
+				level.addParticle(ParticleTypes.CLOUD, getX() - dx, getY() + 0.1D, getZ() - dz, -dx * 0.1D, 0.02D, -dz * 0.1D);
+			}
+			BlockState onState = level.getBlockState(this.blockPosition());
+			BlockState under = level.getBlockState(this.blockPosition().below());
+			if ((onState.is(Blocks.SNOW) || under.is(Blocks.SNOW_BLOCK) || under.is(Blocks.POWDER_SNOW)) && this.tickCount % 2 == 0) {
+				level.addParticle(ParticleTypes.SNOWFLAKE, getX(), getY() + 0.1D, getZ(), dx * 0.2D, 0.05D, dz * 0.2D);
+			}
+		}
+		if (moving && tier == BotTier.LEGEND && this.tickCount % 2 == 0) {
+			level.addParticle(ParticleTypes.END_ROD, getX() - dx * 3.0D, getY() + 0.8D, getZ() - dz * 3.0D, 0.0D, 0.01D, 0.0D);
+		}
+		boolean inWater = this.isInWater();
+		if (inWater && !wasInWaterFx) {
+			for (int i = 0; i < 16; i++) {
+				level.addParticle(ParticleTypes.SPLASH, getX() + (this.random.nextDouble() - 0.5D), getY() + 0.5D,
+						getZ() + (this.random.nextDouble() - 0.5D), 0.0D, 0.2D, 0.0D);
+				level.addParticle(ParticleTypes.BUBBLE, getX() + (this.random.nextDouble() - 0.5D), getY() + 0.2D,
+						getZ() + (this.random.nextDouble() - 0.5D), 0.0D, 0.05D, 0.0D);
+			}
+		}
+		wasInWaterFx = inWater;
+		double headY = getY() + this.getBbHeight();
+		if (lv >= 28 && this.tickCount % 3 == 0 && idleAction() != ACTION_SLEEP) {
+			// A halo: six points of gold over the head, turning slowly.
+			for (int i = 0; i < 6; i++) {
+				double angle = this.tickCount * 0.05D + i * Mth.TWO_PI / 6.0D;
+				level.addParticle(new DustParticleOptions(0xFFE680, 0.45F), getX() + Math.cos(angle) * 0.3D, headY + 0.35D,
+						getZ() + Math.sin(angle) * 0.3D, 0.0D, 0.0D, 0.0D);
+			}
+		}
+		if (lv >= 27 && level.isThundering() && this.random.nextInt(4) == 0) {
+			sparkle(ParticleTypes.ELECTRIC_SPARK, getX(), getY() + 1.0D, getZ());
+		}
+		if (lv >= 18 && idleAction() == ACTION_SIT && this.random.nextInt(10) == 0) {
+			level.addParticle(ParticleTypes.CHERRY_LEAVES, getX() + (this.random.nextDouble() - 0.5D) * 2.0D, headY + 0.6D,
+					getZ() + (this.random.nextDouble() - 0.5D) * 2.0D, 0.0D, 0.0D, 0.0D);
+		}
+		if (lv >= 15 && isFightingClient() && this.tickCount % 3 == 0) {
+			DustParticleOptions swirl = new DustParticleOptions(color, 0.8F);
+			for (int i = 0; i < 3; i++) {
+				double angle = this.tickCount * 0.3D + i * Mth.TWO_PI / 3.0D;
+				level.addParticle(swirl, getX() + Math.cos(angle) * 0.8D, getY() + 0.1D, getZ() + Math.sin(angle) * 0.8D, 0.0D, 0.02D, 0.0D);
+			}
+		}
+		if (this.getHealth() < this.getMaxHealth() * 0.3F) {
+			if (this.random.nextInt(5) == 0) {
+				level.addParticle(ParticleTypes.SMOKE, getX(), headY - 0.2D, getZ(), 0.0D, 0.03D, 0.0D);
+			}
+			if (this.random.nextInt(20) == 0) {
+				sparkle(ParticleTypes.ELECTRIC_SPARK, getX(), getY() + 1.0D, getZ());
+			}
+		}
+		int combo = getCombo();
+		if (combo >= 10 && this.tickCount % 2 == 0) {
+			float yaw = this.yBodyRot * Mth.DEG_TO_RAD;
+			double handX = getX() - Mth.cos(yaw) * 0.38D - Mth.sin(yaw) * 0.25D;
+			double handZ = getZ() - Mth.sin(yaw) * 0.38D + Mth.cos(yaw) * 0.25D;
+			level.addParticle(combo >= 20 ? ParticleTypes.SOUL_FIRE_FLAME : ParticleTypes.FLAME, handX, getY() + 0.75D, handZ, 0.0D, 0.02D, 0.0D);
+		}
+		if (tier == BotTier.LEGEND && this.tickCount % 2 == 0) {
+			for (int i = 0; i < 3; i++) {
+				double angle = -this.tickCount * 0.12D + i * Mth.TWO_PI / 3.0D;
+				level.addParticle(new DustParticleOptions(tier.colorAt(this.tickCount + i * 20) & 0xFFFFFF, 0.5F),
+						getX() + Math.cos(angle) * 0.55D, headY + 0.1D + 0.1D * Math.sin(angle * 2.0D), getZ() + Math.sin(angle) * 0.55D,
+						0.0D, 0.0D, 0.0D);
+			}
+		}
+		int stars = getStars();
+		if (stars > 0 && this.random.nextInt(Math.max(4, 24 - stars * 2)) == 0) {
+			sparkle(new DustParticleOptions(stars >= BotLevels.MAX_STARS ? tier.colorAt(this.tickCount * 3) & 0xFFFFFF : 0xFFE680, 0.7F),
+					getX(), getY() + 0.6D + this.random.nextDouble(), getZ());
+		}
+	}
+
 	// ------------------------------------------------------------------ bond
 
 	public int getBond() {
@@ -2040,7 +2289,7 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 	}
 
-	private static CatSoundVariant.CatSoundSet catSounds() {
+	static CatSoundVariant.CatSoundSet catSounds() {
 		return SoundEvents.CAT_SOUNDS.get(CatSoundVariants.SoundSet.CLASSIC).adultSounds();
 	}
 
@@ -2127,6 +2376,7 @@ public class ButterBotEntity extends PathfinderMob {
 		this.entityData.set(DATA_LEVEL, Math.max(1, Math.min(BotLevels.MAX_LEVEL, level)));
 		this.workXp = Math.max(0, xp);
 		applyLevelStats();
+		syncStars();
 	}
 
 	public BotProgress getProgress() {
@@ -2137,7 +2387,7 @@ public class ButterBotEntity extends PathfinderMob {
 	public BotStats stats() {
 		int level = getBotLevel();
 		BotStats stats = cachedStats;
-		if (stats == null || stats.level() != level) {
+		if (stats == null || stats.level() != level || stats.stars() != (level >= BotLevels.MAX_LEVEL ? progress.stat(BotProgress.Stat.STARS) : 0)) {
 			stats = BotStats.of(level, progress);
 			cachedStats = stats;
 		}
@@ -2174,6 +2424,7 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 		int level = getBotLevel();
 		if (level >= BotLevels.MAX_LEVEL) {
+			gainStarXp(amount);
 			return;
 		}
 		workXp += amount;
@@ -2194,6 +2445,78 @@ public class ButterBotEntity extends PathfinderMob {
 		celebrateLevelUp(start, level);
 		// Growing up together brings them closer.
 		addBond(1);
+	}
+
+	/**
+	 * Past level 30 work XP earns stars: up to ten, each one +4% health, attack, digging and healing, with a little
+	 * party when it comes.
+	 */
+	private void gainStarXp(int amount) {
+		int stars = progress.stat(BotProgress.Stat.STARS);
+		if (stars >= BotLevels.MAX_STARS) {
+			return;
+		}
+		long xp = (long) progress.stat(BotProgress.Stat.STAR_XP) + amount;
+		int start = stars;
+		while (stars < BotLevels.MAX_STARS && xp >= BotLevels.starXpToNext(stars)) {
+			xp -= BotLevels.starXpToNext(stars);
+			stars++;
+		}
+		progress.setStat(BotProgress.Stat.STAR_XP, stars >= BotLevels.MAX_STARS ? 0 : (int) xp);
+		if (stars == start) {
+			return;
+		}
+		progress.setStat(BotProgress.Stat.STARS, stars);
+		applyLevelStats();
+		syncStars();
+		this.setHealth(this.getMaxHealth());
+		celebrateStar(stars);
+		BotAchievements.check(this);
+	}
+
+	/** Sets the stars directly (command, for trying them out). */
+	public void setStarsByCommand(int stars) {
+		int clamped = Math.max(0, Math.min(BotLevels.MAX_STARS, stars));
+		progress.setStat(BotProgress.Stat.STARS, clamped);
+		progress.setStat(BotProgress.Stat.STAR_XP, 0);
+		applyLevelStats();
+		syncStars();
+		this.setHealth(this.getMaxHealth());
+		if (clamped > 0) {
+			celebrateStar(clamped);
+		}
+	}
+
+	private void syncStars() {
+		if (!this.level().isClientSide()) {
+			this.entityData.set(DATA_STARS, progress.stat(BotProgress.Stat.STARS));
+		}
+	}
+
+	/** Stars earned past level 30 (none below it, e.g. after "level set"). Synced: works on both sides. */
+	public int getStars() {
+		return getBotLevel() >= BotLevels.MAX_LEVEL ? this.entityData.get(DATA_STARS) : 0;
+	}
+
+	private void celebrateStar(int stars) {
+		this.playSound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 0.8F, 1.2F);
+		this.playSound(SoundEvents.AMETHYST_BLOCK_RESONATE, 1.0F, 1.4F);
+		playGesture(GESTURE_WINGS);
+		if (this.level() instanceof ServerLevel serverLevel) {
+			for (int i = 0; i < stars; i++) {
+				double angle = i * Mth.TWO_PI / stars;
+				serverLevel.sendParticles(ParticleTypes.END_ROD, getX() + Math.cos(angle) * 1.2D, getY() + 2.4D, getZ() + Math.sin(angle) * 1.2D,
+						6, 0.05D, 0.05D, 0.05D, 0.02D);
+			}
+			serverLevel.sendParticles(ParticleTypes.FIREWORK, getX(), getY() + 1.5D, getZ(), 40, 0.6D, 0.8D, 0.6D, 0.12D);
+			serverLevel.sendParticles(ParticleTypes.TOTEM_OF_UNDYING, getX(), getY() + 1.0D, getZ(), 40, 0.5D, 0.8D, 0.5D, 0.3D);
+		}
+		tellOwner(Component.translatable("butterbot.msg.star_up", getName(), stars,
+				Math.round(BotStats.STAR_BONUS * 100.0F * stars)).withColor(0xFFE680));
+		if (getOwner() instanceof ServerPlayer owner) {
+			showTitle(owner, Component.literal("\u2605".repeat(Math.min(stars, BotLevels.MAX_STARS))).withStyle(ChatFormatting.BOLD).withColor(0xFFE680),
+					Component.translatable("butterbot.title.star", getName(), stars));
+		}
 	}
 
 	/** The job the current work is for, if it is job work (guards get theirs from fights instead). */
@@ -2329,7 +2652,7 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 	}
 
-	private static void showTitle(ServerPlayer player, Component title, Component subtitle) {
+	static void showTitle(ServerPlayer player, Component title, Component subtitle) {
 		player.connection.send(new ClientboundSetTitlesAnimationPacket(5, 40, 10));
 		player.connection.send(new ClientboundSetSubtitleTextPacket(subtitle));
 		player.connection.send(new ClientboundSetTitleTextPacket(title));
@@ -4850,6 +5173,10 @@ public class ButterBotEntity extends PathfinderMob {
 		output.storeNullable("LastDimension", Level.RESOURCE_KEY_CODEC, lastDimension);
 		output.store("PortalExits", Codec.unboundedMap(Codec.STRING, BlockPos.CODEC), Map.copyOf(portalExits));
 		output.putBoolean("JobMining", mineFilter != null);
+		output.putInt("PowersOff", powersOff);
+		output.putBoolean("Popups", showPopups);
+		output.putBoolean("Fx", fxEnabled());
+		companion.save(output, now);
 	}
 
 	@Override
@@ -4944,6 +5271,10 @@ public class ButterBotEntity extends PathfinderMob {
 		gotoPos = input.read("GotoPos", BlockPos.CODEC).orElse(null);
 		input.read("Job", JobConfig.Data.CODEC).ifPresent(jobs::load);
 		lastDimension = input.read("LastDimension", Level.RESOURCE_KEY_CODEC).orElse(null);
+		powersOff = input.getIntOr("PowersOff", 0);
+		showPopups = input.getBooleanOr("Popups", true);
+		this.entityData.set(DATA_FX, input.getBooleanOr("Fx", true));
+		companion.load(input, now);
 		portalExits.clear();
 		input.read("PortalExits", Codec.unboundedMap(Codec.STRING, BlockPos.CODEC)).ifPresent(portalExits::putAll);
 		if (input.getBooleanOr("JobMining", false) && task == BotTask.MINE) {
@@ -5011,6 +5342,10 @@ public class ButterBotEntity extends PathfinderMob {
 			// A legend lands on its feet and doesn't need to breathe.
 			return false;
 		}
+		boolean wouldLand = !this.isDeadOrDying() && this.getInvulnerableTime() <= 10;
+		if (wouldLand && (combat.tryDodge(this, level, source) || combat.tryDeflect(this, level, source, damage))) {
+			return false;
+		}
 		if (source.is(DamageTypeTags.IS_EXPLOSION) && stats.has(BotStats.Ability.BLAST_RESISTANT)) {
 			damage *= 0.5F;
 		}
@@ -5021,6 +5356,10 @@ public class ButterBotEntity extends PathfinderMob {
 		if (hurt) {
 			lastHurtTick = this.tickCount;
 			thornsBack(level, source, damage, stats);
+			if (this.isAlive()) {
+				powers.tryAvatar(this, level);
+				combat.afterHurt(this, level);
+			}
 			// Only a sneaking owner gets this far.
 			if (source.getEntity() instanceof Player player && isOwnedBy(player)) {
 				pout(level);
@@ -5054,6 +5393,7 @@ public class ButterBotEntity extends PathfinderMob {
 			this.playSound(SoundEvents.TOTEM_USE, 0.8F, 1.2F);
 			this.playSound(SoundEvents.BEACON_ACTIVATE, 0.8F, 1.4F);
 			tellOwner(Component.translatable("butterbot.msg.second_wind", getName()).withStyle(ChatFormatting.GOLD));
+			BotAchievements.unlock(this, BotAchievements.Achievement.SURVIVOR);
 		}
 	}
 
@@ -5083,10 +5423,26 @@ public class ButterBotEntity extends PathfinderMob {
 			// Its enchantments (Sharpness, Fire Aspect, Looting...) count from the first blow.
 			this.setItemSlot(EquipmentSlot.MAINHAND, held.copy());
 		}
-		boolean hit = super.doHurtTarget(level, target);
+		// Combo, rage, boss, dash and critical bonuses ride on the attack damage for this one blow.
+		float multiplier = combat.prepareBlow(this, target, level.getGameTime());
+		AttributeInstance attack = this.getAttribute(Attributes.ATTACK_DAMAGE);
+		boolean boosted = attack != null && multiplier != 1.0F;
+		if (boosted) {
+			attack.addTransientModifier(new AttributeModifier(BotCombat.BONUS_ID, multiplier - 1.0F, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+		}
+		float healthBefore = target instanceof LivingEntity living ? living.getHealth() : 0.0F;
+		boolean hit;
+		try {
+			hit = super.doHurtTarget(level, target);
+		} finally {
+			if (boosted) {
+				attack.removeModifier(BotCombat.BONUS_ID);
+			}
+		}
 		BotStats stats = stats();
 		if (hit) {
 			slashEffect(level, target);
+			combat.afterHit(this, level, target, healthBefore);
 			if (stats.lifeSteal() > 0.0F) {
 				// Life Steal (level 26): heals by part of the blow.
 				this.heal((float) this.getAttributeValue(Attributes.ATTACK_DAMAGE) * stats.lifeSteal());
@@ -5147,23 +5503,18 @@ public class ButterBotEntity extends PathfinderMob {
 		}
 	}
 
-	/** Storm Slash (level 27): now and then lightning (light and sound only, no fire) strikes the target for 12 more damage. */
+	/**
+	 * Storm Slash (level 27): now and then lightning strikes the target for 12 more damage. Particles and sound only:
+	 * no fire, and nothing happens to lightning rods or copper nearby.
+	 */
 	private void stormStrike(ServerLevel level, LivingEntity target) {
-		LightningBolt bolt = EntityTypes.LIGHTNING_BOLT.create(level, EntitySpawnReason.TRIGGERED);
-		if (bolt != null) {
-			bolt.setVisualOnly(true);
-			bolt.snapTo(target.getX(), target.getY(), target.getZ());
-			level.addFreshEntity(bolt);
-		}
+		BotPowers.lightning(level, target.position(), this);
 		if (target.hurtServer(level, this.damageSources().mobAttack(this), 12.0F) && !target.isAlive() && target instanceof Mob mob) {
 			onDefeated(mob);
 		}
 	}
 
-	/**
-	 * A slash of light in the tier's colour in front of the bot with every hit; one hit in five flashes like a
-	 * critical one, and one in four it steps back out of reach.
-	 */
+	/** A slash of light in the tier's colour in front of the bot with every hit; one hit in four it steps back out of reach. */
 	private void slashEffect(ServerLevel level, Entity target) {
 		DustParticleOptions dust = new DustParticleOptions(BotTier.of(getBotLevel()).color() & 0xFFFFFF, 0.9F);
 		float yaw = this.getYRot() * Mth.DEG_TO_RAD;
@@ -5174,11 +5525,6 @@ public class ButterBotEntity extends PathfinderMob {
 			double ahead = 0.8D - 0.25D * side * side;
 			level.sendParticles(dust, getX() + forwardX * ahead - forwardZ * side * 0.8D, getY() + 1.2D + side * 0.25D,
 					getZ() + forwardZ * ahead + forwardX * side * 0.8D, 1, 0.0D, 0.0D, 0.0D, 0.0D);
-		}
-		if (this.random.nextFloat() < 0.2F) {
-			level.sendParticles(ParticleTypes.CRIT, target.getX(), target.getY(0.6D), target.getZ(), 12, 0.3D, 0.3D, 0.3D, 0.3D);
-			level.sendParticles(ParticleTypes.ENCHANTED_HIT, target.getX(), target.getY(0.6D), target.getZ(), 8, 0.3D, 0.3D, 0.3D, 0.2D);
-			this.playSound(SoundEvents.PLAYER_ATTACK_CRIT, 0.7F, 1.0F);
 		}
 		if (this.onGround() && this.random.nextFloat() < 0.25F) {
 			this.setDeltaMovement(this.getDeltaMovement().add(-forwardX * 0.35D, 0.22D, -forwardZ * 0.35D));
@@ -5214,7 +5560,14 @@ public class ButterBotEntity extends PathfinderMob {
 			}
 			if (firstDeath && this.level() instanceof ServerLevel serverLevel) {
 				leaveMemoryCore(serverLevel, source);
+				// Its light goes up: souls and a thin pillar.
+				serverLevel.sendParticles(ParticleTypes.SOUL, getX(), getY() + 1.0D, getZ(), 20, 0.4D, 0.6D, 0.4D, 0.05D);
+				for (int i = 0; i < 16; i++) {
+					serverLevel.sendParticles(ParticleTypes.END_ROD, getX(), getY() + i * 0.5D, getZ(), 1, 0.05D, 0.0D, 0.05D, 0.02D);
+				}
+				this.playSound(SoundEvents.SOUL_ESCAPE.value(), 1.0F, 0.8F);
 			}
+			combat.remove();
 		}
 	}
 
@@ -5271,6 +5624,15 @@ public class ButterBotEntity extends PathfinderMob {
 		if (owner != null) {
 			owner.sendSystemMessage(Msg.prefixed(Component.translatable(key, this.getName(), at.getX(), at.getY(), at.getZ()))
 					.withStyle(ChatFormatting.LIGHT_PURPLE));
+		}
+	}
+
+	@Override
+	public void onRemoval(Entity.RemovalReason reason) {
+		super.onRemoval(reason);
+		if (!this.level().isClientSide()) {
+			// Its boss bar and damage numbers go with it (dying, packed up, unloaded or off to another dimension).
+			combat.remove();
 		}
 	}
 

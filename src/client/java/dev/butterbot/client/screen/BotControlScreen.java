@@ -13,6 +13,7 @@ import dev.butterbot.client.BotFocus;
 import dev.butterbot.client.BotKeys;
 import dev.butterbot.client.render.ButterBotRenderState;
 import dev.butterbot.client.skin.ClientSkinManager;
+import dev.butterbot.entity.BotAchievements;
 import dev.butterbot.entity.BotBond;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
@@ -1585,7 +1586,7 @@ public class BotControlScreen extends Screen {
 	}
 
 	private static BotStats statsOf(Payloads.BotEntry bot) {
-		return BotStats.of(bot.level(), bot.skills(), bot.mastery());
+		return BotStats.of(bot.level(), bot.skills(), bot.mastery(), BotProgress.statAt(bot.lifetime(), BotProgress.Stat.STARS));
 	}
 
 	/** Four branches side by side, one tile per skill; a click spends a point on it. */
@@ -1757,16 +1758,17 @@ public class BotControlScreen extends Screen {
 						Component.translatable("butterbot.ui.ability_level", ability.level()).withStyle(ChatFormatting.DARK_GRAY)), mouseX, mouseY);
 			}
 		}
+		// One purple badge per super power (levels 12 to 30); hover for the name and what it does.
 		BotStats.Power[] powers = BotStats.Power.values();
 		for (int i = 0; i < powers.length; i++) {
 			BotStats.Power power = powers[i];
-			int x = cx + i * 80;
+			int x = cx + i * 16;
 			int y = cy + 172;
 			boolean unlocked = stats.hasPower(power);
-			g.fill(x, y, x + 78, y + 11, unlocked ? POWER_ON : BADGE_OFF);
-			String name = font.plainSubstrByWidth(power.displayName().getString(), 74);
-			g.text(font, name, x + 39 - font.width(name) / 2, y + 2, unlocked ? McStyle.WHITE : McStyle.TEXT_DIM, unlocked);
-			if (inside(mouseX, mouseY, x, y, 78, 11)) {
+			g.fill(x, y, x + 15, y + 11, unlocked ? POWER_ON : BADGE_OFF);
+			String number = String.valueOf(power.level());
+			g.text(font, number, x + 8 - font.width(number) / 2, y + 2, unlocked ? McStyle.WHITE : McStyle.TEXT_DIM, unlocked);
+			if (inside(mouseX, mouseY, x, y, 15, 11)) {
 				g.setComponentTooltipForNextFrame(font, List.of(power.displayName().copy().withStyle(unlocked ? ChatFormatting.LIGHT_PURPLE : ChatFormatting.GRAY),
 						power.description().copy().withStyle(ChatFormatting.GRAY),
 						Component.translatable("butterbot.ui.power_level", power.level()).withStyle(ChatFormatting.DARK_GRAY)), mouseX, mouseY);
@@ -1778,6 +1780,54 @@ public class BotControlScreen extends Screen {
 				compact(lifetimeAt(lifetime, BotProgress.Stat.KILLS)), compact(lifetimeAt(lifetime, BotProgress.Stat.HARVESTED)),
 				compact(lifetimeAt(lifetime, BotProgress.Stat.CRAFTED)));
 		g.text(font, font.plainSubstrByWidth(life.getString(), CW), cx, cy + 186, McStyle.TEXT_DIM, false);
+		if (inside(mouseX, mouseY, cx, cy + 184, CW, 11)) {
+			g.setComponentTooltipForNextFrame(font, combatTooltip(stats, lifetime), mouseX, mouseY);
+		}
+
+		// Stars and achievements, at the right of the abilities title; hover for the list.
+		int stars = lifetimeAt(lifetime, BotProgress.Stat.STARS);
+		int achievements = lifetimeAt(lifetime, BotProgress.Stat.ACHIEVEMENTS);
+		String badge = Component.translatable("butterbot.ui.stars_achievements", stars, BotAchievements.count(achievements),
+				BotAchievements.Achievement.values().length).getString();
+		int badgeX = cx + CW - font.width(badge);
+		g.text(font, badge, badgeX, cy + 135, stars > 0 ? 0xFFB8860B : McStyle.TEXT_DIM, false);
+		if (inside(mouseX, mouseY, badgeX, cy + 133, CW - (badgeX - cx), 11)) {
+			g.setComponentTooltipForNextFrame(font, achievementTooltip(bot.level(), stars, lifetimeAt(lifetime, BotProgress.Stat.STAR_XP),
+					achievements), mouseX, mouseY);
+		}
+	}
+
+	/** Critical blows, dodging and the fighting records. */
+	private static List<Component> combatTooltip(BotStats stats, int[] lifetime) {
+		return List.of(Component.translatable("butterbot.ui.combat_title").withStyle(ChatFormatting.GOLD),
+				Component.translatable("butterbot.ui.combat_crit", Math.round(stats.critChance() * 100.0F),
+						Math.round(stats.critMultiplier() * 100.0F)).withStyle(ChatFormatting.GRAY),
+				Component.translatable("butterbot.ui.combat_dodge", Math.round(stats.dodgeChance() * 100.0F)).withStyle(ChatFormatting.GRAY),
+				Component.translatable("butterbot.ui.combat_bosses", lifetimeAt(lifetime, BotProgress.Stat.BOSSES)).withStyle(ChatFormatting.GRAY),
+				Component.translatable("butterbot.ui.combat_records", lifetimeAt(lifetime, BotProgress.Stat.BEST_COMBO),
+						lifetimeAt(lifetime, BotProgress.Stat.BEST_STREAK)).withStyle(ChatFormatting.GRAY),
+				Component.translatable("butterbot.ui.combat_powers", lifetimeAt(lifetime, BotProgress.Stat.POWERS_USED),
+						lifetimeAt(lifetime, BotProgress.Stat.OWNER_SAVES)).withStyle(ChatFormatting.GRAY));
+	}
+
+	/** Stars (and the XP to the next one) and every achievement, earned ones ticked. */
+	private static List<Component> achievementTooltip(int level, int stars, int starXp, int bits) {
+		List<Component> lines = new ArrayList<>();
+		if (level >= BotLevels.MAX_LEVEL && stars < BotLevels.MAX_STARS) {
+			lines.add(Component.translatable("butterbot.ui.star_progress", stars, starXp, BotLevels.starXpToNext(stars)).withColor(0xFFE680));
+		} else if (level >= BotLevels.MAX_LEVEL) {
+			lines.add(Component.translatable("butterbot.ui.star_max", stars).withColor(0xFFE680));
+		} else {
+			lines.add(Component.translatable("butterbot.ui.star_locked").withStyle(ChatFormatting.GRAY));
+		}
+		for (BotAchievements.Achievement achievement : BotAchievements.Achievement.values()) {
+			boolean done = achievement.in(bits);
+			lines.add(Component.literal(done ? "\u2714 " : "\u2718 ").withStyle(done ? ChatFormatting.GREEN : ChatFormatting.DARK_GRAY)
+					.append(achievement.displayName().copy().withStyle(done ? ChatFormatting.WHITE : ChatFormatting.GRAY))
+					.append(Component.literal(" - ").withStyle(ChatFormatting.DARK_GRAY))
+					.append(achievement.description().copy().withStyle(ChatFormatting.DARK_GRAY)));
+		}
+		return lines;
 	}
 
 	private static int lifetimeAt(int[] lifetime, BotProgress.Stat stat) {

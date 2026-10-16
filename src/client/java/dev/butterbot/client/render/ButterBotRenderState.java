@@ -60,4 +60,9 @@ public class ButterBotRenderState extends AvatarRenderState {
 	public float reactionStrength;
 	/** The speech bubble, wrapped into lines, shown over the name tag; empty when the bot is quiet or far away. */
 	public List<Component> speechLines = List.of();
+	/** Hits of the running combo (shown from 2), stars past level 30, and health for the bar under the name. */
+	public int combo;
+	public int stars;
+	public float healthFraction = 1.0F;
+	public boolean showHealthBar;
 }
