@@ -190,6 +190,8 @@ public class BotControlScreen extends Screen {
 	private int selectedSkinIndex = -1;
 	/** Stand-ins drawn on the card for bots this client cannot see, and for skin previews. */
 	private final Map<UUID, ButterBotEntity> standIns = new HashMap<>();
+	/** Stand-ins need an entity id to be drawn; negative ones never clash with real entities. */
+	private static int nextStandInId = -1000;
 	private long releaseArmedUntil;
 	private long resetArmedUntil;
 	/** The skill ranks and level the skill page was built for (its tooltips are rebuilt when they change). */
@@ -575,6 +577,7 @@ public class BotControlScreen extends Screen {
 		ButterBotEntity standIn = standIns.get(bot.id());
 		if (standIn == null || standIn.level() != minecraft.level) {
 			standIn = new ButterBotEntity(ModEntities.BUTTER_BOT, minecraft.level);
+			standIn.setId(nextStandInId--);
 			standIn.setCustomName(Component.literal(bot.name()));
 			standIns.put(bot.id(), standIn);
 		}
