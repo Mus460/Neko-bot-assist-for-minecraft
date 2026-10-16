@@ -254,6 +254,8 @@
   "butterbot.levelup.perk.9": "Netherite tools and ore veins up to 64 blocks!",
   "butterbot.levelup.perk.10": "Fortune III!",
   "butterbot.levelup.perk.late": "Stronger, tougher and faster.",
+  "butterbot.levelup.float": "LEVEL UP! Lv %s",
+  "butterbot.levelup.float_tier": "LEVEL UP! Lv %s · %s",
   "butterbot.levelup.ability": "New ability: %s! %s",
   "butterbot.levelup.new_skills": "A new row of skills is open!",
   "butterbot.levelup.new_skills_short": "new skills",

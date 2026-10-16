@@ -601,6 +601,7 @@ public class BotControlScreen extends Screen {
 			bot.nameTag = null;
 			bot.speechLines = List.of();
 			bot.focused = false;
+			bot.inPanel = true;
 		}
 		float xAngle = (float) Math.atan(((x0 + x1) / 2.0F - mouseX) / 40.0F);
 		float yAngle = (float) Math.atan(((y0 + y1) / 2.0F - mouseY) / 40.0F);

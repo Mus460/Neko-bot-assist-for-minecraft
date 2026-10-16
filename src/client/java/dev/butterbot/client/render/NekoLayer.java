@@ -18,20 +18,28 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * 3D cat ears on the head and a swaying tail on the back, tinted with the skin's hair colour. Works with any skin,
- * so every bot can be a neko. Levels show on them too: a collar with a bell and a band on the tail in the tier's
- * colour from level 5, glowing from level 15, glowing ears from level 20 and two tails at level 30. On a level up
- * the ears perk up and flick and the tail stands up and quivers; a head pat folds the ears outwards and quickens
- * the tail ({@link ReactionAnimation}). The parts are a {@link NekoModel} submitted once per colour, and glowing
- * parts a second time as an emissive overlay (like spider eyes), so shader packs make them shine.
+ * 3D cat ears on the head and a bushy, swaying tail on the back, tinted with the skin's hair colour, plus what the
+ * bot wears: works with any skin, so every bot can be a neko. Levels show on them: a collar with a bell and a band
+ * on the tail in the tier's colour from level 5, a bow from 10, ear fluff and glowing bell from 15, glowing ears
+ * and a tiara from 20, spirit orbs from 25, two tails and soul-fire wisps at 30. The weather dresses it: a scarf in
+ * the snow, sunglasses in the desert sun, an umbrella in the rain. Ears and tail move with the bot's mood and the
+ * level-up cheer ({@link NekoModel}); the eyes blink. The parts are a {@link NekoModel} submitted once per colour,
+ * and glowing parts a second time as an emissive overlay (like spider eyes), so shader packs make them shine.
  */
 public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 
 	public static final Identifier TEXTURE = ButterBot.id("textures/entity/neko_parts.png");
 	private static final int EAR_INNER_COLOR = 0xFFF4AFC2;
+	private static final int EAR_FLUFF_COLOR = 0xFFF7F1EC;
 	private static final int COLLAR_COLOR = 0xFFC2303F;
 	private static final int BELL_SLIT_COLOR = 0xFF3A2A10;
-	/** The soul-fire blue a nekomata's tail tips fade into. */
+	private static final int CROWN_COLOR = 0xFFFFD447;
+	private static final int GLASSES_COLOR = 0xFF16161D;
+	private static final int SCARF_COLOR = 0xFFD7443E;
+	/** A butter-yellow umbrella, of course. */
+	private static final int UMBRELLA_COLOR = 0xFFFFE07A;
+	private static final int UMBRELLA_POLE_COLOR = 0xFF6B4423;
+	/** The soul-fire blue a nekomata's tail tips and wisps glow in. */
 	private static final int SOUL_FIRE_COLOR = 0xFF7FE8FF;
 	/** Opacity of the emissive overlay on glowing parts. */
 	private static final int GLOW_ALPHA = 0x99;
@@ -72,52 +80,92 @@ public class NekoLayer extends RenderLayer<ButterBotRenderState, PlayerModel> {
 	}
 
 	private void submitParts(PoseStack poseStack, SubmitNodeCollector collector, int lightCoords, ButterBotRenderState state) {
-		Map<NekoModel.Group, NekoModel> models = state.slim ? slim : wide;
-		int overlay = LivingEntityRenderer.getOverlayCoords(state, 0.0F);
+		Parts parts = new Parts(collector, poseStack, state.slim ? slim : wide, state, lightCoords,
+				LivingEntityRenderer.getOverlayCoords(state, 0.0F));
 		BotTier tier = state.tier;
 		int tierColor = tier.colorAt(state.ageInTicks);
 		boolean legend = tier == BotTier.LEGEND;
-		boolean adorned = tier != BotTier.KITTEN;
+		int hair = state.nekoColor;
 		// From diamond on, the inside of the ears glows in the tier's colour.
 		boolean glowingEars = tier.atLeast(BotTier.DIAMOND);
 		int innerColor = glowingEars ? ARGB.srgbLerp(0.6F, EAR_INNER_COLOR, tierColor) : EAR_INNER_COLOR;
-		int tipColor = legend ? ARGB.srgbLerp(0.5F, state.nekoColor, SOUL_FIRE_COLOR) : ARGB.srgbLerp(0.35F, state.nekoColor, 0xFFFFFFFF);
-		int glowLight = tier.glows() ? LightCoordsUtil.FULL_BRIGHT : lightCoords;
+		int tipColor = legend ? ARGB.srgbLerp(0.5F, hair, SOUL_FIRE_COLOR) : ARGB.srgbLerp(0.35F, hair, 0xFFFFFFFF);
+		int orbColor = legend ? SOUL_FIRE_COLOR : tierColor;
+		boolean glows = tier.glows();
 
-		RenderType cutout = RenderTypes.entityCutout(TEXTURE);
-		draw(collector, poseStack, models, NekoModel.Group.HAIR, state, cutout, lightCoords, overlay, state.nekoColor);
-		draw(collector, poseStack, models, NekoModel.Group.INNER_EAR, state, cutout, glowingEars ? LightCoordsUtil.FULL_BRIGHT : lightCoords,
-				overlay, innerColor);
-		draw(collector, poseStack, models, NekoModel.Group.TAIL_TIP, state, cutout, legend ? LightCoordsUtil.FULL_BRIGHT : lightCoords,
-				overlay, tipColor);
-		if (adorned) {
-			draw(collector, poseStack, models, NekoModel.Group.BAND, state, cutout, glowLight, overlay, tierColor);
-			draw(collector, poseStack, models, NekoModel.Group.COLLAR, state, cutout, lightCoords, overlay, COLLAR_COLOR);
-			draw(collector, poseStack, models, NekoModel.Group.BELL, state, cutout, glowLight, overlay, tierColor);
-			draw(collector, poseStack, models, NekoModel.Group.BELL_SLIT, state, cutout, lightCoords, overlay, BELL_SLIT_COLOR);
+		parts.draw(NekoModel.Group.HAIR, false, hair);
+		parts.draw(NekoModel.Group.FUR, false, ARGB.srgbLerp(0.18F, hair, 0xFFFFFFFF));
+		parts.draw(NekoModel.Group.INNER_EAR, glowingEars, innerColor);
+		parts.draw(NekoModel.Group.TAIL_TIP, legend, tipColor);
+		if (state.faceColor != 0 && state.lidsClosed > 0.0F) {
+			parts.draw(NekoModel.Group.EYELID, false, state.faceColor);
+		}
+		if (tier.atLeast(BotTier.BRONZE)) {
+			parts.draw(NekoModel.Group.BAND, glows, tierColor);
+			parts.draw(NekoModel.Group.COLLAR, false, COLLAR_COLOR);
+			parts.draw(NekoModel.Group.BELL, glows, tierColor);
+			parts.draw(NekoModel.Group.BELL_SLIT, false, BELL_SLIT_COLOR);
+		}
+		if (tier.atLeast(BotTier.SILVER)) {
+			parts.draw(NekoModel.Group.BOW, false, tierColor);
+			parts.draw(NekoModel.Group.BOW_KNOT, false, ARGB.srgbLerp(0.35F, tierColor, 0xFF000000));
+		}
+		if (tier.atLeast(BotTier.GOLD)) {
+			parts.draw(NekoModel.Group.EAR_FLUFF, false, EAR_FLUFF_COLOR);
+		}
+		if (tier.atLeast(BotTier.DIAMOND)) {
+			parts.draw(NekoModel.Group.CROWN, false, CROWN_COLOR);
+			parts.draw(NekoModel.Group.GEM, true, tierColor);
+		}
+		if (tier.atLeast(BotTier.AMETHYST)) {
+			parts.draw(NekoModel.Group.ORB, true, orbColor);
+		}
+		if (state.scarf) {
+			parts.draw(NekoModel.Group.SCARF, false, SCARF_COLOR);
+		}
+		if (state.sunglasses) {
+			parts.draw(NekoModel.Group.GLASSES, false, GLASSES_COLOR);
+		}
+		if (state.umbrella) {
+			parts.draw(NekoModel.Group.UMBRELLA, false, UMBRELLA_COLOR);
+			parts.draw(NekoModel.Group.UMBRELLA_POLE, false, UMBRELLA_POLE_COLOR);
 		}
 
 		// The glowing parts again as an emissive overlay.
-		RenderType eyes = RenderTypes.eyes(TEXTURE);
 		if (glowingEars) {
-			draw(collector, poseStack, models, NekoModel.Group.INNER_EAR, state, eyes, LightCoordsUtil.FULL_BRIGHT, overlay, glow(innerColor));
+			parts.glow(NekoModel.Group.INNER_EAR, innerColor);
 		}
-		if (tier.glows()) {
-			draw(collector, poseStack, models, NekoModel.Group.BAND, state, eyes, LightCoordsUtil.FULL_BRIGHT, overlay, glow(tierColor));
-			draw(collector, poseStack, models, NekoModel.Group.BELL, state, eyes, LightCoordsUtil.FULL_BRIGHT, overlay, glow(tierColor));
+		if (glows) {
+			parts.glow(NekoModel.Group.BAND, tierColor);
+			parts.glow(NekoModel.Group.BELL, tierColor);
+		}
+		if (tier.atLeast(BotTier.DIAMOND)) {
+			parts.glow(NekoModel.Group.GEM, tierColor);
+		}
+		if (tier.atLeast(BotTier.AMETHYST)) {
+			parts.glow(NekoModel.Group.ORB, orbColor);
 		}
 		if (legend) {
-			draw(collector, poseStack, models, NekoModel.Group.TAIL_TIP, state, eyes, LightCoordsUtil.FULL_BRIGHT, overlay, glow(tipColor));
+			parts.glow(NekoModel.Group.TAIL_TIP, tipColor);
 		}
 	}
 
-	private static void draw(SubmitNodeCollector collector, PoseStack poseStack, Map<NekoModel.Group, NekoModel> models,
-							 NekoModel.Group group, ButterBotRenderState state, RenderType renderType, int light, int overlay, int color) {
-		collector.submitModel(models.get(group), state, poseStack, renderType, light, overlay, color, null, state.outlineColor);
-	}
+	/** Submits colour groups of one bot. */
+	private record Parts(SubmitNodeCollector collector, PoseStack poseStack, Map<NekoModel.Group, NekoModel> models,
+						 ButterBotRenderState state, int light, int overlay) {
 
-	/** Translucent copy of a colour for the emissive overlay. */
-	private static int glow(int color) {
-		return GLOW_ALPHA << 24 | color & 0xFFFFFF;
+		/** One group in one colour; glowing groups are drawn full bright. */
+		void draw(NekoModel.Group group, boolean glowing, int color) {
+			submit(group, RenderTypes.entityCutout(TEXTURE), glowing ? LightCoordsUtil.FULL_BRIGHT : light, color);
+		}
+
+		/** The emissive overlay on a glowing group. */
+		void glow(NekoModel.Group group, int color) {
+			submit(group, RenderTypes.eyes(TEXTURE), LightCoordsUtil.FULL_BRIGHT, GLOW_ALPHA << 24 | color & 0xFFFFFF);
+		}
+
+		private void submit(NekoModel.Group group, RenderType renderType, int light, int color) {
+			collector.submitModel(models.get(group), state, poseStack, renderType, light, overlay, color, null, state.outlineColor);
+		}
 	}
 }

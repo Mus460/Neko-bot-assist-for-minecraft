@@ -69,7 +69,7 @@ public final class ClientSkinManager {
 	private static final int FALLBACK_HAIR_COLOR = 0xFF3B2A20;
 
 	/** A loaded skin: its texture, arm model and the hair colour used for the cat ears and tail. */
-	public record SkinInfo(Identifier texture, boolean slim, int hairColor) {
+	public record SkinInfo(Identifier texture, boolean slim, int hairColor, int faceColor) {
 	}
 
 	public record LocalSkin(String fileName, Path path, String skinId, int width, int height) {
@@ -259,22 +259,22 @@ public final class ClientSkinManager {
 	/** The built-in skin a bot wears until it gets a custom one. */
 	public static SkinInfo defaultSkinFor(int variant) {
 		Identifier texture = DEFAULT_SKINS[Math.floorMod(variant, DEFAULT_SKINS.length)];
-		return defaults.computeIfAbsent(texture, id -> new SkinInfo(id, true, readResourceHairColor(id)));
+		return defaults.computeIfAbsent(texture, ClientSkinManager::readResourceSkin);
 	}
 
 	public static int defaultSkinCount() {
 		return DEFAULT_SKINS.length;
 	}
 
-	private static int readResourceHairColor(Identifier texture) {
+	private static SkinInfo readResourceSkin(Identifier texture) {
 		Optional<Resource> resource = Minecraft.getInstance().getResourceManager().getResource(texture);
 		if (resource.isEmpty()) {
-			return FALLBACK_HAIR_COLOR;
+			return new SkinInfo(texture, true, FALLBACK_HAIR_COLOR, 0);
 		}
 		try (InputStream in = resource.get().open(); NativeImage image = NativeImage.read(in)) {
-			return hairColor(image);
+			return new SkinInfo(texture, true, hairColor(image), faceColor(image));
 		} catch (IOException | RuntimeException exception) {
-			return FALLBACK_HAIR_COLOR;
+			return new SkinInfo(texture, true, FALLBACK_HAIR_COLOR, 0);
 		}
 	}
 
@@ -309,11 +309,12 @@ public final class ClientSkinManager {
 			image = prepareSkin(image);
 			boolean slim = detectSlim(image, fileName);
 			int hair = hairColor(image);
+			int face = faceColor(image);
 			DynamicTexture texture = new DynamicTexture(() -> "Butter Bot skin " + skinId, image);
 			image = null; // owned by the texture now
 			Identifier id = ButterBot.id("dynamic/skin_" + skinId);
 			Minecraft.getInstance().getTextureManager().register(id, texture);
-			SkinInfo info = new SkinInfo(id, slim, hair);
+			SkinInfo info = new SkinInfo(id, slim, hair, face);
 			loaded.put(skinId, info);
 			failed.remove(skinId);
 			ButterBot.LOGGER.info("Butter Bot skin {} ready ({} arms){}", skinId, slim ? "slim" : "wide",
@@ -422,6 +423,12 @@ public final class ClientSkinManager {
 		}
 		int head = averageOpaque(image, 8 * f, 0, 16 * f, 8 * f, 0.25F);
 		return head != 0 ? head : FALLBACK_HAIR_COLOR;
+	}
+
+	/** The skin tone between the eyes (face pixels 3 and 4 in the middle), for the eyelids; 0 when see-through. */
+	private static int faceColor(NativeImage image) {
+		int f = Math.max(1, image.getWidth() / SkinLimits.BASE_SIZE);
+		return averageOpaque(image, 11 * f, 11 * f, 13 * f, 13 * f, 0.75F);
 	}
 
 	/** Average of the opaque pixels in a region, or 0 if fewer than {@code minCoverage} of them are opaque. */
