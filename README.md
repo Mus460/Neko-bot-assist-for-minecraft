@@ -288,6 +288,17 @@ Saat tidak punya tugas (tanpa perintah, job sedang tidak jalan dan tidak bertaru
 
 Armor, telinga, ekor dan aksesori ikut bergerak bersama semua gerakan ini.
 
+#### Emote, gelembung pikiran dan efek
+
+- **Ikon emote** muncul di atas kepala, membesar sebentar lalu memudar: ♥ (dielus, diberi camilan, menyambutmu), **!** (kaget, mulai bertarung), **?** (bingung atau nyangkut), **#** merah (ngambek), ♪ (bersenandung saat bekerja, high-five) dan ✔ hijau (tugas selesai).
+- **Gelembung pikiran** berisi ikon barang yang dibutuhkan bot: alat atau armor yang baru rusak, **peti** saat penyimpanan penuh, dan **steak** saat darahnya rendah tapi tidak ada makanan di tas.
+- **Bekerja**: serpihan blok beterbangan setiap ayunan saat menambang (daun ikut berjatuhan saat menebang kayu), dan bot berlutut saat memanen dan menanam.
+- **Langkah**: debu (atau salju) terangkat saat bot berlari, cipratan air saat berenang.
+- **Tugas selesai**: confetti warna-warni dan ✔.
+- **Bertarung**: setiap pukulan meninggalkan jejak tebasan bercahaya berwarna tingkat bot, sesekali kilatan kritis, dan kadang bot melompat mundur menghindar.
+- **Hati Baja (Lv25)**: saat menyelamatkan bot, ledakan cahaya dan **sayap cahaya** terbentang sebentar dari punggungnya.
+- **Teleport**: pusaran portal ungu saat berangkat dan "poof" berkilau saat tiba.
+
 ### Level (1 sampai 30)
 
 Bot mendapat XP kerja dari setiap blok yang digali, tanaman yang dipanen, crafting, item yang dilebur dan monster yang dikalahkan. Kerja yang lebih sulit memberi lebih banyak XP: batu 1, batu bara/tembaga 2, besi/redstone 3, emas/lapis 4, zamrud 8, berlian 10, ancient debris 15; monster sesuai kekuatannya (boss 200). Level tampil di atas kepala bot (`Lv3 Mochi-3F`). Saat naik level ada kembang api dan bot bersorak: melompat sambil berputar, kupingnya tegak dan bergoyang, ekornya berdiri dan bergetar, lalu muncul spiral cahaya berwarna tingkatnya. Untuk level penting muncul judul besar di layarmu.
