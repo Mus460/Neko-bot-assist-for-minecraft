@@ -5,7 +5,8 @@ import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.entity.BotTier;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
-import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 /** Player-like render state plus the bot's skin, neko parts and labels. */
 public class ButterBotRenderState extends AvatarRenderState {
@@ -28,8 +29,6 @@ public class ButterBotRenderState extends AvatarRenderState {
 	public int reaction;
 	public float reactionTime = -1.0F;
 	public float reactionStrength;
-	@Nullable
-	public Component infoLine;
-	@Nullable
-	public Component speech;
+	/** The speech bubble, wrapped into lines, shown over the name tag; empty when the bot is quiet or far away. */
+	public List<Component> speechLines = List.of();
 }

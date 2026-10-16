@@ -148,7 +148,7 @@ Daftar ini juga langsung memberi tahu kalau ada yang tidak beres:
 
 Di mode pertama tombol `]`, setiap bot yang lebih jauh dari 20 blok mendapat **penanda** yang melayang di atas kepalanya, terlihat tembus tembok: wajah kecilnya di dalam cincin darah, dengan jaraknya di bawahnya. Kalau bot ada di belakangmu atau di luar layar, penandanya menempel di tepi layar dengan panah kecil yang menunjuk ke arahnya. Bot yang lebih dekat dari 20 blok sudah punya label nama sendiri, jadi penandanya memudar dan hilang. Penanda disembunyikan saat layar F3 atau layar lain (panel, inventaris, chat) terbuka.
 
-Tombol **Tunjukkan** (ikon teropong) ada di kartu bot di panel, di kanan boneka bot, dan di kanan setiap baris daftar **Semua bot**. Panel langsung tertutup, lalu selama **30 detik**:
+Tombol **Tunjukkan** (ikon teropong) ada di kartu bot di panel, di kanan bot 3D, dan di kanan setiap baris daftar **Semua bot**. Panel langsung tertutup, lalu selama **30 detik**:
 
 - bot itu **bersinar tembus tembok** dengan warna rambutnya dan memancarkan **sinar beacon** setinggi langit, sehingga kelihatan dari jauh;
 - ia mendapat penanda yang berdenyut, walaupun penanda sedang dimatikan dengan `]` (dari dekat penanda hanya muncul di tepi layar untuk menunjuk arah);
@@ -157,6 +157,8 @@ Tombol **Tunjukkan** (ikon teropong) ada di kartu bot di panel, di kanan boneka 
 Sinar dan cahaya hanya tampil selama bot masih dalam jarak pandang dunia (view distance). Kalau lebih jauh dari itu, penanda di layar tetap menunjukkan arahnya. Telinga dan ekor kucing tidak ikut bersinar.
 
 ### Tab panel kontrol
+
+Kartu di kiri panel menampilkan bot dalam **3D**: lengkap dengan telinga, ekor, kalung, baju zirah dan alat yang dipegangnya, dan ia menoleh mengikuti kursor mouse. Bot yang sedang jauh atau di dimensi lain tetap tampil 3D dengan skin dan tingkatnya. Saat memilih skin di tab Skin, pratinjaunya juga 3D.
 
 - **Bot Saya**: daftar bot dan tombol lepaskan kepemilikan (✖).
 - **Job**: pilih pekerjaan tetap bot dan atur peti, daftar barang, zona larangan atau area kerjanya (lihat [Job](#job-pekerjaan-tetap)).

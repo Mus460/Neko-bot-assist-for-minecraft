@@ -11,11 +11,13 @@ import net.minecraft.world.entity.EntityType;
 import dev.butterbot.ai.job.Livestock;
 import dev.butterbot.client.BotFocus;
 import dev.butterbot.client.BotKeys;
+import dev.butterbot.client.render.ButterBotRenderState;
 import dev.butterbot.client.skin.ClientSkinManager;
 import dev.butterbot.entity.BotBond;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
 import dev.butterbot.entity.BotTier;
+import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.entity.BotProgress;
 import dev.butterbot.entity.BotResource;
 import dev.butterbot.entity.BotSkill;
@@ -25,6 +27,7 @@ import dev.butterbot.entity.JobConfig;
 import dev.butterbot.entity.SmeltMode;
 import dev.butterbot.lua.LuaProgram;
 import dev.butterbot.network.Payloads;
+import dev.butterbot.registry.ModEntities;
 import dev.butterbot.registry.ModItems;
 import dev.butterbot.skin.SkinLimits;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -37,24 +40,32 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.entity.state.EntityRenderState;
+import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.util.Mth;
+import net.minecraft.util.Util;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Items;
 import org.jetbrains.annotations.Nullable;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -177,6 +188,8 @@ public class BotControlScreen extends Screen {
 	private int lastSourceCount = -1;
 	private int skinPage;
 	private int selectedSkinIndex = -1;
+	/** Stand-ins drawn on the card for bots this client cannot see, and for skin previews. */
+	private final Map<UUID, ButterBotEntity> standIns = new HashMap<>();
 	private long releaseArmedUntil;
 	private long resetArmedUntil;
 	/** The skill ranks and level the skill page was built for (its tooltips are rebuilt when they change). */
@@ -487,9 +500,14 @@ public class BotControlScreen extends Screen {
 		float xp = level >= BotLevels.MAX_LEVEL ? 1.0F : bot.workXp() / (float) BotLevels.xpToNext(level);
 		McStyle.bar(g, cardX + 5, cardY + 30, CARD_W - 10, 4, xp, McStyle.XP);
 
-		ClientSkinManager.SkinInfo skin = cardSkin(bot);
-		if (skin != null) {
-			drawPaperDoll(g, skin, middle - 16, cardY + 38, 2);
+		ButterBotEntity model = cardEntity(bot);
+		if (model != null) {
+			drawBotModel(g, model, middle - 22, cardY + 36, middle + 22, cardY + 106, 30, mouseX, mouseY);
+		} else {
+			ClientSkinManager.SkinInfo skin = cardSkin(bot);
+			if (skin != null) {
+				drawPaperDoll(g, skin, middle - 16, cardY + 38, 2);
+			}
 		}
 		if (isPreviewingSkin()) {
 			Component preview = Component.translatable("butterbot.ui.preview");
@@ -539,6 +557,63 @@ public class BotControlScreen extends Screen {
 			}
 		}
 		return botSkin(bot);
+	}
+
+	/**
+	 * The bot to draw on the card: the real one when this client can see it (so its armor, tool and work show),
+	 * otherwise, and while a skin is being previewed, a stand-in dressed from the panel's data.
+	 */
+	@Nullable
+	private ButterBotEntity cardEntity(Payloads.BotEntry bot) {
+		if (minecraft == null || minecraft.level == null) {
+			return null;
+		}
+		String previewSkin = isPreviewingSkin() ? ClientSkinManager.localSkins().get(selectedSkinIndex).skinId() : null;
+		if (previewSkin == null && minecraft.level.getEntity(bot.id()) instanceof ButterBotEntity live && live.isAlive()) {
+			return live;
+		}
+		ButterBotEntity standIn = standIns.get(bot.id());
+		if (standIn == null || standIn.level() != minecraft.level) {
+			standIn = new ButterBotEntity(ModEntities.BUTTER_BOT, minecraft.level);
+			standIn.setCustomName(Component.literal(bot.name()));
+			standIns.put(bot.id(), standIn);
+		}
+		standIn.setSkinId(previewSkin != null ? previewSkin : bot.skinId());
+		standIn.setSkinVariant(bot.skinVariant());
+		standIn.setNeko(bot.neko());
+		standIn.showLevel(bot.level());
+		// It is never ticked, so give it the clock that moves its ears and tail.
+		standIn.tickCount = (int) (Util.getMillis() / 50L);
+		return standIn;
+	}
+
+	/** Draws a bot in 3D (ears, tail, armor and all), turning to look at the mouse like the player in the inventory. */
+	private void drawBotModel(GuiGraphicsExtractor g, ButterBotEntity entity, int x0, int y0, int x1, int y1, int size,
+							  int mouseX, int mouseY) {
+		EntityRenderState state = minecraft.getEntityRenderDispatcher().getRenderer(entity).createRenderState(entity, 1.0F);
+		state.shadowPieces.clear();
+		state.outlineColor = 0;
+		if (state instanceof ButterBotRenderState bot) {
+			// No name tag, speech or "Show" beam inside the panel.
+			bot.nameTag = null;
+			bot.speechLines = List.of();
+			bot.focused = false;
+		}
+		float xAngle = (float) Math.atan(((x0 + x1) / 2.0F - mouseX) / 40.0F);
+		float yAngle = (float) Math.atan(((y0 + y1) / 2.0F - mouseY) / 40.0F);
+		Quaternionf rotation = new Quaternionf().rotateZ((float) Math.PI);
+		Quaternionf xRotation = new Quaternionf().rotateX(yAngle * 20.0F * Mth.DEG_TO_RAD);
+		rotation.mul(xRotation);
+		if (state instanceof LivingEntityRenderState living) {
+			living.bodyRot = 180.0F + xAngle * 20.0F;
+			living.yRot = xAngle * 20.0F;
+			living.xRot = -yAngle * 20.0F;
+			living.boundingBoxWidth = living.boundingBoxWidth / living.scale;
+			living.boundingBoxHeight = living.boundingBoxHeight / living.scale;
+			living.scale = 1.0F;
+		}
+		Vector3f translation = new Vector3f(0.0F, state.boundingBoxHeight / 2.0F + 0.0625F, 0.0F);
+		g.entity(state, size, translation, rotation, xRotation, x0, y0, x1, y1);
 	}
 
 	@Nullable

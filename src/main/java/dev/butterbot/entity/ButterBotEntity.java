@@ -1713,6 +1713,11 @@ public class ButterBotEntity extends PathfinderMob {
 		return this.entityData.get(DATA_LEVEL);
 	}
 
+	/** Sets only the level shown on the model (tier looks), for a stand-in drawn in a screen. */
+	public void showLevel(int level) {
+		this.entityData.set(DATA_LEVEL, Math.max(1, Math.min(BotLevels.MAX_LEVEL, level)));
+	}
+
 	public int getWorkXp() {
 		return workXp;
 	}
