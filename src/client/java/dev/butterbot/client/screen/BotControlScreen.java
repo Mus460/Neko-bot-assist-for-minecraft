@@ -103,6 +103,10 @@ public class BotControlScreen extends Screen {
 	private static final int TAB_H = 22;
 	private static final int FOOTER_H = 14;
 	private static final int CARD_W = 96;
+	/** Ability badges on the statistics page: unlocked (green), locked (grey); unlocked super powers in purple. */
+	private static final int BADGE_ON = 0xFF3F8F3F;
+	private static final int BADGE_OFF = 0xFFA9A9A9;
+	private static final int POWER_ON = 0xFF7A3FBF;
 	private static final int CARD_H = BODY_H - 14;
 	private static final int CW = 239;
 	private static final int REFRESH_TICKS = 40;
@@ -1737,19 +1741,35 @@ public class BotControlScreen extends Screen {
 		}
 
 		g.text(font, Component.translatable("butterbot.ui.abilities_title").withStyle(ChatFormatting.BOLD), cx, cy + 135, McStyle.TEXT, false);
+		// One badge per ability (levels 11 to 30), green once unlocked; hover for the name and what it does.
 		BotStats.Ability[] abilities = BotStats.Ability.values();
 		for (int i = 0; i < abilities.length; i++) {
 			BotStats.Ability ability = abilities[i];
-			int x = cx + (i % 2) * 122;
-			int y = cy + 145 + (i / 2) * 10;
+			int x = cx + (i % 10) * 24;
+			int y = cy + 145 + (i / 10) * 13;
 			boolean unlocked = stats.has(ability);
-			Component line = unlocked ? Component.translatable("butterbot.ui.ability_on", ability.displayName())
-					: Component.translatable("butterbot.ui.ability_off", ability.level(), ability.displayName());
-			g.text(font, font.plainSubstrByWidth(line.getString(), 118), x, y, unlocked ? McStyle.GOOD : McStyle.TEXT_DIM, false);
-			if (inside(mouseX, mouseY, x, y - 1, 118, 10)) {
-				g.setComponentTooltipForNextFrame(font, List.of(ability.displayName().copy().withStyle(ChatFormatting.GOLD),
+			g.fill(x, y, x + 22, y + 11, unlocked ? BADGE_ON : BADGE_OFF);
+			String number = String.valueOf(ability.level());
+			g.text(font, number, x + 11 - font.width(number) / 2, y + 2, unlocked ? McStyle.WHITE : McStyle.TEXT_DIM, unlocked);
+			if (inside(mouseX, mouseY, x, y, 22, 11)) {
+				g.setComponentTooltipForNextFrame(font, List.of(ability.displayName().copy().withStyle(unlocked ? ChatFormatting.GOLD : ChatFormatting.GRAY),
 						ability.description().copy().withStyle(ChatFormatting.GRAY),
 						Component.translatable("butterbot.ui.ability_level", ability.level()).withStyle(ChatFormatting.DARK_GRAY)), mouseX, mouseY);
+			}
+		}
+		BotStats.Power[] powers = BotStats.Power.values();
+		for (int i = 0; i < powers.length; i++) {
+			BotStats.Power power = powers[i];
+			int x = cx + i * 80;
+			int y = cy + 172;
+			boolean unlocked = stats.hasPower(power);
+			g.fill(x, y, x + 78, y + 11, unlocked ? POWER_ON : BADGE_OFF);
+			String name = font.plainSubstrByWidth(power.displayName().getString(), 74);
+			g.text(font, name, x + 39 - font.width(name) / 2, y + 2, unlocked ? McStyle.WHITE : McStyle.TEXT_DIM, unlocked);
+			if (inside(mouseX, mouseY, x, y, 78, 11)) {
+				g.setComponentTooltipForNextFrame(font, List.of(power.displayName().copy().withStyle(unlocked ? ChatFormatting.LIGHT_PURPLE : ChatFormatting.GRAY),
+						power.description().copy().withStyle(ChatFormatting.GRAY),
+						Component.translatable("butterbot.ui.power_level", power.level()).withStyle(ChatFormatting.DARK_GRAY)), mouseX, mouseY);
 			}
 		}
 
