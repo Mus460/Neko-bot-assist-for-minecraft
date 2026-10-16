@@ -2,6 +2,7 @@ package dev.butterbot.ai.actions;
 
 import dev.butterbot.ai.BotAction;
 import dev.butterbot.entity.BotState;
+import dev.butterbot.entity.BotStats;
 import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.registry.ModSounds;
@@ -11,11 +12,13 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.NeutralMob;
+import net.minecraft.world.entity.OwnableEntity;
 import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.npc.Npc;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.wither.WitherBoss;
+import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.monster.creaking.Creaking;
 import net.minecraft.world.entity.monster.piglin.AbstractPiglin;
@@ -35,7 +38,8 @@ import java.util.Map;
  * (a wolf, a golem, an angry enderman...) that goes after the owner or its bots. Targets out of reach (a
  * flying dragon, phantoms, ghasts) get bolts of light; against the dragon it first shoots the end crystals
  * that heal it. It never attacks players, villagers or the owner's pets, and leaves neutral mobs alone until
- * they attack. When badly hurt with no food it backs off.
+ * they attack (them or the owner's pets). From level 15 creepers are shot from afar before they can blow up. When
+ * badly hurt with no food it backs off, unless it is in a rage or its avatar form.
  */
 public class GuardAction implements BotAction {
 
@@ -61,6 +65,8 @@ public class GuardAction implements BotAction {
 	private static final double SHOOT_RANGE_SQ = 32.0D * 32.0D;
 	/** Ticks of chasing without reaching the target before it shoots instead. */
 	private static final int SHOOT_AFTER_TICKS = 40;
+	/** A sniping bot stops walking towards a creeper this close (6 blocks). */
+	private static final double CREEPER_KEEP_AWAY_SQ = 6.0D * 6.0D;
 	/** End crystals this close to the bot are shot first in a dragon fight. */
 	private static final double CRYSTAL_RANGE = 64.0D;
 
@@ -121,7 +127,7 @@ public class GuardAction implements BotAction {
 		bot.markCombat();
 		bot.getLookControl().setLookAt(current, 30.0F, 30.0F);
 
-		boolean weak = bot.getHealth() < bot.getMaxHealth() * 0.3F;
+		boolean weak = bot.getHealth() < bot.getMaxHealth() * 0.3F && !bot.isEmpowered();
 		if (weak && bot.hasSafeFood()) {
 			bot.eatFromBackpack();
 			weak = false;
@@ -133,6 +139,23 @@ public class GuardAction implements BotAction {
 
 		if (attackCooldown > 0) {
 			attackCooldown--;
+		}
+		boolean snipe = current instanceof Creeper && bot.getBotLevel() >= BotStats.SNIPER_LEVEL
+				&& bot.distanceToSqr(current) <= SHOOT_RANGE_SQ && bot.getSensing().hasLineOfSight(current);
+		if (snipe) {
+			// Creeper sniper: keeps its distance and shoots before the creeper can blow up.
+			if (bot.distanceToSqr(current) < CREEPER_KEEP_AWAY_SQ) {
+				bot.getNavigation().stop();
+			}
+			if (attackCooldown <= 0) {
+				attackCooldown = Math.max(10, bot.stats().attackCooldown() * 2);
+				bot.rangedStrike(level, current);
+				if (!current.isAlive()) {
+					bot.onDefeated(current);
+					target = null;
+				}
+			}
+			return;
 		}
 		if (--repathCooldown <= 0) {
 			repathCooldown = 8;
@@ -351,6 +374,11 @@ public class GuardAction implements BotAction {
 		if (!mob.isAlive() || mob instanceof ButterBotEntity || mob.isInvulnerable() || mob instanceof Creaking || mob instanceof Npc) {
 			return false;
 		}
+		if (mob instanceof OwnableEntity ownable && ownable.getOwnerReference() != null
+				&& ownable.getOwnerReference().getUUID().equals(bot.getOwnerUuid())) {
+			// The owner's wolves, cats, horses and llamas are never fought, even if one turns on the bot.
+			return false;
+		}
 		if (isAttackingUs(bot, mob.getTarget()) || hurtOwner(bot, mob)) {
 			return true;
 		}
@@ -375,6 +403,11 @@ public class GuardAction implements BotAction {
 		}
 		if (victim instanceof Player player) {
 			return bot.isOwnedBy(player);
+		}
+		if (victim instanceof TamableAnimal pet && pet.isTame()) {
+			// The owner's wolves, cats and parrots are defended too.
+			Player owner = bot.getOwner();
+			return owner != null && pet.isOwnedBy(owner);
 		}
 		return victim instanceof ButterBotEntity other && other.getOwnerUuid() != null
 				&& other.getOwnerUuid().equals(bot.getOwnerUuid());

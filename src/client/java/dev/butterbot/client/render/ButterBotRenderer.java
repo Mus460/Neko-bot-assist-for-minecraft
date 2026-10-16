@@ -99,11 +99,12 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		return distanceToCameraSq < INFO_DISTANCE_SQ && !entity.isInvisible();
 	}
 
-	/** The level in the tier's colour, then the name; a nekomata (level 30) gets a star and a rainbow. */
+	/** The level in the tier's colour, then the name; a nekomata (level 30) gets a star and a rainbow, and its stars count. */
 	@Override
 	protected Component getNameTag(ButterBotEntity entity) {
 		BotTier tier = BotTier.of(entity.getBotLevel());
-		String level = (tier == BotTier.LEGEND ? "\u2605" : "") + "Lv" + entity.getBotLevel() + " ";
+		int stars = entity.getStars();
+		String level = (stars > 0 ? "\u2605" + stars + " " : tier == BotTier.LEGEND ? "\u2605" : "") + "Lv" + entity.getBotLevel() + " ";
 		return Component.literal(level).withColor(tier.colorAt(entity.tickCount) & 0xFFFFFF)
 				.append(entity.getName().copy().withStyle(ChatFormatting.WHITE));
 	}
@@ -137,6 +138,11 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		super.setupRotations(state, poseStack, bodyRot, entityScale);
 		if (cheering) {
 			poseStack.rotateDegrees(Axis.YP, LevelUpAnimation.twirl(state.levelUpTime));
+		}
+		if (standing && state.gesture == ButterBotEntity.GESTURE_SPIN) {
+			// Chasing its tail: two turns, quick in the middle.
+			float t = Mth.clamp(state.gestureTime / 30.0F, 0.0F, 1.0F);
+			poseStack.rotateDegrees(Axis.YP, 720.0F * (t * t * (3.0F - 2.0F * t)));
 		}
 		if (standing && state.gesture == ButterBotEntity.GESTURE_SHAKE) {
 			// Shaking itself dry like a wet cat.
@@ -221,6 +227,11 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 			state.xRot += ReactionAnimation.headPitch(state.reaction, state.reactionTime, state.reactionStrength);
 			state.yRot += ReactionAnimation.headTurn(state.reaction, state.reactionStrength);
 		}
+
+		state.combo = entity.getCombo();
+		state.stars = entity.getStars();
+		state.healthFraction = Mth.clamp(entity.getHealth() / Math.max(1.0F, entity.getMaxHealth()), 0.0F, 1.0F);
+		state.showHealthBar = entity.getId() >= 0 && (state.fighting || state.healthFraction < 0.995F);
 
 		// Speech bubbles show over the name tag, wrapped into short lines.
 		Component speech = state.nameTag != null ? entity.getSpeech() : Component.empty();
@@ -367,6 +378,20 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		boolean asleep = state.action == ButterBotEntity.ACTION_SLEEP;
 		poseStack.translate(0.0F, lift - (asleep ? 1.2F : 0.0F), 0.0F);
 		super.submitNameDisplay(state, poseStack, collector, camera);
+		if (state.nameTag != null && state.showHealthBar) {
+			// A health bar just under the name, green to red.
+			poseStack.pushPose();
+			poseStack.translate(0.0F, -LINE_HEIGHT * 0.8F, 0.0F);
+			collector.submitNameTag(poseStack, state.nameTagAttachment, 0, healthBar(state.healthFraction), false, state.lightCoords, camera);
+			poseStack.popPose();
+		}
+		if (state.nameTag != null && state.combo >= 2) {
+			// "x7 COMBO!" over the name, warmer as it grows.
+			poseStack.translate(0.0F, LINE_HEIGHT, 0.0F);
+			collector.submitNameTag(poseStack, state.nameTagAttachment, 0,
+					Component.translatable("butterbot.combat.combo", state.combo).withStyle(ChatFormatting.BOLD).withColor(comboColor(state.combo)),
+					false, LightCoordsUtil.FULL_BRIGHT, camera);
+		}
 		if (asleep && state.nameTag != null) {
 			poseStack.pushPose();
 			poseStack.translate(0.0F, LINE_HEIGHT + 0.08F * Mth.sin(state.ageInTicks * 0.1F), 0.0F);
@@ -395,6 +420,22 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 			}
 		}
 		poseStack.popPose();
+	}
+
+	private static final int HEALTH_BAR_CELLS = 20;
+
+	private static Component healthBar(float fraction) {
+		int filled = Math.round(fraction * HEALTH_BAR_CELLS);
+		if (fraction > 0.0F && filled == 0) {
+			filled = 1;
+		}
+		int color = fraction > 0.6F ? 0x55FF55 : fraction > 0.3F ? 0xFFD23D : 0xFF4040;
+		return Component.literal("|".repeat(filled)).withStyle(ChatFormatting.BOLD).withColor(color)
+				.append(Component.literal("|".repeat(HEALTH_BAR_CELLS - filled)).withStyle(ChatFormatting.BOLD).withColor(0x3A3A3A));
+	}
+
+	private static int comboColor(int combo) {
+		return combo >= 20 ? 0xFF4BD8 : combo >= 15 ? 0xFF3B3B : combo >= 10 ? 0xFF8A3D : combo >= 5 ? 0xFFC23D : 0xFFF0A0;
 	}
 
 	/** A beacon beam in the glow colour from just over the head up to the sky, wider far away like a beacon's. */

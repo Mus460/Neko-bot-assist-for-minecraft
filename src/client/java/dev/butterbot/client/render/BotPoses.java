@@ -37,6 +37,12 @@ final class BotPoses {
 			}
 			case ButterBotEntity.GESTURE_WAVE -> raise(model.rightArm, strength, -2.8F, 0.3F + Mth.sin(time * 0.9F) * 0.45F);
 			case ButterBotEntity.GESTURE_HIGH_FIVE -> raise(model.rightArm, strength, -2.2F, 0.15F);
+			case ButterBotEntity.GESTURE_SPIN -> {
+				// Looking back over its shoulder at the tail, arms out for balance.
+				raise(model.rightArm, strength, -0.4F, 1.1F);
+				raise(model.leftArm, strength, -0.4F, -1.1F);
+				model.head.yRot += 0.8F * strength;
+			}
 			default -> {
 			}
 		}

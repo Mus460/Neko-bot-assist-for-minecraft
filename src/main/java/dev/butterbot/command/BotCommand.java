@@ -9,6 +9,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.butterbot.ai.StorageFinder;
 import dev.butterbot.ai.actions.LightAreaAction;
+import dev.butterbot.entity.BotAchievements;
 import dev.butterbot.entity.BotJob;
 import dev.butterbot.entity.BotLevels;
 import dev.butterbot.entity.BotTier;
@@ -112,6 +113,28 @@ public final class BotCommand {
 		skill.then(Commands.literal("reset").executes(ctx -> simple(ctx.getSource(), ButterBotEntity::resetSkills)));
 		root.then(skill);
 		root.then(toggle("refill", ButterBotEntity::setAutoRefill, "butterbot.msg.refill_on", "butterbot.msg.refill_off"));
+		root.then(toggle("fx", ButterBotEntity::setFx, "butterbot.msg.fx_on", "butterbot.msg.fx_off"));
+		root.then(toggle("popups", ButterBotEntity::setShowPopups, "butterbot.msg.popups_on", "butterbot.msg.popups_off"));
+		root.then(Commands.literal("stats").executes(ctx -> combatStats(ctx.getSource())));
+		root.then(Commands.literal("achievements").executes(ctx -> achievements(ctx.getSource())));
+		LiteralArgumentBuilder<CommandSourceStack> power = Commands.literal("power").executes(ctx -> powers(ctx.getSource()));
+		for (BotStats.Power each : BotStats.Power.values()) {
+			power.then(Commands.literal(each.id())
+					.then(Commands.argument("enabled", BoolArgumentType.bool())
+							.executes(ctx -> setPower(ctx.getSource(), each, BoolArgumentType.getBool(ctx, "enabled")))));
+		}
+		root.then(power);
+		LiteralArgumentBuilder<CommandSourceStack> emote = Commands.literal("emote");
+		for (int i = 0; i < EMOTE_NAMES.length; i++) {
+			int type = i + 1;
+			emote.then(Commands.literal(EMOTE_NAMES[i]).executes(ctx -> simple(ctx.getSource(), bot -> bot.emote(type))));
+		}
+		root.then(emote);
+		root.then(Commands.literal("party").executes(ctx -> party(ctx.getSource())));
+		root.then(Commands.literal("stars")
+				.then(Commands.literal("set")
+						.then(Commands.argument("stars", IntegerArgumentType.integer(0, BotLevels.MAX_STARS))
+								.executes(ctx -> setStars(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "stars"))))));
 		root.then(toggle("teleport", ButterBotEntity::setFarTeleport, "butterbot.msg.teleport_far", "butterbot.msg.teleport_emergency"));
 		root.then(Commands.literal("light")
 				.executes(ctx -> light(ctx.getSource(), LightAreaAction.DEFAULT_RADIUS))
@@ -379,6 +402,9 @@ public final class BotCommand {
 	}
 
 	@Nullable
+	/** Emote names for "/butterbot emote", in ButterBotEntity.EMOTE_* order from 1. */
+	private static final String[] EMOTE_NAMES = {"heart", "surprise", "question", "anger", "music", "done"};
+
 	/** Seconds between levels on a level tour, when none are given. */
 	private static final int DEFAULT_TOUR_SECONDS = 3;
 
@@ -486,6 +512,134 @@ public final class BotCommand {
 		source.sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.level_tour", bot.getName(), seconds,
 				(BotLevels.MAX_LEVEL - 1) * seconds)), false);
 		return 1;
+	}
+
+	/** Fighting numbers, records, stars and how long the bot and its owner have been together. */
+	private static int combatStats(CommandSourceStack source) throws CommandSyntaxException {
+		ButterBotEntity bot = nearest(source);
+		if (bot == null) {
+			return 0;
+		}
+		BotStats stats = bot.stats();
+		BotProgress progress = bot.getProgress();
+		int stars = progress.stat(BotProgress.Stat.STARS);
+		source.sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.stats.header", bot.getName(), bot.getBotLevel(), stars,
+				bot.daysTogether()).withStyle(ChatFormatting.GOLD)), false);
+		source.sendSuccess(() -> Component.translatable("butterbot.stats.body", Math.round(bot.getMaxHealth()),
+				String.format(java.util.Locale.ROOT, "%.1f", bot.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.ATTACK_DAMAGE)),
+				Math.round(bot.getArmorValue()), Math.round(stats.critChance() * 100.0F), Math.round(stats.critMultiplier() * 100.0F),
+				Math.round(stats.dodgeChance() * 100.0F), Math.round(stats.lifeSteal() * 100.0F),
+				Math.round((1.0F - stats.damageTaken()) * 100.0F)).withStyle(ChatFormatting.GRAY), false);
+		source.sendSuccess(() -> Component.translatable("butterbot.stats.records", progress.stat(BotProgress.Stat.KILLS),
+				progress.stat(BotProgress.Stat.BOSSES), progress.stat(BotProgress.Stat.BEST_COMBO), progress.stat(BotProgress.Stat.BEST_STREAK),
+				progress.stat(BotProgress.Stat.POWERS_USED), progress.stat(BotProgress.Stat.OWNER_SAVES)).withStyle(ChatFormatting.GRAY), false);
+		if (bot.getBotLevel() >= BotLevels.MAX_LEVEL) {
+			Component starLine = stars >= BotLevels.MAX_STARS
+					? Component.translatable("butterbot.ui.star_max", stars)
+					: Component.translatable("butterbot.ui.star_progress", stars, progress.stat(BotProgress.Stat.STAR_XP), BotLevels.starXpToNext(stars));
+			source.sendSuccess(() -> starLine.copy().withColor(0xFFE680), false);
+		}
+		int bits = progress.stat(BotProgress.Stat.ACHIEVEMENTS);
+		source.sendSuccess(() -> Component.translatable("butterbot.stats.achievements", BotAchievements.count(bits),
+				BotAchievements.Achievement.values().length).withStyle(ChatFormatting.AQUA), false);
+		return 1;
+	}
+
+	private static int achievements(CommandSourceStack source) throws CommandSyntaxException {
+		ButterBotEntity bot = nearest(source);
+		if (bot == null) {
+			return 0;
+		}
+		int bits = bot.getProgress().stat(BotProgress.Stat.ACHIEVEMENTS);
+		source.sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.stats.achievements_header", bot.getName(),
+				BotAchievements.count(bits), BotAchievements.Achievement.values().length).withStyle(ChatFormatting.GOLD)), false);
+		for (BotAchievements.Achievement achievement : BotAchievements.Achievement.values()) {
+			boolean done = achievement.in(bits);
+			source.sendSuccess(() -> Component.literal(done ? "\u2714 " : "\u2718 ").withStyle(done ? ChatFormatting.GREEN : ChatFormatting.DARK_GRAY)
+					.append(achievement.displayName().copy().withStyle(done ? ChatFormatting.WHITE : ChatFormatting.GRAY))
+					.append(Component.literal(" - ").withStyle(ChatFormatting.DARK_GRAY))
+					.append(achievement.description().copy().withStyle(ChatFormatting.GRAY)), false);
+		}
+		return Integer.bitCount(bits);
+	}
+
+	/** Every super power: locked (with its level), ready, cooling down, or switched off. */
+	private static int powers(CommandSourceStack source) throws CommandSyntaxException {
+		ButterBotEntity bot = nearest(source);
+		if (bot == null) {
+			return 0;
+		}
+		BotStats stats = bot.stats();
+		source.sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.power.list_header", bot.getName())
+				.withStyle(ChatFormatting.LIGHT_PURPLE)), false);
+		for (BotStats.Power each : BotStats.Power.values()) {
+			MutableComponent state;
+			if (!stats.hasPower(each)) {
+				state = Component.translatable("butterbot.power.state_locked", each.level()).withStyle(ChatFormatting.DARK_GRAY);
+			} else if (!bot.powerEnabled(each)) {
+				state = Component.translatable("butterbot.power.state_off").withStyle(ChatFormatting.RED);
+			} else if (bot.powerCooldown(each) > 0) {
+				state = Component.translatable("butterbot.power.state_cooldown", bot.powerCooldown(each)).withStyle(ChatFormatting.YELLOW);
+			} else {
+				state = Component.translatable("butterbot.power.state_ready").withStyle(ChatFormatting.GREEN);
+			}
+			MutableComponent line = Component.literal("Lv" + each.level() + " ").withStyle(ChatFormatting.DARK_GRAY)
+					.append(each.displayName().copy().withStyle(stats.hasPower(each) ? ChatFormatting.LIGHT_PURPLE : ChatFormatting.GRAY))
+					.append(" ").append(state)
+					.append(Component.literal(" [" + each.id() + "]").withStyle(ChatFormatting.DARK_GRAY));
+			source.sendSuccess(() -> line, false);
+		}
+		source.sendSuccess(() -> Component.translatable("butterbot.power.list_hint").withStyle(ChatFormatting.GRAY), false);
+		return 1;
+	}
+
+	private static int setPower(CommandSourceStack source, BotStats.Power power, boolean enabled) throws CommandSyntaxException {
+		ButterBotEntity bot = nearest(source);
+		if (bot == null) {
+			return 0;
+		}
+		bot.setPowerEnabled(power, enabled);
+		source.sendSuccess(() -> Msg.prefixed(Component.translatable(enabled ? "butterbot.power.turned_on" : "butterbot.power.turned_off",
+				bot.getName(), power.displayName())), false);
+		return 1;
+	}
+
+	/** Every bot of the player within 16 blocks celebrates: fireworks, music notes, wings and spins. */
+	private static int party(CommandSourceStack source) throws CommandSyntaxException {
+		ServerPlayer player = source.getPlayerOrException();
+		List<ButterBotEntity> bots = new ArrayList<>(player.level().getEntitiesOfClass(ButterBotEntity.class,
+				player.getBoundingBox().inflate(16.0D), bot -> bot.isAlive() && bot.isOwnedBy(player)));
+		if (bots.isEmpty()) {
+			source.sendFailure(Component.translatable("butterbot.msg.no_bot_nearby", 16));
+			return 0;
+		}
+		ServerLevel level = player.level();
+		for (int i = 0; i < bots.size(); i++) {
+			ButterBotEntity bot = bots.get(i);
+			bot.playGesture(i % 2 == 0 ? ButterBotEntity.GESTURE_SPIN : ButterBotEntity.GESTURE_WINGS);
+			bot.emote(ButterBotEntity.EMOTE_MUSIC);
+			bot.say(Component.translatable("butterbot.msg.party_line"));
+			level.sendParticles(ParticleTypes.FIREWORK, bot.getX(), bot.getY() + 2.0D, bot.getZ(), 40, 0.8D, 0.8D, 0.8D, 0.15D);
+			level.sendParticles(ParticleTypes.NOTE, bot.getX(), bot.getY() + 2.3D, bot.getZ(), 8, 0.6D, 0.3D, 0.6D, 1.0D);
+			bot.playSound(net.minecraft.sounds.SoundEvents.FIREWORK_ROCKET_LARGE_BLAST, 1.0F, 0.9F + i * 0.1F);
+			bot.playSound(net.minecraft.sounds.SoundEvents.FIREWORK_ROCKET_TWINKLE, 1.0F, 1.0F);
+		}
+		source.sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.party", bots.size())), false);
+		return bots.size();
+	}
+
+	private static int setStars(CommandSourceStack source, int stars) throws CommandSyntaxException {
+		ButterBotEntity bot = nearest(source);
+		if (bot == null) {
+			return 0;
+		}
+		if (bot.getBotLevel() < BotLevels.MAX_LEVEL) {
+			source.sendFailure(Component.translatable("butterbot.msg.stars_need_legend", bot.getName()));
+			return 0;
+		}
+		bot.setStarsByCommand(stars);
+		source.sendSuccess(() -> Msg.prefixed(Component.translatable("butterbot.msg.stars_set", bot.getName(), stars)), false);
+		return stars;
 	}
 
 	private static Component masteryName(BotProgress progress, BotJob job) {

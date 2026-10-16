@@ -14,11 +14,17 @@ import dev.butterbot.registry.ModSounds;
 import dev.butterbot.skin.ServerSkinStore;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.entity.event.v1.ServerEntityCombatEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Display;
+import net.minecraft.world.entity.EntitySpawnReason;
+import dev.butterbot.entity.ButterBotEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,6 +54,22 @@ public class ButterBot implements ModInitializer {
 				RecoverItemsAction.onOwnerDeath(player);
 			}
 		});
+		// Guardian Angel: a bot close by may keep its owner from dying.
+		ServerLivingEntityEvents.ALLOW_DEATH.register((entity, source, amount) ->
+				!(entity instanceof ServerPlayer player) || !ButterBotEntity.rescueOwner(player, source));
+		ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY.register((level, killer, killed, source) -> {
+			if (killer instanceof ServerPlayer player) {
+				ButterBotEntity.onOwnerKill(level, player, killed);
+			}
+		});
+		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
+			if (!alive) {
+				ButterBotEntity.onOwnerRespawn(newPlayer);
+			}
+		});
+		// Damage numbers only live a second; one saved with a chunk (the game closed right then) is dropped.
+		ServerEntityEvents.ALLOW_LOAD.register((entity, level, reason, flag) -> reason != EntitySpawnReason.LOAD
+				|| !(entity instanceof Display.TextDisplay) || !entity.entityTags().contains(ButterBotEntity.POPUP_TAG));
 		ServerTickEvents.END_SERVER_TICK.register(HudSync::tick);
 		ServerTickEvents.END_SERVER_TICK.register(JobChunks::tick);
 		ServerTickEvents.END_SERVER_TICK.register(dev.butterbot.network.BotDebug::tick);

@@ -4,6 +4,8 @@ import net.minecraft.tags.BlockItemTags;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.wither.WitherBoss;
+import net.minecraft.world.entity.monster.ElderGuardian;
+import net.minecraft.world.entity.monster.warden.Warden;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -18,6 +20,8 @@ import net.minecraft.world.level.block.state.BlockState;
 public final class BotLevels {
 
 	public static final int MAX_LEVEL = 30;
+	/** Past level 30, work XP earns stars instead: up to ten, each making the bot a little stronger ({@link BotStats#STAR_BONUS}). */
+	public static final int MAX_STARS = 10;
 	/** Levels up to here grow fast; after it every level adds less but takes longer. */
 	private static final int EARLY_LEVELS = 10;
 	public static final int BASE_BACKPACK = 18;
@@ -27,6 +31,11 @@ public final class BotLevels {
 	public static int xpToNext(int level) {
 		int late = Math.max(0, level - EARLY_LEVELS);
 		return 40 + level * 30 + 8 * late * late;
+	}
+
+	/** Work XP for the next star at level 30: 3000 for the first, 1500 more for each one after it. */
+	public static int starXpToNext(int stars) {
+		return 3000 + stars * 1500;
 	}
 
 	/** Health: 30 at level 1, 75 at 10, 155 at 20, 235 at 30 (before skills and Legend). */
@@ -122,10 +131,21 @@ public final class BotLevels {
 		return 1;
 	}
 
+	/** Bosses: the Ender Dragon, the Wither, the Warden and elder guardians. */
+	public static boolean isBoss(LivingEntity entity) {
+		return entity instanceof EnderDragon || entity instanceof WitherBoss || entity instanceof Warden || entity instanceof ElderGuardian;
+	}
+
 	/** Work XP for defeating a monster: tougher monsters are worth more, bosses a lot. */
 	public static int killXp(LivingEntity victim) {
 		if (victim instanceof EnderDragon || victim instanceof WitherBoss) {
-			return 200;
+			return 500;
+		}
+		if (victim instanceof Warden) {
+			return 300;
+		}
+		if (victim instanceof ElderGuardian) {
+			return 150;
 		}
 		return Math.max(2, Math.min(100, Math.round(victim.getMaxHealth() / 4.0F)));
 	}

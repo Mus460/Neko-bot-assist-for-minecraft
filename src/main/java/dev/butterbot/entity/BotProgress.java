@@ -18,7 +18,11 @@ public final class BotProgress {
 	private static final int FORMAT = 1;
 	private static final int MAX_COUNT = 1_000_000_000;
 
-	public enum Stat {MINED, KILLS, HARVESTED, CRAFTED}
+	/**
+	 * Lifetime counters, synced to the panel. Besides plain counts: the best combo and kill streak, the unlocked
+	 * achievements (one bit each, {@link BotAchievements}) and the stars earned past level 30 with the XP towards the next.
+	 */
+	public enum Stat {MINED, KILLS, HARVESTED, CRAFTED, BOSSES, BEST_COMBO, BEST_STREAK, POWERS_USED, OWNER_SAVES, ACHIEVEMENTS, STARS, STAR_XP}
 
 	/** Why a skill can't be learned right now. */
 	public enum Refusal {NO_POINTS, MAXED, LEVEL, PREVIOUS}
@@ -160,6 +164,24 @@ public final class BotProgress {
 
 	public int stat(Stat stat) {
 		return stats[stat.ordinal()];
+	}
+
+	public void setStat(Stat stat, int value) {
+		stats[stat.ordinal()] = Math.max(0, Math.min(MAX_COUNT, value));
+	}
+
+	/** Keeps the highest value seen (best combo, best streak). True if this is a new record. */
+	public boolean recordStat(Stat stat, int value) {
+		if (value <= stats[stat.ordinal()]) {
+			return false;
+		}
+		setStat(stat, value);
+		return true;
+	}
+
+	/** One stat from a synced array (zero when it comes from a version that didn't have it yet). */
+	public static int statAt(int[] lifetime, Stat stat) {
+		return stat.ordinal() < lifetime.length ? lifetime[stat.ordinal()] : 0;
 	}
 
 	public int[] stats() {

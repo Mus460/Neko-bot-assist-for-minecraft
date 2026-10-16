@@ -90,6 +90,7 @@ public class ButterBotItem extends Item {
 		bot.restoreProgress(tag.getIntOr("Level", 1), tag.getIntOr("WorkXp", 0));
 		bot.addStoredXp(tag.getIntOr("StoredXp", 0));
 		bot.setSecondWindReadyAt(tag.getLongOr("SecondWind", 0L));
+		bot.loadPerks(tag);
 		bot.setGuarding(tag.getBooleanOr("Guard", true));
 		bot.setAutoTorch(tag.getBooleanOr("AutoTorch", true));
 		bot.setFeedOwner(tag.getBooleanOr("FeedOwner", true));
@@ -134,6 +135,7 @@ public class ButterBotItem extends Item {
 		tag.putInt("WorkXp", core ? 0 : bot.getWorkXp());
 		tag.putIntArray("Progress", bot.getProgress().save());
 		tag.putLong("SecondWind", bot.getSecondWindReadyAt());
+		bot.savePerks(tag);
 		tag.putInt("StoredXp", core ? 0 : bot.getStoredXp());
 		tag.putBoolean("Guard", bot.guardSetting());
 		tag.putBoolean("AutoTorch", bot.placesTorchesWhileMining());

@@ -14,7 +14,7 @@ public record BotStats(double maxHealth, double attackDamage, double armor, floa
 					   int magnetRadius, boolean swimmer, boolean feather, float regenPerSecond, float oreBonusChance,
 					   float gatherBonusChance, float cropBonusChance, float sweepFraction, boolean growthAura,
 					   float twinChance, double armorToughness, double knockbackResistance, double attackKnockback,
-					   float damageTaken, float thorns, float lifeSteal, int attackCooldown, int level) {
+					   float damageTaken, float thorns, float lifeSteal, int attackCooldown, int level, int stars) {
 
 	public static final int BASE_SCAN_RADIUS = 20;
 	public static final double BASE_ARMOR = 4.0D;
@@ -24,6 +24,20 @@ public record BotStats(double maxHealth, double attackDamage, double armor, floa
 	public static final int MAX_FORTUNE = 6;
 	/** Legend (level 30): health, attack, digging and healing all half as much again. */
 	private static final float LEGEND_BONUS = 1.5F;
+	/** Stars past level 30 ({@link BotLevels#MAX_STARS}): each one adds this much health, attack, digging and healing. */
+	public static final float STAR_BONUS = 0.04F;
+	/** Levels from which the combat tricks start (see {@link BotCombat}). */
+	public static final int DODGE_LEVEL = 12;
+	public static final int FIRE_CLAWS_LEVEL = 13;
+	public static final int RAGE_LEVEL = 14;
+	public static final int SNIPER_LEVEL = 15;
+	public static final int DEFLECT_LEVEL = 16;
+	public static final int FROST_CLAWS_LEVEL = 17;
+	public static final int EXECUTE_LEVEL = 19;
+	public static final int BOSS_SLAYER_LEVEL = 20;
+	public static final int THUNDER_CLAWS_LEVEL = 23;
+	public static final int TAUNT_LEVEL = 10;
+	public static final int POTION_LEVEL = 8;
 
 	/** Abilities that come with the level by themselves (no skill point needed): one at every level from 11 to 30. */
 	public enum Ability {
@@ -65,9 +79,14 @@ public record BotStats(double maxHealth, double attackDamage, double armor, floa
 		}
 	}
 
-	/** Super powers, on top of the abilities: they fight with fire, frost and meteors, and only ever touch monsters. */
+	/**
+	 * Super powers, on top of the abilities: from a quake at level 12 to meteors at 30. They only ever touch monsters
+	 * (and heal or shield the owner), never blocks. Each can be switched off with a command.
+	 */
 	public enum Power {
-		FIRE_AURA(20), FROST_NOVA(25), METEOR_RAIN(30);
+		SHOCKWAVE(12), SPIRIT_BLADES(14), THUNDER_CHAIN(16), HEALING_BLOOM(18), FIRE_AURA(20), SHADOW_DASH(21), BARRIER(22),
+		VOID_PULL(23), HOLY_SMITE(24), FROST_NOVA(25), DRAGON_BREATH(26), BLADE_STORM(27), AVATAR(28), JUDGEMENT(29),
+		METEOR_RAIN(30);
 
 		private final int level;
 
@@ -101,6 +120,16 @@ public record BotStats(double maxHealth, double attackDamage, double armor, floa
 			}
 			return null;
 		}
+
+		@Nullable
+		public static Power byId(String id) {
+			for (Power power : values()) {
+				if (power.id().equals(id)) {
+					return power;
+				}
+			}
+			return null;
+		}
 	}
 
 	public boolean has(Ability ability) {
@@ -112,18 +141,20 @@ public record BotStats(double maxHealth, double attackDamage, double armor, floa
 	}
 
 	public static BotStats of(int level, BotProgress progress) {
-		return of(level, progress.ranks(), progress.mastery());
+		return of(level, progress.ranks(), progress.mastery(), progress.stat(BotProgress.Stat.STARS));
 	}
 
-	public static BotStats of(int level, int[] ranks, int[] masteryXp) {
+	public static BotStats of(int level, int[] ranks, int[] masteryXp, int stars) {
 		int lv = Math.max(1, Math.min(BotLevels.MAX_LEVEL, level));
+		int star = lv >= BotLevels.MAX_LEVEL ? Math.max(0, Math.min(BotLevels.MAX_STARS, stars)) : 0;
+		float starBonus = 1.0F + STAR_BONUS * star;
 		int miner = masteryRank(masteryXp, BotJob.MINER);
 		int gatherer = masteryRank(masteryXp, BotJob.GATHERER);
 		int guard = masteryRank(masteryXp, BotJob.GUARD);
 		int farmer = masteryRank(masteryXp, BotJob.FARMER);
 		int rancher = masteryRank(masteryXp, BotJob.RANCHER);
 		boolean isLegend = lv >= Ability.LEGEND.level();
-		float legend = isLegend ? LEGEND_BONUS : 1.0F;
+		float legend = (isLegend ? LEGEND_BONUS : 1.0F) * starBonus;
 		boolean lucky = lv >= Ability.LUCKY_PAWS.level();
 
 		double maxHealth = (BotLevels.maxHealth(lv) + 6.0D * r(ranks, BotSkill.TOUGH) + 4.0D * guard) * legend;
@@ -163,7 +194,7 @@ public record BotStats(double maxHealth, double attackDamage, double armor, floa
 		return new BotStats(maxHealth, attack, armor, digSpeed, speed, backpack, fortune, vein, scan, smelt, farmBonus, magnet,
 				r(ranks, BotSkill.SWIMMER) > 0, r(ranks, BotSkill.FEATHER) > 0, regen, oreBonus, gatherBonus, cropBonus, sweep,
 				farmer >= BotProgress.MAX_MASTERY, 0.08F * rancher, toughness, knockbackResistance, attackKnockback, damageTaken,
-				thorns, lifeSteal, cooldown, lv);
+				thorns, lifeSteal, cooldown, lv, star);
 	}
 
 	private static int r(int[] ranks, BotSkill skill) {
@@ -173,6 +204,39 @@ public record BotStats(double maxHealth, double attackDamage, double armor, floa
 	private static int masteryRank(int[] masteryXp, BotJob job) {
 		int index = BotProgress.jobIndex(job);
 		return index >= 0 && index < masteryXp.length ? BotProgress.masteryRank(masteryXp[index]) : 0;
+	}
+
+	/** Chance for a blow to be critical: 5%, +1% for every level after 10, +10% for a legend, +1% per star. */
+	public float critChance() {
+		return 0.05F + 0.01F * Math.max(0, level - 10) + (level >= Ability.LEGEND.level() ? 0.10F : 0.0F) + 0.01F * stars;
+	}
+
+	/** A critical blow does half again as much, twice as much for a legend. */
+	public float critMultiplier() {
+		return level >= Ability.LEGEND.level() ? 2.0F : 1.5F;
+	}
+
+	/** Chance to sidestep a blow or an arrow, from level 12: 3% growing to 12% at 29, 22% for a legend, +0.5% per star. */
+	public float dodgeChance() {
+		if (level < DODGE_LEVEL) {
+			return 0.0F;
+		}
+		return 0.03F + 0.005F * (level - DODGE_LEVEL) + (level >= Ability.LEGEND.level() ? 0.10F : 0.0F) + 0.005F * stars;
+	}
+
+	/** Monsters (not bosses) below this share of their health are finished off at once, from level 19. */
+	public float executeThreshold() {
+		return level < EXECUTE_LEVEL ? 0.0F : level >= Ability.LEGEND.level() ? 0.25F : 0.15F;
+	}
+
+	/** Chance to bat an arrow or a fireball back at the shooter, from level 16. */
+	public float deflectChance() {
+		return level < DEFLECT_LEVEL ? 0.0F : level >= Ability.LEGEND.level() ? 0.8F : 0.5F;
+	}
+
+	/** Extra damage against bosses (the Warden, the Wither, the Ender Dragon, elder guardians), from level 20. */
+	public float bossDamage() {
+		return level < BOSS_SLAYER_LEVEL ? 1.0F : level >= Ability.LEGEND.level() ? 2.0F : 1.5F;
 	}
 
 	/** Dig speed as "+X%" compared with a level 1 bot without skills. */
