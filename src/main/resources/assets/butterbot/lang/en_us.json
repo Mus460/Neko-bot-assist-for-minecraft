@@ -1103,5 +1103,9 @@
   "butterbot.ui.combat_powers": "Powers used: %s · Saved you: %s times",
   "butterbot.ui.star_progress": "★%s - star XP %s/%s",
   "butterbot.ui.star_max": "★%s - every star collected!",
-  "butterbot.ui.star_locked": "Stars open at level 30"
+  "butterbot.ui.star_locked": "Stars open at level 30",
+  "butterbot.ai.thinking": "...",
+  "butterbot.ai.busy": "Hold on, I'm still thinking...",
+  "butterbot.ai.error": "Sorry, my head is spinning... I can't think right now.",
+  "butterbot.ai.no_config": "Butter Bot isn't connected to an AI yet. Fill in endpoint and apiKey in %s"
 }

@@ -45,6 +45,7 @@ public class ButterBot implements ModInitializer {
 		ModEntities.init();
 		ModMenus.init();
 		ModNetworking.init();
+		dev.butterbot.ai.BotChat.init();
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, buildContext, selection) ->
 				BotCommand.register(dispatcher, buildContext));

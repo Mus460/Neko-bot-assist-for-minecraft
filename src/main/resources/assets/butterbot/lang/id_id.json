@@ -1103,5 +1103,9 @@
   "butterbot.ui.combat_powers": "Kekuatan dipakai: %s · Menyelamatkanmu: %s kali",
   "butterbot.ui.star_progress": "★%s - XP bintang %s/%s",
   "butterbot.ui.star_max": "★%s - semua bintang terkumpul!",
-  "butterbot.ui.star_locked": "Bintang terbuka di level 30"
+  "butterbot.ui.star_locked": "Bintang terbuka di level 30",
+  "butterbot.ai.thinking": "...",
+  "butterbot.ai.busy": "Sebentar, aku masih mikir...",
+  "butterbot.ai.error": "Maaf, kepalaku pusing... aku tidak bisa berpikir sekarang.",
+  "butterbot.ai.no_config": "Butter Bot belum tersambung ke AI. Isi endpoint dan apiKey di %s"
 }

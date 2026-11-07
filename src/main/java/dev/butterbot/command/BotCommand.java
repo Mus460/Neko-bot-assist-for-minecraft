@@ -131,6 +131,10 @@ public final class BotCommand {
 		}
 		root.then(emote);
 		root.then(Commands.literal("party").executes(ctx -> party(ctx.getSource())));
+		root.then(Commands.literal("chat")
+				.then(Commands.argument("message", StringArgumentType.greedyString())
+						.executes(ctx -> simple(ctx.getSource(), bot ->
+								dev.butterbot.ai.BotChat.ask(bot, ctx.getSource().getPlayerOrException(), StringArgumentType.getString(ctx, "message"))))));
 		root.then(Commands.literal("stars")
 				.then(Commands.literal("set")
 						.then(Commands.argument("stars", IntegerArgumentType.integer(0, BotLevels.MAX_STARS))
