@@ -1113,5 +1113,11 @@
   "butterbot.voice.recognizing": "Mengenali suaramu...",
   "butterbot.voice.not_heard": "Suaramu tidak terdengar, coba lagi",
   "butterbot.voice.you": "Kamu (suara): %s",
-  "butterbot.voice.no_mic": "Mikrofon tidak bisa dibuka. Cek izin mikrofon Windows untuk Java."
+  "butterbot.voice.no_mic": "Mikrofon tidak bisa dibuka. Cek izin mikrofon Windows untuk Java.",
+  "butterbot.build.start": "Oke! Aku bangun %s (%s blok)!",
+  "butterbot.build.done": "%s selesai dibangun! (%s blok, %s dari tasku)",
+  "butterbot.build.failed": "Hmm, aku bingung merancangnya... coba jelaskan lagi?",
+  "butterbot.hud.s.building": "Membangun (%s lagi)",
+  "butterbot.status.building": "Membangun %s, %s blok lagi",
+  "butterbot.build.designing": "Sebentar, aku rancang dulu bentuknya..."
 }

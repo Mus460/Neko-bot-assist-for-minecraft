@@ -1113,5 +1113,11 @@
   "butterbot.voice.recognizing": "Recognizing your voice...",
   "butterbot.voice.not_heard": "Couldn't hear you, try again",
   "butterbot.voice.you": "You (voice): %s",
-  "butterbot.voice.no_mic": "Can't open the microphone. Check the Windows microphone permission for Java."
+  "butterbot.voice.no_mic": "Can't open the microphone. Check the Windows microphone permission for Java.",
+  "butterbot.build.start": "Okay! Building %s (%s blocks)!",
+  "butterbot.build.done": "%s is built! (%s blocks, %s from my bag)",
+  "butterbot.build.failed": "Hmm, I couldn't work out a design... could you explain again?",
+  "butterbot.hud.s.building": "Building (%s left)",
+  "butterbot.status.building": "Building %s, %s blocks left",
+  "butterbot.build.designing": "One moment, I'm drawing up the design..."
 }

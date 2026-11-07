@@ -524,6 +524,12 @@ public class ButterBotEntity extends PathfinderMob {
 	private int fetchCount;
 	private final List<ItemStack> fetchCarry = new ArrayList<>();
 
+	// Building a design the AI made (not saved: a reload drops it).
+	private final List<dev.butterbot.ai.Blueprint.Placement> buildPlan = new ArrayList<>();
+	private String buildName = "";
+	private int buildFromBag;
+	private int buildMade;
+
 	// "Go over there and wait".
 	@Nullable
 	private BlockPos gotoPos;
@@ -569,6 +575,7 @@ public class ButterBotEntity extends PathfinderMob {
 		brain.register(new SortTaskAction());
 		brain.register(new RecoverItemsAction());
 		brain.register(new LightAreaAction());
+		brain.register(new dev.butterbot.ai.actions.BuildAction());
 		brain.register(new FetchTaskAction());
 		brain.register(new GoToPosAction());
 		brain.register(new JobAction());
@@ -1541,6 +1548,7 @@ public class ButterBotEntity extends PathfinderMob {
 			case FETCH -> fetchItem == null ? Component.translatable("butterbot.hud.s.idle")
 					: Component.translatable("butterbot.hud.s.fetching", new ItemStack(fetchItem).getHoverName());
 			case GOTO -> Component.translatable("butterbot.hud.s.waiting");
+			case BUILD -> Component.translatable("butterbot.hud.s.building", buildPlan.size());
 		};
 	}
 
@@ -1650,6 +1658,7 @@ public class ButterBotEntity extends PathfinderMob {
 			case LIGHT -> Items.TORCH;
 			case FETCH -> Items.BUNDLE;
 			case GOTO -> Items.MAP;
+			case BUILD -> Items.BRICKS;
 		};
 	}
 
@@ -1692,6 +1701,7 @@ public class ButterBotEntity extends PathfinderMob {
 			case GOTO -> gotoPos == null
 					? Component.translatable("butterbot.status.idle")
 					: Component.translatable("butterbot.status.waiting_at", gotoPos.toShortString());
+			case BUILD -> Component.translatable("butterbot.status.building", buildName, buildPlan.size());
 		};
 	}
 
@@ -3137,6 +3147,44 @@ public class ButterBotEntity extends PathfinderMob {
 	}
 
 	@Nullable
+	/** Builds a design (a house, a garden, a room...) block by block; see BuildAction. */
+	public void assignBuildTask(dev.butterbot.ai.Blueprint.Plan plan) {
+		clearTask();
+		this.task = BotTask.BUILD;
+		this.state = BotState.MOVING_TO_TARGET;
+		buildPlan.clear();
+		buildPlan.addAll(plan.placements());
+		buildName = plan.name();
+		buildFromBag = 0;
+		buildMade = 0;
+		say(Component.translatable("butterbot.build.start", buildName, buildPlan.size()));
+		speak(ModSounds.VOICE_OK);
+	}
+
+	public List<dev.butterbot.ai.Blueprint.Placement> getBuildPlan() {
+		return buildPlan;
+	}
+
+	public String getBuildName() {
+		return buildName;
+	}
+
+	public int getBuildFromBag() {
+		return buildFromBag;
+	}
+
+	public int getBuildMade() {
+		return buildMade;
+	}
+
+	public void countBuildBlock(boolean fromBag) {
+		if (fromBag) {
+			buildFromBag++;
+		} else {
+			buildMade++;
+		}
+	}
+
 	public BlockPos getLightCenter() {
 		return lightCenter;
 	}
@@ -5291,6 +5339,7 @@ public class ButterBotEntity extends PathfinderMob {
 				|| (task == BotTask.TUNNEL && (tunnelDirection == null || tunnelOrigin == null))
 				|| (task == BotTask.CRAFT && craftItem == null)
 				|| (task == BotTask.LIGHT && lightCenter == null)
+				|| task == BotTask.BUILD
 				|| (task == BotTask.FETCH && fetchItem == null)
 				|| (task == BotTask.GOTO && gotoPos == null)) {
 			task = BotTask.NONE;

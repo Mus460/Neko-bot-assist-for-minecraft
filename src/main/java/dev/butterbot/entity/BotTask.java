@@ -12,7 +12,8 @@ public enum BotTask {
 	SORT,
 	LIGHT,
 	FETCH,
-	GOTO;
+	GOTO,
+	BUILD;
 
 	public static BotTask byOrdinal(int ordinal) {
 		BotTask[] values = values();

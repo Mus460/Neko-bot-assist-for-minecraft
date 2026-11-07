@@ -64,6 +64,12 @@ public final class BotChat {
 	private static final int MAX_BUBBLE = 180;
 	private static final Pattern MOOD = Pattern.compile("\\[(senang|kaget|bingung|marah|sedih|musik|biasa)]", Pattern.CASE_INSENSITIVE);
 	private static final Pattern ACTION = Pattern.compile("\\[aksi:([a-z]+)(?::([a-z_]+))?(?::(\\d+))?]", Pattern.CASE_INSENSITIVE);
+	/** Any Butter Bot command, run as the owner: "[perintah: butterbot job set miner]". */
+	private static final Pattern COMMAND = Pattern.compile("\\[perintah:\\s*/?(butterbot [^\\]]+)]", Pattern.CASE_INSENSITIVE);
+	/** A building for the AI to design: "[bangun: rumah kayu kecil dengan dapur]". */
+	private static final Pattern BUILD = Pattern.compile("\\[bangun:\\s*([^\\]]+)]", Pattern.CASE_INSENSITIVE);
+	/** Commands the AI may not give: they would send the bot away, free it, or loop back into the chat. */
+	private static final List<String> BLOCKED_COMMANDS = List.of("butterbot chat", "butterbot dismiss", "butterbot release");
 
 	/** Recent conversation per bot (not saved: a reload starts fresh). */
 	private static final Map<UUID, Deque<JsonObject>> HISTORIES = new HashMap<>();
@@ -162,8 +168,17 @@ public final class BotChat {
 		}
 		Matcher actionMatch = ACTION.matcher(raw);
 		boolean acted = actionMatch.find() && act(bot, actionMatch.group(1).toLowerCase(Locale.ROOT), actionMatch.group(2), actionMatch.group(3));
+		Matcher commandMatch = COMMAND.matcher(raw);
+		while (commandMatch.find()) {
+			acted |= runCommand(player, commandMatch.group(1).trim());
+		}
+		Matcher buildMatch = BUILD.matcher(raw);
+		if (buildMatch.find()) {
+			design(bot, player, buildMatch.group(1).trim());
+			acted = true;
+		}
 		// Minecraft's font has no emoji: anything outside the basic plane goes.
-		String text = ACTION.matcher(MOOD.matcher(raw).replaceAll("")).replaceAll("")
+		String text = BUILD.matcher(COMMAND.matcher(ACTION.matcher(MOOD.matcher(raw).replaceAll("")).replaceAll("")).replaceAll("")).replaceAll("")
 				.replaceAll("[\\x{10000}-\\x{10FFFF}]", "").replaceAll("\\s+", " ").trim();
 		if (text.isEmpty()) {
 			text = "...";
@@ -197,6 +212,81 @@ public final class BotChat {
 			}
 		}
 	}
+
+	/** Runs a Butter Bot command as the owner (so it can only do what the owner could), never the blocked ones. */
+	private static boolean runCommand(ServerPlayer player, String command) {
+		String lower = command.toLowerCase(Locale.ROOT);
+		if (BLOCKED_COMMANDS.stream().anyMatch(lower::startsWith)) {
+			return false;
+		}
+		player.level().getServer().getCommands().performPrefixedCommand(player.createCommandSourceStack(), command);
+		return true;
+	}
+
+	/**
+	 * Asks the AI to design {@code what} as a blueprint, then has the bot build it in front of the owner, the front
+	 * facing them.
+	 */
+	private static void design(ButterBotEntity bot, ServerPlayer player, String what) {
+		Config config = loadConfig();
+		if (config == null) {
+			return;
+		}
+		net.minecraft.core.Direction facing = player.getDirection();
+		net.minecraft.core.BlockPos origin = player.blockPosition().relative(facing, 3);
+		bot.think(net.minecraft.world.item.Items.CRAFTING_TABLE);
+		bot.say(Component.translatable("butterbot.build.designing"));
+		JsonArray messages = new JsonArray();
+		messages.add(message("system", DESIGN_PROMPT));
+		messages.add(message("user", "Rancang: " + what));
+		JsonObject body = new JsonObject();
+		body.addProperty("model", config.model());
+		body.addProperty("stream", false);
+		body.addProperty("max_tokens", 8000);
+		body.add("messages", messages);
+		HttpRequest request = HttpRequest.newBuilder(URI.create(config.endpoint().replaceAll("/+$", "") + "/chat/completions"))
+				.timeout(Duration.ofSeconds(180))
+				.header("Authorization", "Bearer " + config.apiKey())
+				.header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body), StandardCharsets.UTF_8))
+				.build();
+		MinecraftServer server = player.level().getServer();
+		HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)).whenComplete((response, error) -> {
+			String answer = error == null && response.statusCode() / 100 == 2 ? readReply(response.body()) : null;
+			if (answer == null) {
+				ButterBot.LOGGER.warn("Butter Bot AI design failed: {}", error != null ? error.toString() : response.statusCode());
+			}
+			server.execute(() -> {
+				if (!bot.isAlive() || bot.isRemoved()) {
+					return;
+				}
+				Blueprint.Plan plan = answer == null ? null : Blueprint.parse(answer, origin, facing);
+				if (plan == null) {
+					bot.say(Component.translatable("butterbot.build.failed"));
+					bot.emote(ButterBotEntity.EMOTE_QUESTION);
+					return;
+				}
+				bot.assignBuildTask(plan);
+			});
+		});
+	}
+
+	private static final String DESIGN_PROMPT = String.join("\n", List.of(
+			"Kamu arsitek Minecraft (Java 1.21+). Rancang bangunan yang diminta dan jawab HANYA dengan JSON, tanpa teks lain:",
+			"{\"name\": \"nama singkat\", \"ops\": [ ... ]}",
+			"Setiap op salah satu dari:",
+			"  {\"fill\": [x1,y1,z1,x2,y2,z2], \"block\": \"id\", \"hollow\": true/false}  (kotak; hollow = hanya kulitnya)",
+			"  {\"set\": [x,y,z], \"block\": \"id\"}",
+			"Op belakangan menimpa yang sebelumnya: buat dinding dulu, lalu lubangi pintu/jendela dengan \"air\" atau isi dengan pintu/kaca.",
+			"Koordinat: x kiri-kanan (-16..16), y ke atas (0 = lapisan pertama di atas tanah, -1 = tanah itu sendiri), z menjauh dari pemilik (0..32).",
+			"Arah: north = menghadap pemilik (sisi depan, z kecil), south = menjauh, east = kanan (+x), west = kiri.",
+			"Blok ditulis seperti perintah Minecraft: oak_planks, stone_bricks, glass_pane, oak_stairs[facing=north,half=bottom],",
+			"oak_door[facing=north,half=lower] (cukup bagian bawah), red_bed[facing=east,part=foot] (cukup kaki), wall_torch[facing=south],",
+			"farmland, wheat[age=7], carrots, potatoes, water, oak_fence, lantern, chest[facing=north], crafting_table, furnace, flower_pot.",
+			"Lantai di y=-1 boleh (menggantikan tanah). Kebun: farmland di y=-1, tanaman di y=0, air setiap 4 blok, pagar mengelilingi.",
+			"Rumah: lantai, dinding, atap tangga/slab yang rapi, pintu di depan (north), jendela, lampu di dalam, dan interior yang",
+			"masuk akal (kasur, peti, meja kerja, tungku, rak buku, karpet, pot bunga). Buat rapi dan indah, bukan kotak polos.",
+			"Batas: paling besar 32x24x32 dan 4000 blok. Jangan pakai lava, api, TNT, bedrock atau blok perintah."));
 
 	/** The orders the AI may give, all ones the owner could give by command. */
 	private static boolean act(ButterBotEntity bot, String action, String what, String count) {
@@ -252,8 +342,16 @@ public final class BotChat {
 				"Jawab dalam bahasa yang dipakai pemilik (biasanya bahasa Indonesia santai), paling banyak 2 kalimat pendek.",
 				"Tanpa emoji, tanpa markdown. Jangan pernah mengaku AI atau model bahasa; kamu adalah " + name + ".",
 				"Awali jawaban dengan tepat satu tag perasaan: [senang] [kaget] [bingung] [marah] [sedih] [musik] atau [biasa].",
-				"Kalau pemilik menyuruh sesuatu yang bisa kamu lakukan, tambahkan satu tag di akhir: [aksi:ikut] [aksi:berhenti] [aksi:pulang]"
-						+ " [aksi:setor] [aksi:tani] [aksi:rapikan] atau [aksi:tambang:<diamond|iron|gold|copper|coal|redstone|lapis|emerald|stone|wood|sand|netherite>:<jumlah>].",
+				"Kalau pemilik menyuruh sesuatu, lakukan dengan menambahkan tag di akhir jawaban (boleh lebih dari satu):",
+				"  [aksi:ikut] [aksi:berhenti] [aksi:pulang] [aksi:setor] [aksi:tani] [aksi:rapikan]",
+				"  [aksi:tambang:<diamond|iron|gold|copper|coal|redstone|lapis|emerald|stone|wood|sand|netherite>:<jumlah>]",
+				"  [bangun: deskripsi lengkap]  untuk MEMBANGUN APA SAJA di depan pemilik: rumah, kebun, kandang, menara, jembatan, interior,",
+				"     taman, dll. Kamu sendiri yang merancang bentuk, susunan dan isinya; tulis deskripsi yang kaya (ukuran, gaya, bahan, isi).",
+				"  [perintah: butterbot ...]  untuk perintah Butter Bot lain, misalnya: butterbot craft <item> <jumlah>,",
+				"     butterbot fetch <item> <jumlah>, butterbot light 24, butterbot guard true, butterbot smelt all,",
+				"     butterbot job set <miner|gatherer|guard|farmer|rancher|courier|bodyguard|none>, butterbot job need <item> <jumlah>,",
+				"     butterbot tunnel <dariX> <dariZ> <keX> <keZ>, butterbot sort, butterbot skill <nama>, butterbot party.",
+				"Jangan menolak dengan kaku: kalau bisa dilakukan dengan tag di atas, lakukan.",
 				"Keadaanmu sekarang:",
 				"- Level " + bot.getBotLevel() + " (" + BotTier.of(bot.getBotLevel()).displayName().getString() + ")"
 						+ (bot.getStars() > 0 ? ", " + bot.getStars() + " bintang" : "")
