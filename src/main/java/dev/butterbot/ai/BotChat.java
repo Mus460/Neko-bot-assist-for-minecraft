@@ -11,7 +11,9 @@ import dev.butterbot.entity.BotBond;
 import dev.butterbot.entity.BotResource;
 import dev.butterbot.entity.BotTier;
 import dev.butterbot.entity.ButterBotEntity;
+import dev.butterbot.network.Payloads;
 import dev.butterbot.registry.ModSounds;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -177,6 +179,10 @@ public final class BotChat {
 			case "musik" -> ModSounds.VOICE_AMBIENT;
 			default -> acted ? ModSounds.VOICE_OK : ModSounds.VOICE_GIVE;
 		};
+		if (ServerPlayNetworking.canSend(player, Payloads.BotVoice.TYPE)) {
+			// The owner's game reads it aloud in the bot's own voice; the clip below is the fallback when it can't.
+			ServerPlayNetworking.send(player, new Payloads.BotVoice(bot.getId(), text.length() > 1000 ? text.substring(0, 1000) : text));
+		}
 		bot.speak(voice);
 		switch (mood) {
 			case "senang" -> bot.emote(ButterBotEntity.EMOTE_HEART);

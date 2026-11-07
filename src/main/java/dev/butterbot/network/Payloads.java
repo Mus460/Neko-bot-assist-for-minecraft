@@ -502,6 +502,23 @@ public final class Payloads {
 		}
 	}
 
+	/** An AI answer for the client to speak aloud in the bot's voice (see BotVoice on the client). */
+	public record BotVoice(int entity, String text) implements CustomPacketPayload {
+		public static final Type<BotVoice> TYPE = typeOf("bot_voice");
+		public static final StreamCodec<ByteBuf, BotVoice> CODEC = StreamCodec.of(
+				(buf, p) -> {
+					net.minecraft.network.codec.ByteBufCodecs.VAR_INT.encode(buf, p.entity);
+					net.minecraft.network.codec.ByteBufCodecs.stringUtf8(1024).encode(buf, p.text);
+				},
+				buf -> new BotVoice(net.minecraft.network.codec.ByteBufCodecs.VAR_INT.decode(buf),
+						net.minecraft.network.codec.ByteBufCodecs.stringUtf8(1024).decode(buf)));
+
+		@Override
+		public Type<BotVoice> type() {
+			return TYPE;
+		}
+	}
+
 	private Payloads() {
 	}
 }

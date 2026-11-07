@@ -58,6 +58,7 @@ public final class ModNetworking {
 
 		PayloadTypeRegistry.clientboundPlay().register(Payloads.BotList.TYPE, Payloads.BotList.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(Payloads.OpenBotScreen.TYPE, Payloads.OpenBotScreen.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(Payloads.BotVoice.TYPE, Payloads.BotVoice.CODEC);
 		PayloadTypeRegistry.clientboundPlay().registerLarge(Payloads.SkinData.TYPE, Payloads.SkinData.CODEC,
 				SkinLimits.MAX_BYTES + 1024);
 		PayloadTypeRegistry.clientboundPlay().register(Payloads.HudUpdate.TYPE, Payloads.HudUpdate.CODEC);

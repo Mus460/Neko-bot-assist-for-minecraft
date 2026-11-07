@@ -45,6 +45,8 @@ public class ButterBotClient implements ClientModInitializer {
 				ClientSkinManager.onSkinData(payload.skinId(), payload.data()));
 
 		ClientPlayNetworking.registerGlobalReceiver(Payloads.HudUpdate.TYPE, (payload, context) -> BotHud.update(payload));
+		ClientPlayNetworking.registerGlobalReceiver(Payloads.BotVoice.TYPE, (payload, context) -> BotVoice.speak(payload.entity(), payload.text()));
+		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents.CLIENT_STOPPING.register(client -> BotVoice.shutdown());
 
 		BotKeys.init();
 		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, ButterBot.id("bot_markers"), new BotMarkers());
