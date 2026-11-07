@@ -1126,6 +1126,9 @@
   "butterbot.build.done": "%s selesai dibangun! (%s blok, %s dari tasku)",
   "butterbot.build.failed": "Hmm, aku bingung merancangnya... coba jelaskan lagi?",
   "butterbot.hud.s.building": "Membangun (%s lagi)",
+  "butterbot.hud.s.build_progress": "Membangun %s: %s/%s",
+  "butterbot.hud.recognizing": "Mengenali suara",
+  "butterbot.hud.hologram": "Hologram (%s blok): %s = tandai, ketik ya/batal",
   "butterbot.status.building": "Membangun %s, %s blok lagi",
   "butterbot.build.designing": "Sebentar, aku rancang dulu bentuknya..."
 }

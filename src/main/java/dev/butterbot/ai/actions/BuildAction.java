@@ -8,6 +8,8 @@ import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.BlockParticleOption;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundSource;
@@ -112,7 +114,7 @@ public class BuildAction implements BotAction {
 		if (state.isAir()) {
 			return;
 		}
-		take(bot, state);
+		boolean free = !take(bot, state);
 		// Fences, panes, walls and stairs join up with what is already around them.
 		state = net.minecraft.world.level.block.Block.updateFromNeighbourShapes(state, level, pos);
 		level.setBlock(pos, state, 3);
@@ -131,6 +133,10 @@ public class BuildAction implements BotAction {
 			}
 		}
 		level.playSound(null, pos, state.getSoundType().getPlaceSound(), SoundSource.BLOCKS, 0.8F, 1.0F);
+		if (free) {
+			// A sparkle where it made the block itself, out of nothing.
+			level.sendParticles(ParticleTypes.WAX_ON, pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D, 3, 0.3D, 0.3D, 0.3D, 0.0D);
+		}
 		Item item = state.getBlock().asItem();
 		bot.showTool(new ItemStack(item == Items.AIR ? Items.BRICKS : item), 6);
 	}
@@ -146,19 +152,20 @@ public class BuildAction implements BotAction {
 		}
 		if (isNatural(existing)) {
 			level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+			// destroyBlock shows its own cracks; this silent removal needs them added.
+			level.sendParticles(new BlockParticleOption(ParticleTypes.BLOCK, existing), pos.getX() + 0.5D, pos.getY() + 0.5D,
+					pos.getZ() + 0.5D, 6, 0.3D, 0.3D, 0.3D, 0.05D);
 		} else {
 			level.destroyBlock(pos, true, bot);
 		}
 	}
 
-	/** Uses the block from the backpack if it has one; otherwise makes it itself. */
-	private static void take(ButterBotEntity bot, BlockState state) {
+	/** Uses the block from the backpack if it has one (true); otherwise makes it itself (false). */
+	private static boolean take(ButterBotEntity bot, BlockState state) {
 		Item item = state.getBlock().asItem();
-		if (item != Items.AIR && bot.takeItem(item, 1) > 0) {
-			bot.countBuildBlock(true);
-		} else {
-			bot.countBuildBlock(false);
-		}
+		boolean fromBag = item != Items.AIR && bot.takeItem(item, 1) > 0;
+		bot.countBuildBlock(fromBag);
+		return fromBag;
 	}
 
 	/** Anywhere the owner asked for, except where the same block already is or the block can't be broken (bedrock). */

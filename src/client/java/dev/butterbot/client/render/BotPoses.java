@@ -15,6 +15,7 @@ final class BotPoses {
 		if (state.action == ButterBotEntity.ACTION_DANCE) {
 			dance(model, state.ageInTicks);
 		}
+		curiousTilt(model, state);
 		float strength = state.gestureStrength;
 		if (strength <= 0.0F) {
 			return;
@@ -46,6 +47,19 @@ final class BotPoses {
 			default -> {
 			}
 		}
+	}
+
+	/** A curious head tilt while it asks something (question emote), ponders or speaks, with a slow sway. */
+	private static void curiousTilt(PlayerModel model, ButterBotRenderState state) {
+		float tilt;
+		if (state.emote == ButterBotEntity.EMOTE_QUESTION) {
+			tilt = 0.32F * Mth.clamp(state.emoteTime / 4.0F, 0.0F, 1.0F);
+		} else if (state.thinking || !state.speechLines.isEmpty()) {
+			tilt = 0.18F;
+		} else {
+			return;
+		}
+		model.head.zRot += tilt * (0.85F + 0.15F * Mth.sin(state.ageInTicks * 0.1F));
 	}
 
 	/** Raises an arm to the given angles, blended in by {@code strength}. Outwards is +z for the right arm. */

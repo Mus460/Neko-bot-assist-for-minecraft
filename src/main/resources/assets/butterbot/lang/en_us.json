@@ -1126,6 +1126,9 @@
   "butterbot.build.done": "%s is built! (%s blocks, %s from my bag)",
   "butterbot.build.failed": "Hmm, I couldn't work out a design... could you explain again?",
   "butterbot.hud.s.building": "Building (%s left)",
+  "butterbot.hud.s.build_progress": "Building %s: %s/%s",
+  "butterbot.hud.recognizing": "Recognizing",
+  "butterbot.hud.hologram": "Hologram (%s blocks): %s = mark, type yes/cancel",
   "butterbot.status.building": "Building %s, %s blocks left",
   "butterbot.build.designing": "One moment, I'm drawing up the design..."
 }

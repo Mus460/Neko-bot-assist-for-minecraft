@@ -658,6 +658,7 @@ public class ButterBotEntity extends PathfinderMob {
 			powers.tick(this, serverLevel);
 			combat.tick(this, serverLevel);
 			companion.tick(this, serverLevel);
+			BotFx.tick(this);
 			if (this.tickCount % 100 == 0) {
 				// Mining, farming, crafting, the bond and the level are counted elsewhere: their achievements come from here.
 				BotAchievements.check(this);

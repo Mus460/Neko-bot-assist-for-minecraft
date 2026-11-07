@@ -3,6 +3,8 @@ package dev.butterbot.client.render;
 import dev.butterbot.ButterBot;
 import dev.butterbot.entity.BotTier;
 import dev.butterbot.entity.ButterBotEntity;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
@@ -11,6 +13,7 @@ import net.minecraft.client.model.geom.builders.LayerDefinition;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
 import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.client.model.player.PlayerModel;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.util.Mth;
@@ -21,7 +24,8 @@ import java.util.List;
 /**
  * The cat ears, bushy tail (two for a nekomata) and everything a bot wears as real model parts hung on a player
  * skeleton: collar and bell, tail bow, ear fluff, tiara, spirit orbs (earned with levels), a scarf in the snow,
- * sunglasses in the desert sun, an umbrella in the rain, and eyelids for blinking. They render the way armor and
+ * sunglasses in the desert sun, an umbrella in the rain, eyelids for blinking and an ahoge (the one stray hair on
+ * top). They render the way armor and
  * mob models do, which shader packs and model mods all support, and the skeleton is posed from the same render
  * state as the bot's body, so they follow its head and hips exactly. The player cubes themselves are never drawn.
  * One instance draws one colour {@link Group}; {@link NekoLayer} tints each group.
@@ -59,6 +63,11 @@ final class NekoModel extends BotModel {
 			{-11.3F, -10.3F, 3.2F, 4.2F},
 	};
 
+	/** The ears turn to the owner while the talk key is held this close (16 blocks, squared). */
+	private static final double LISTEN_RANGE_SQ = 256.0D;
+	/** The bot's hold-to-talk key, looked up once by name (it is registered in BotKeys). */
+	private static KeyMapping talkKey;
+
 	/** Set once a pose failed; the parts then stay hidden instead of taking the game down. */
 	private static boolean failed;
 
@@ -71,6 +80,7 @@ final class NekoModel extends BotModel {
 	/** Eyelids, hinged at their top edge so they can close fully (blink) or halfway (a happy squint). */
 	private final ModelPart[] lids = new ModelPart[2];
 	private final ModelPart crown;
+	private final ModelPart ahoge;
 	private final ModelPart gem;
 	private final ModelPart glasses;
 	private final ModelPart collar;
@@ -110,6 +120,7 @@ final class NekoModel extends BotModel {
 			lids[i] = head.getChild(i == 0 ? "neko_lid_plus" : "neko_lid_minus");
 		}
 		crown = head.getChild("neko_crown");
+		ahoge = head.getChild("neko_ahoge");
 		gem = head.getChild("neko_gem");
 		glasses = head.getChild("neko_glasses");
 		collar = body.getChild("neko_collar");
@@ -188,6 +199,10 @@ final class NekoModel extends BotModel {
 			head.addOrReplaceChild(i == 0 ? "neko_lid_plus" : "neko_lid_minus", box(lidX0, 0.0F, -4.07F, lidX0 + 2.0F, 2.0F, -4.01F),
 					PartPose.offset(0.0F, -4.0F, 0.0F));
 		}
+		// The ahoge: one strand standing up from the front of the hair and bending forward, pivoted at its root.
+		head.addOrReplaceChild("neko_ahoge", box(-0.3F, -2.6F, -0.3F, 0.3F, 0.0F, 0.3F)
+				.addBox(-0.3F, -3.4F, -1.5F, 0.6F, 0.8F, 1.5F)
+				.addBox(-0.3F, -3.0F, -2.2F, 0.6F, 0.8F, 0.7F), PartPose.offset(0.4F, -8.3F, -1.8F));
 		// A small tiara between the ears, with a gem at the front.
 		head.addOrReplaceChild("neko_crown", box(-1.1F, -9.0F, -1.0F, 1.1F, -8.2F, 1.0F)
 				.addBox(-1.1F, -9.9F, -1.0F, 0.5F, 0.9F, 0.5F)
@@ -291,6 +306,7 @@ final class NekoModel extends BotModel {
 			poseEars(state);
 			poseLids(state);
 			poseTails(state);
+			poseAhoge(state);
 			poseOrbs(state);
 			poseWings(state);
 		} catch (RuntimeException exception) {
@@ -326,6 +342,7 @@ final class NekoModel extends BotModel {
 			lids[i].visible = group == Group.EYELID && state.faceColor != 0 && state.lidsClosed > 0.0F && !state.sunglasses;
 		}
 		crown.visible = group == Group.CROWN && crowned;
+		ahoge.visible = group == Group.HAIR && state.headEquipment.isEmpty();
 		gem.visible = group == Group.GEM && crowned;
 		glasses.visible = group == Group.GLASSES && state.sunglasses;
 		collar.visible = group == Group.COLLAR && collared && !armored;
@@ -364,15 +381,18 @@ final class NekoModel extends BotModel {
 
 	/**
 	 * Ears twitch now and then, perk up and flick in turn on a level up, and fold out when petted or pouting. Their
-	 * mood shows too: perked when the owner is close, flat back when scared or fighting, drooping when hurt badly.
+	 * mood shows too: perked when the owner is close or the sun shines, flat back when scared or fighting, drooping
+	 * when hurt badly or wet from the rain. While the owner holds the talk key nearby, both ears turn to listen.
 	 */
 	private void poseEars(ButterBotRenderState state) {
+		float listen = listenYaw(state);
 		float cheer = LevelUpAnimation.strength(state.levelUpTime);
 		float cheerTime = Math.max(0.0F, state.levelUpTime);
 		float twitch = earTwitch(state.ageInTicks);
 		float fold = ReactionAnimation.earFold(state.reaction, state.reactionTime, state.reactionStrength);
 		float flick = cheer * 18.0F;
-		float mood = state.scared ? 55.0F : state.fighting ? 35.0F : state.lowHealth ? 28.0F : state.ownerNear ? -6.0F : 0.0F;
+		float mood = state.scared ? 55.0F : state.fighting ? 35.0F : state.lowHealth ? 28.0F : wet(state) ? 18.0F
+				: state.ownerNear || !Float.isNaN(listen) ? -6.0F : sunny(state) ? -4.0F : 0.0F;
 		float scale = 1.0F + 0.25F * cheer + (state.ownerNear && !state.scared && !state.fighting ? 0.06F : 0.0F);
 		for (int i = 0; i < 2; i++) {
 			int side = i == 0 ? 1 : -1;
@@ -381,10 +401,43 @@ final class NekoModel extends BotModel {
 			ear.zRot = side * angle * Mth.DEG_TO_RAD;
 			// Scared ears also lie back.
 			ear.xRot = state.scared ? 0.5F : 0.0F;
+			ear.yRot = Float.isNaN(listen) ? 0.0F : listen * Mth.DEG_TO_RAD;
 			ear.xScale = scale;
 			ear.yScale = scale;
 			ear.zScale = scale;
 		}
+	}
+
+	/**
+	 * Degrees the ears turn (relative to the head) towards the local player while they hold the talk key within 16
+	 * blocks, clamped to what an ear can turn; NaN when nobody is talking.
+	 */
+	private static float listenYaw(ButterBotRenderState state) {
+		if (talkKey == null) {
+			talkKey = KeyMapping.get("key.butterbot.talk");
+		}
+		LocalPlayer player = Minecraft.getInstance().player;
+		if (talkKey == null || player == null || !talkKey.isDown() || state.inPanel) {
+			return Float.NaN;
+		}
+		double dx = player.getX() - state.x;
+		double dz = player.getZ() - state.z;
+		if (dx * dx + dz * dz > LISTEN_RANGE_SQ) {
+			return Float.NaN;
+		}
+		float toPlayer = (float) (Mth.atan2(dz, dx) * Mth.RAD_TO_DEG) - 90.0F;
+		return Mth.clamp(Mth.wrapDegrees(toPlayer - state.bodyRot - state.yRot), -50.0F, 50.0F);
+	}
+
+	/** Rain falling on the bot, or standing in water. */
+	private static boolean wet(ButterBotRenderState state) {
+		return state.umbrella || state.isInWater;
+	}
+
+	/** Under the open sky on a bright, dry day. */
+	private static boolean sunny(ButterBotRenderState state) {
+		Minecraft minecraft = Minecraft.getInstance();
+		return !state.umbrella && minecraft.level != null && minecraft.level.isBrightOutside() && (state.lightCoords >> 20 & 0xF) >= 14;
 	}
 
 	/** A quick flick every few seconds. */
@@ -403,7 +456,9 @@ final class NekoModel extends BotModel {
 	/**
 	 * The tail hangs down from the hips and curls up, swaying more while walking or working, faster when petted.
 	 * On a level up it stands up (leaning back, clear of the head) and quivers. It wags fast when the owner is close,
-	 * puffs up when the bot is scared or fighting and droops when it is badly hurt. Higher tiers grow it longer
+	 * puffs up when the bot is scared, fighting or just got hit and droops when it is badly hurt or wet. It lags
+	 * behind a turn (swinging away from where the head leads) and streams out behind at a run; sitting, or standing
+	 * still with nothing to do, it curls around the side. Higher tiers grow it longer
 	 * and fluffier; a nekomata's two tails turn apart around their own axis and sway in step.
 	 */
 	private void poseTails(ButterBotRenderState state) {
@@ -412,13 +467,14 @@ final class NekoModel extends BotModel {
 		float cheerTime = Math.max(0.0F, state.levelUpTime);
 		float grow = state.tier.ordinal();
 		float length = 1.0F + 0.04F * grow / TAIL_SEGMENT_LENGTH;
-		float puff = state.scared || state.fighting ? 1.35F : 1.0F;
+		float puff = state.scared || state.fighting || state.hasRedOverlay ? 1.35F : 1.0F;
 		float thickness = (1.0F + 0.04F * grow) * (1.0F + 0.3F * cheer) * puff;
 		float sway = 6.0F + 14.0F * Mth.clamp(state.walkAnimationSpeed, 0.0F, 1.0F) + (state.working ? 4.0F : 0.0F)
 				+ (state.ownerNear ? 6.0F : 0.0F);
 		boolean dancing = state.action == ButterBotEntity.ACTION_DANCE;
 		float swaySpeed = dancing ? 0.4F : state.working ? 0.2F : state.ownerNear ? 0.26F : 0.12F;
-		if (state.lowHealth) {
+		boolean droop = state.lowHealth || wet(state);
+		if (droop) {
 			sway *= 0.4F;
 			swaySpeed *= 0.6F;
 		}
@@ -427,8 +483,13 @@ final class NekoModel extends BotModel {
 		float wagSway = ReactionAnimation.wagSway(state.reaction);
 		// A badly hurt bot's tail hangs low and barely curls; a sitting one lies along the ground and curls up at the end.
 		boolean sitting = state.action == ButterBotEntity.ACTION_SIT;
-		float restPitch = state.lowHealth ? -45.0F : sitting ? 8.0F : -20.0F;
-		float restBend = state.lowHealth ? 6.0F : sitting ? 9.0F : 13.0F;
+		float speed = Mth.clamp(state.walkAnimationSpeed, 0.0F, 1.0F);
+		float restPitch = state.lowHealth ? -45.0F : wet(state) ? -38.0F : sitting ? 8.0F : Mth.lerp(speed, -20.0F, -4.0F);
+		float restBend = state.lowHealth ? 6.0F : wet(state) ? 7.0F : sitting ? 9.0F : Mth.lerp(speed, 13.0F, 7.0F);
+		// Curled around the side: fully when sitting, a little when standing idle.
+		float curl = sitting ? 14.0F : speed < 0.05F && !state.working && !droop ? 6.0F : 0.0F;
+		// The head leads a turn and the body follows, so the tail swings the other way.
+		float lag = -Mth.clamp(state.yRot, -75.0F, 75.0F) * 0.3F;
 		for (int t = 0; t < 2; t++) {
 			Tail tail = tails[t];
 			float spread = legend ? (t == 0 ? -TWIN_SPREAD : TWIN_SPREAD) : 0.0F;
@@ -442,7 +503,7 @@ final class NekoModel extends BotModel {
 					calm = Mth.lerp(wag, calm, wagging);
 				}
 				float quiver = Mth.sin(cheerTime * 2.2F - i * 0.6F) * 7.0F * (0.3F + i * 0.12F);
-				float yaw = Mth.lerp(cheer, calm, quiver) + (i == 0 ? spread : 0.0F);
+				float yaw = Mth.lerp(cheer, calm + curl + (i == 0 ? lag : 0.0F), quiver) + (i == 0 ? spread : 0.0F);
 				tail.pitch()[i].xRot = pitch * Mth.DEG_TO_RAD;
 				tail.yaw()[i].yRot = yaw * Mth.DEG_TO_RAD;
 				if (i > 0) {
@@ -463,6 +524,14 @@ final class NekoModel extends BotModel {
 				pitch = bend;
 			}
 		}
+	}
+
+	/** The ahoge leans forward and bobs with each step, and sways a little when standing. */
+	private void poseAhoge(ButterBotRenderState state) {
+		float speed = Mth.clamp(state.walkAnimationSpeed, 0.0F, 1.0F);
+		float bob = Mth.sin(state.walkAnimationPos * 1.3324F) * 0.35F * speed;
+		ahoge.xRot = -0.15F + bob + (wet(state) ? 0.5F : 0.0F);
+		ahoge.zRot = Mth.sin(state.ageInTicks * 0.08F) * 0.08F;
 	}
 
 	private static void scale(ModelPart part, float thickness, float length) {

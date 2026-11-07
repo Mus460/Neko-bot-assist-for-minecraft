@@ -32,6 +32,9 @@ public class ButterBotRenderState extends AvatarRenderState {
 	/** The skin tone for the eyelids (0: none), and how far they are closed (0 open, 0.5 a happy squint, 1 a blink). */
 	public int faceColor;
 	public float lidsClosed;
+	/** How far the mouth is open while it says something new (0 closed), and whether it stands in the dark (eyes glow). */
+	public float mouthOpen;
+	public boolean inDark;
 	/** Dressed for the weather: a scarf in the snow, sunglasses in the desert sun, an umbrella in the rain. */
 	public boolean scarf;
 	public boolean sunglasses;

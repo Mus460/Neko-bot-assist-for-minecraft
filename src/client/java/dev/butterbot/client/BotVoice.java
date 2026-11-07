@@ -136,6 +136,19 @@ public final class BotVoice {
 	private static final int MAX_RECORDING = 16000 * 2 * 20;
 	private static volatile TargetDataLine mic;
 	private static volatile boolean busy;
+	/** True while a finished recording is being turned into text, so the HUD can show a spinner. */
+	private static volatile boolean recognizing;
+	/** Loudness of the last bit of recording (0..1), so the HUD's sound wave moves with the voice. */
+	private static volatile float micLevel;
+
+	/** For the HUD: 1 while recording, 2 while recognizing, 0 otherwise. */
+	public static int talkState() {
+		return mic != null ? 1 : recognizing ? 2 : 0;
+	}
+
+	public static float micLevel() {
+		return micLevel;
+	}
 
 	/**
 	 * Called every tick with whether the talk key is held: holding it records from the microphone, letting go turns the
@@ -181,12 +194,20 @@ public final class BotVoice {
 					break;
 				}
 				pcm.write(buffer, 0, read);
+				int peak = 0;
+				for (int i = 0; i + 1 < read; i += 2) {
+					peak = Math.max(peak, Math.abs((short) (buffer[i] & 0xFF | buffer[i + 1] << 8)));
+				}
+				micLevel = peak / 32768.0F;
 			}
 			line.close();
+			micLevel = 0.0F;
 			busy = true;
+			recognizing = true;
 			try {
 				transcribeAndSend(config, pcm.toByteArray());
 			} finally {
+				recognizing = false;
 				busy = false;
 			}
 		});

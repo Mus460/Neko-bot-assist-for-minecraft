@@ -219,6 +219,11 @@ public final class BotHud implements HudElement {
 		float seconds = lastFrame == 0L ? 0.0F : Mth.clamp((now - lastFrame) / 1000.0F, 0.0F, 0.25F);
 		lastFrame = now;
 		Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.player != null && !minecraft.getDebugOverlay().showDebugScreen()) {
+			// Not tied to the bot list: these answer the player's own key presses, even with the list hidden.
+			drawTalk(g, minecraft.font, now);
+			drawHologramHint(g, minecraft.font);
+		}
 		if (mode == Mode.HIDDEN || bots.isEmpty() || minecraft.player == null
 				|| minecraft.getDebugOverlay().showDebugScreen() || now - receivedAt > STALE_MILLIS) {
 			return;
@@ -291,6 +296,48 @@ public final class BotHud implements HudElement {
 		if (more) {
 			g.text(font, "+" + (bots.size() - MAX_ROWS), x + 14, y + rows * ROW_HEIGHT, 0xFFA0A0A0, true);
 		}
+	}
+
+	/**
+	 * Push to talk, just under the crosshair: a red dot and a little sound wave that moves with the voice while
+	 * recording, then "recognizing" with running dots until the text comes back.
+	 */
+	private static void drawTalk(GuiGraphicsExtractor g, Font font, long now) {
+		int state = BotVoice.talkState();
+		if (state == 0) {
+			return;
+		}
+		int cx = g.guiWidth() / 2;
+		int y = g.guiHeight() / 2 + 14;
+		if (state == 2) {
+			String dots = ".".repeat((int) (now / 300L % 4L));
+			g.centeredText(font, Component.translatable("butterbot.hud.recognizing").getString() + dots, cx, y, 0xFFFFE680);
+			return;
+		}
+		float pulse = 0.5F + 0.5F * (float) Math.sin(now / 120.0D);
+		g.fill(cx - 13, y + 2, cx - 9, y + 6, ARGB.color(0.5F + 0.5F * pulse, 0xFF4040));
+		float level = Math.min(1.0F, BotVoice.micLevel() * 3.0F);
+		for (int i = 0; i < 5; i++) {
+			// Each bar wobbles on its own beat, scaled by how loud the voice is.
+			float wave = 0.5F + 0.5F * (float) Math.sin(now / 90.0D + i * 1.3D);
+			int half = 1 + Math.round(4.0F * (0.25F + 0.75F * level) * wave);
+			int bx = cx - 5 + i * 3;
+			g.fill(bx, y + 4 - half, bx + 2, y + 4 + half, 0xFF7CFC5A);
+		}
+	}
+
+	/** While a design is shown as a hologram: how many blocks it has and how to answer, at the top of the screen. */
+	private static void drawHologramHint(GuiGraphicsExtractor g, Font font) {
+		int count = BuildPreview.ghostCount();
+		if (count <= 0) {
+			return;
+		}
+		Component hint = Component.translatable("butterbot.hud.hologram", count, Component.keybind("key.butterbot.mark"));
+		int width = font.width(hint);
+		int cx = g.guiWidth() / 2;
+		int y = 22;
+		g.fill(cx - width / 2 - 3, y - 2, cx + width / 2 + 3, y + 10, 0x80000000);
+		g.centeredText(font, hint, cx, y, 0xFFAAD7FF);
 	}
 
 	/**

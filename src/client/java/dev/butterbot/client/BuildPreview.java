@@ -50,6 +50,8 @@ public final class BuildPreview {
 
 	private static Map<BlockPos, BlockState> ghosts = Map.of();
 	private static List<BlockPos> marks = List.of();
+	/** Planned blocks that are not air, counted once per update for the HUD hint. */
+	private static int ghostCount;
 	private static final RandomSource RANDOM = RandomSource.create();
 	private static final List<BlockStateModelPart> PARTS = new ArrayList<>();
 
@@ -69,12 +71,18 @@ public final class BuildPreview {
 		}
 		ghosts = next;
 		marks = nextMarks;
+		ghostCount = (int) next.values().stream().filter(state -> !state.isAir()).count();
 	}
 
 	/** A planned block that isn't there yet (the hologram shows only what would change). */
 	private static boolean showsGhost(Minecraft minecraft, BlockPos pos) {
 		BlockState planned = ghosts.get(pos);
 		return planned != null && !planned.isAir() && !minecraft.level.getBlockState(pos).equals(planned);
+	}
+
+	/** How many blocks the hologram holds (0 when there is none), for the HUD hint. */
+	static int ghostCount() {
+		return ghosts.isEmpty() ? 0 : ghostCount;
 	}
 
 	private static void render(LevelRenderContext context) {

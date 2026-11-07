@@ -1,5 +1,6 @@
 package dev.butterbot.network;
 
+import dev.butterbot.entity.BotTask;
 import dev.butterbot.entity.ButterBotEntity;
 import dev.butterbot.registry.ModEntities;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -85,7 +86,7 @@ public final class HudSync {
 				int flags = bot.hudFlags();
 				lines.add(new Payloads.HudBot(bot.getName().getString(), bot.getHealth(), bot.getMaxHealth(), status(bot, flags),
 						icon == Items.AIR ? "" : BuiltInRegistries.ITEM.getKey(icon).toString(), distance, bot.countInventoryItems(),
-						bot.getInventory().getContainerSize() * 64, bot.getUUID(), bot.getBotLevel(), flags, bot.hudProgress(),
+						bot.getInventory().getContainerSize() * 64, bot.getUUID(), bot.getBotLevel(), flags, progress(bot),
 						(float) bot.getX(), (float) bot.getY(), (float) bot.getZ(), bot.getSkinId(), bot.getSkinVariant()));
 			}
 			ServerPlayNetworking.send(player, new Payloads.HudUpdate(lines));
@@ -104,7 +105,21 @@ public final class HudSync {
 		if (problem != null && (flags & (Payloads.HudBot.FIGHTING | Payloads.HudBot.PAUSED)) == 0) {
 			return problem;
 		}
+		if (bot.getTask() == BotTask.BUILD) {
+			int placed = bot.getBuildFromBag() + bot.getBuildMade();
+			return Component.translatable("butterbot.hud.s.build_progress", bot.getBuildName(), placed, placed + bot.getBuildPlan().size());
+		}
 		return bot.describeHudStatus();
+	}
+
+	/** Building: blocks placed of the whole design (skipped spots drop out of the total). Else what the bot reports. */
+	private static float progress(ButterBotEntity bot) {
+		if (bot.getTask() == BotTask.BUILD) {
+			int placed = bot.getBuildFromBag() + bot.getBuildMade();
+			int total = placed + bot.getBuildPlan().size();
+			return total > 0 ? (float) placed / total : -1.0F;
+		}
+		return bot.hudProgress();
 	}
 
 	private HudSync() {

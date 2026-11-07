@@ -71,6 +71,8 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 	private final PlayerModel slimModel;
 	private final Map<Identifier, PlayerSkin> playerSkins = new HashMap<>();
 	private final Map<Integer, Identifier> lastTextures = new HashMap<>();
+	/** Per bot: the hash of its last speech text (high bits) and the tick it changed (low bits), for the talking mouth. */
+	private final Map<Integer, Long> lastSpeech = new HashMap<>();
 	private boolean reported;
 
 	public ButterBotRenderer(EntityRendererProvider.Context context) {
@@ -80,6 +82,7 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 		this.addLayer(new BotArmorLayer(this, context));
 		this.addLayer(new BotItemInHandLayer(this));
 		this.addLayer(new NekoLayer(this));
+		this.addLayer(new FaceLayer(this));
 	}
 
 	@Override
@@ -235,7 +238,33 @@ public class ButterBotRenderer extends LivingEntityRenderer<ButterBotEntity, But
 
 		// Speech bubbles show over the name tag, wrapped into short lines.
 		Component speech = state.nameTag != null ? entity.getSpeech() : Component.empty();
-		state.speechLines = speech.getString().isEmpty() ? List.of() : wrap(speech);
+		String said = speech.getString();
+		state.speechLines = said.isEmpty() ? List.of() : wrap(speech);
+		state.mouthOpen = mouthOpen(entity, entity.getSpeech().getString(), partialTicks);
+		// Dark enough that mobs spawn: the eyes glow faintly so the bot can be found in caves and at night.
+		int light = state.lightCoords;
+		state.inDark = entity.getId() >= 0 && Math.max(LightCoordsUtil.block(light),
+				LightCoordsUtil.sky(light) - entity.level().getSkyDarken()) <= 4;
+	}
+
+	/** The mouth moves for a moment after the speech bubble shows new text, longer for longer lines. */
+	private float mouthOpen(ButterBotEntity entity, String said, float partialTicks) {
+		Long last = lastSpeech.get(entity.getId());
+		int hash = said.hashCode();
+		if (last == null || (int) (last >>> 32) != hash) {
+			if (lastSpeech.size() > 256) {
+				lastSpeech.clear();
+			}
+			// A bot seen for the first time keeps its mouth shut over what it said before.
+			int start = last == null || said.isEmpty() ? Integer.MIN_VALUE / 2 : entity.tickCount;
+			last = (long) hash << 32 | start & 0xFFFFFFFFL;
+			lastSpeech.put(entity.getId(), last);
+		}
+		float t = entity.tickCount - (int) (long) last + partialTicks;
+		if (t < 0.0F || t > Math.min(60.0F, 8.0F + said.length() * 1.2F)) {
+			return 0.0F;
+		}
+		return Math.abs(Mth.sin(t * 0.8F)) * (0.6F + 0.4F * Mth.sin(t * 0.33F));
 	}
 
 	private List<Component> wrap(Component speech) {
