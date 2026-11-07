@@ -519,6 +519,56 @@ public final class Payloads {
 		}
 	}
 
+	/** The owner's view of a design: the hologram (positions and block state ids, empty once agreed) and their marks. */
+	public record BuildView(long[] positions, int[] states, long[] marks) implements CustomPacketPayload {
+		public static final Type<BuildView> TYPE = typeOf("build_view");
+		/** Up to 40000 blocks (a change: what goes plus the new design) at about 12 bytes each. */
+		public static final int MAX_BYTES = 600_000;
+		public static final StreamCodec<ByteBuf, BuildView> CODEC = StreamCodec.of(
+				(buf, p) -> {
+					net.minecraft.network.codec.ByteBufCodecs.VAR_INT.encode(buf, p.positions.length);
+					for (int i = 0; i < p.positions.length; i++) {
+						buf.writeLong(p.positions[i]);
+						net.minecraft.network.codec.ByteBufCodecs.VAR_INT.encode(buf, p.states[i]);
+					}
+					net.minecraft.network.codec.ByteBufCodecs.VAR_INT.encode(buf, p.marks.length);
+					for (long mark : p.marks) {
+						buf.writeLong(mark);
+					}
+				},
+				buf -> {
+					int count = Math.min(net.minecraft.network.codec.ByteBufCodecs.VAR_INT.decode(buf), 40_000);
+					long[] positions = new long[count];
+					int[] states = new int[count];
+					for (int i = 0; i < count; i++) {
+						positions[i] = buf.readLong();
+						states[i] = net.minecraft.network.codec.ByteBufCodecs.VAR_INT.decode(buf);
+					}
+					long[] marks = new long[Math.min(net.minecraft.network.codec.ByteBufCodecs.VAR_INT.decode(buf), 64)];
+					for (int i = 0; i < marks.length; i++) {
+						marks[i] = buf.readLong();
+					}
+					return new BuildView(positions, states, marks);
+				});
+
+		@Override
+		public Type<BuildView> type() {
+			return TYPE;
+		}
+	}
+
+	/** The owner marks (or unmarks) a spot of a design for the bot to change; empty clears all marks. */
+	public record BuildMark(Optional<BlockPos> spot) implements CustomPacketPayload {
+		public static final Type<BuildMark> TYPE = typeOf("build_mark");
+		public static final StreamCodec<ByteBuf, BuildMark> CODEC = BlockPos.STREAM_CODEC.apply(net.minecraft.network.codec.ByteBufCodecs::optional)
+				.map(BuildMark::new, BuildMark::spot);
+
+		@Override
+		public Type<BuildMark> type() {
+			return TYPE;
+		}
+	}
+
 	private Payloads() {
 	}
 }

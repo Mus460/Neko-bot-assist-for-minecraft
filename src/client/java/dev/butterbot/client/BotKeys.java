@@ -50,6 +50,8 @@ public final class BotKeys {
 	private static final KeyMapping DEBUG = key("debug", InputConstants.KEY_K);
 	/** Hold to talk to the nearest bot through the microphone. */
 	private static final KeyMapping TALK = key("talk", InputConstants.KEY_G);
+	/** Marks the looked-at part of a design or building for the bot to change (sneak: clear all marks). */
+	private static final KeyMapping MARK = key("mark", InputConstants.KEY_X);
 
 	/** What the next press of the context key picks for a bot's job (set from the Job tab). */
 	public enum PickKind {CHEST, CENTER, SOURCE}
@@ -126,6 +128,11 @@ public final class BotKeys {
 				&& ClientPlayNetworking.canSend(Payloads.Hotkey.TYPE);
 		tickPanelKey(minecraft, connected);
 		BotVoice.tickTalk(minecraft, connected && TALK.isDown());
+		while (MARK.consumeClick()) {
+			if (connected && ClientPlayNetworking.canSend(Payloads.BuildMark.TYPE)) {
+				BuildPreview.markLookedAt(minecraft, player);
+			}
+		}
 		while (HUD.consumeClick()) {
 			BotHud.cycleMode();
 		}

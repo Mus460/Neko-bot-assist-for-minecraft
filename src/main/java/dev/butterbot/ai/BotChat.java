@@ -74,10 +74,8 @@ public final class BotChat {
 	/** Recent conversation per bot (not saved: a reload starts fresh). */
 	private static final Map<UUID, Deque<JsonObject>> HISTORIES = new HashMap<>();
 	private static final Set<UUID> PENDING = new HashSet<>();
-	/** Designs waiting for the owner's yes before the bot builds them. */
-	private static final Map<UUID, Blueprint.Plan> PROPOSALS = new HashMap<>();
-	private static final Pattern YES = Pattern.compile("\\b(ya|iya|yes|y|ok|oke|okay|gas|gass|gaskan|lanjut|lanjutkan|bangun|setuju|boleh|mulai|sip)\\b");
-	private static final Pattern NO = Pattern.compile("\\b(batal|batalkan|tidak|nggak|gak|enggak|jangan|no|cancel|stop|ga)\\b");
+	/** A change to the last design: "[ubah: tanda 1 jadikan kaca]". */
+	private static final Pattern REVISE = Pattern.compile("\\[ubah:\\s*([^\\]]+)]", Pattern.CASE_INSENSITIVE);
 
 	private record Config(boolean enabled, String endpoint, String apiKey, String model, int maxTokens) {
 	}
@@ -92,7 +90,7 @@ public final class BotChat {
 		for (ButterBotEntity bot : player.level().getEntitiesOfClass(ButterBotEntity.class, player.getBoundingBox().inflate(NAME_RANGE),
 				bot -> bot.isAlive() && bot.isOwnedBy(player))) {
 			String name = bot.getName().getString().toLowerCase(Locale.ROOT);
-			if (!name.isBlank() && lower.contains(name) || PROPOSALS.containsKey(bot.getUUID()) && answerToProposal(lower) != null) {
+			if (!name.isBlank() && lower.contains(name) || BuildReview.isWaiting(bot) && BuildReview.yesOrNo(lower) != null) {
 				ask(bot, player, text);
 				return;
 			}
@@ -105,16 +103,7 @@ public final class BotChat {
 			player.sendSystemMessage(Component.translatable("butterbot.ai.no_config", configPath().toString()));
 			return;
 		}
-		Blueprint.Plan proposal = PROPOSALS.get(bot.getUUID());
-		Boolean agreed = proposal == null ? null : answerToProposal(text.toLowerCase(Locale.ROOT).replace(bot.getName().getString().toLowerCase(Locale.ROOT), ""));
-		if (agreed != null) {
-			PROPOSALS.remove(bot.getUUID());
-			if (agreed) {
-				bot.assignBuildTask(proposal);
-				bot.emote(ButterBotEntity.EMOTE_CHECK);
-			} else {
-				bot.say(Component.translatable("butterbot.build.cancelled"));
-			}
+		if (BuildReview.answer(bot, player, text.toLowerCase(Locale.ROOT).replace(bot.getName().getString().toLowerCase(Locale.ROOT), ""))) {
 			return;
 		}
 		if (!PENDING.add(bot.getUUID())) {
@@ -189,12 +178,16 @@ public final class BotChat {
 			acted |= runCommand(player, commandMatch.group(1).trim());
 		}
 		Matcher buildMatch = BUILD.matcher(raw);
-		if (buildMatch.find()) {
-			design(bot, player, buildMatch.group(1).trim());
+		Matcher reviseMatch = REVISE.matcher(raw);
+		if (reviseMatch.find()) {
+			design(bot, player, reviseMatch.group(1).trim(), BuildReview.of(bot));
+			acted = true;
+		} else if (buildMatch.find()) {
+			design(bot, player, buildMatch.group(1).trim(), null);
 			acted = true;
 		}
 		// Minecraft's font has no emoji: anything outside the basic plane goes.
-		String text = BUILD.matcher(COMMAND.matcher(ACTION.matcher(MOOD.matcher(raw).replaceAll("")).replaceAll("")).replaceAll("")).replaceAll("")
+		String text = REVISE.matcher(BUILD.matcher(COMMAND.matcher(ACTION.matcher(MOOD.matcher(raw).replaceAll("")).replaceAll("")).replaceAll("")).replaceAll("")).replaceAll("")
 				.replaceAll("[\\x{10000}-\\x{10FFFF}]", "").replaceAll("\\s+", " ").trim();
 		if (text.isEmpty()) {
 			text = "...";
@@ -240,21 +233,28 @@ public final class BotChat {
 	}
 
 	/**
-	 * Asks the AI to design {@code what} as a blueprint, then has the bot build it in front of the owner, the front
-	 * facing them.
+	 * Asks the AI to design {@code what} in front of the owner, the front facing them, or to change {@code previous}
+	 * (then {@code what} says how, and the owner's marks say where). The result waits for the owner's yes.
 	 */
-	private static void design(ButterBotEntity bot, ServerPlayer player, String what) {
+	private static void design(ButterBotEntity bot, ServerPlayer player, String what, BuildReview.Design previous) {
 		Config config = loadConfig();
 		if (config == null) {
 			return;
 		}
-		net.minecraft.core.Direction facing = player.getDirection();
-		net.minecraft.core.BlockPos origin = player.blockPosition().relative(facing, 3);
+		net.minecraft.core.Direction facing = previous != null ? previous.facing : player.getDirection();
+		net.minecraft.core.BlockPos origin = previous != null ? previous.origin : player.blockPosition().relative(facing, 3);
+		String asked = previous != null ? previous.request : what;
 		bot.think(net.minecraft.world.item.Items.CRAFTING_TABLE);
 		bot.say(Component.translatable("butterbot.build.designing"));
 		JsonArray messages = new JsonArray();
 		messages.add(message("system", DESIGN_PROMPT));
-		messages.add(message("user", "Rancang: " + what + "\n\n" + terrain((ServerLevel) bot.level(), origin, facing)));
+		messages.add(message("user", "Rancang: " + asked + "\n\n" + terrain((ServerLevel) bot.level(), origin, facing)));
+		if (previous != null) {
+			messages.add(message("assistant", previous.json));
+			messages.add(message("user", "Ubah rancangan ini: " + what
+					+ (previous.marks.isEmpty() ? "" : "\nTanda dari pemilik (koordinat rancangan): " + BuildReview.marks(previous, bot.level()))
+					+ "\nJawab dengan JSON LENGKAP rancangan baru (semua op, bukan hanya perubahannya)."));
+		}
 		JsonObject body = new JsonObject();
 		body.addProperty("model", config.model());
 		body.addProperty("stream", false);
@@ -282,7 +282,11 @@ public final class BotChat {
 					bot.emote(ButterBotEntity.EMOTE_QUESTION);
 					return;
 				}
-				bot.assignBuildTask(plan);
+				if (previous != null) {
+					plan = Blueprint.withRemovals(previous.plan, plan);
+				}
+				String json = answer.substring(answer.indexOf('{'), answer.lastIndexOf('}') + 1);
+				BuildReview.propose(bot, player, new BuildReview.Design(player.getUUID(), asked, json, origin, facing, plan));
 			});
 		});
 	}
@@ -370,13 +374,6 @@ public final class BotChat {
 		return out.toString();
 	}
 
-	/** A short yes or no to a waiting design; null when the line is about something else (a change, a question). */
-	private static Boolean answerToProposal(String text) {
-		if (text.trim().split("\\s+").length > 4) {
-			return null;
-		}
-		return NO.matcher(text).find() ? Boolean.FALSE : YES.matcher(text).find() ? Boolean.TRUE : null;
-	}
 
 	/** Every /butterbot subcommand with its arguments, so the AI can use any of them. */
 	private static String commandList(ServerPlayer owner) {
@@ -427,6 +424,9 @@ public final class BotChat {
 				"     butterbot fetch <item> <jumlah>, butterbot light 24, butterbot guard true, butterbot smelt all,",
 				"     butterbot job set <miner|gatherer|guard|farmer|rancher|courier|bodyguard|none>, butterbot job need <item> <jumlah>,",
 				"     butterbot tunnel <dariX> <dariZ> <keX> <keZ>, butterbot sort, butterbot skill <nama>, butterbot party.",
+				"     Setelah [bangun:] pemilik melihat hologram rancangannya dulu dan menjawab ya/batal sendiri.",
+				"  [ubah: instruksi]  untuk mengubah rancangan terakhir atau bangunan yang sudah jadi.",
+				BuildReview.describe(bot),
 				"Semua perintah Butter Bot yang ada (pakai lewat [perintah: ...]):",
 				commandList(owner),
 				"Jangan menolak dengan kaku: kalau bisa dilakukan dengan tag di atas, lakukan. Kalau satu permintaan butuh beberapa",

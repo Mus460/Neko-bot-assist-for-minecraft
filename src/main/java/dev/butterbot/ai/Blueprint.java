@@ -111,6 +111,20 @@ public final class Blueprint {
 		return placements.isEmpty() ? null : new Plan(name.length() > 40 ? name.substring(0, 40) : name, placements);
 	}
 
+	/** A changed design: what the old one had and the new one doesn't is taken out first. */
+	public static Plan withRemovals(Plan old, Plan changed) {
+		java.util.Set<BlockPos> kept = new java.util.HashSet<>();
+		changed.placements().forEach(p -> kept.add(p.pos()));
+		List<Placement> placements = new ArrayList<>();
+		for (Placement placement : old.placements()) {
+			if (!placement.state().isAir() && !kept.contains(placement.pos())) {
+				placements.add(new Placement(placement.pos(), Blocks.AIR.defaultBlockState()));
+			}
+		}
+		placements.addAll(changed.placements());
+		return new Plan(changed.name(), placements);
+	}
+
 	private static boolean inBounds(int x, int y, int z) {
 		return Math.abs(x) <= MAX_SIZE / 2 && z >= -2 && z <= MAX_SIZE && y >= -8 && y <= MAX_HEIGHT;
 	}
