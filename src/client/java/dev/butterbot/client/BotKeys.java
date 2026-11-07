@@ -48,6 +48,8 @@ public final class BotKeys {
 	private static final KeyMapping HUD = key("hud", InputConstants.KEY_RBRACKET);
 	private static final KeyMapping JOBS = key("jobs", InputConstants.KEY_LBRACKET);
 	private static final KeyMapping DEBUG = key("debug", InputConstants.KEY_K);
+	/** Hold to talk to the nearest bot through the microphone. */
+	private static final KeyMapping TALK = key("talk", InputConstants.KEY_G);
 
 	/** What the next press of the context key picks for a bot's job (set from the Job tab). */
 	public enum PickKind {CHEST, CENTER, SOURCE}
@@ -123,6 +125,7 @@ public final class BotKeys {
 		boolean connected = player != null && minecraft.getConnection() != null
 				&& ClientPlayNetworking.canSend(Payloads.Hotkey.TYPE);
 		tickPanelKey(minecraft, connected);
+		BotVoice.tickTalk(minecraft, connected && TALK.isDown());
 		while (HUD.consumeClick()) {
 			BotHud.cycleMode();
 		}

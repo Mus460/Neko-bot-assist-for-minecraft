@@ -1107,5 +1107,11 @@
   "butterbot.ai.thinking": "...",
   "butterbot.ai.busy": "Hold on, I'm still thinking...",
   "butterbot.ai.error": "Sorry, my head is spinning... I can't think right now.",
-  "butterbot.ai.no_config": "Butter Bot isn't connected to an AI yet. Fill in endpoint and apiKey in %s"
+  "butterbot.ai.no_config": "Butter Bot isn't connected to an AI yet. Fill in endpoint and apiKey in %s",
+  "key.butterbot.talk": "Talk to bot (hold)",
+  "butterbot.voice.listening": "Listening... let go of G to send",
+  "butterbot.voice.recognizing": "Recognizing your voice...",
+  "butterbot.voice.not_heard": "Couldn't hear you, try again",
+  "butterbot.voice.you": "You (voice): %s",
+  "butterbot.voice.no_mic": "Can't open the microphone. Check the Windows microphone permission for Java."
 }

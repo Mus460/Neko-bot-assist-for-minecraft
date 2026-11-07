@@ -8,7 +8,13 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 
+import javax.sound.sampled.AudioFileFormat;
+import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.TargetDataLine;
+import java.io.ByteArrayOutputStream;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
 import javax.sound.sampled.FloatControl;
@@ -38,7 +44,8 @@ public final class BotVoice {
 	private static final double HEAR_RANGE = 32.0D;
 	private static Process server;
 
-	private record Config(boolean enabled, String url, String python, String script) {
+	/** {@code style}: "jepang" (a Japanese voice speaking Indonesian) or "indonesia". */
+	private record Config(boolean enabled, String url, String python, String script, String style) {
 	}
 
 	public static void speak(int entityId, String text) {
@@ -57,10 +64,16 @@ public final class BotVoice {
 	private static byte[] request(Config config, String text, boolean mayStart) {
 		JsonObject body = new JsonObject();
 		body.addProperty("text", text);
-		HttpRequest request = HttpRequest.newBuilder(URI.create(config.url().replaceAll("/+$", "") + "/tts"))
+		body.addProperty("style", config.style());
+		return post(config, "/tts", body.toString().getBytes(StandardCharsets.UTF_8), "application/json", mayStart);
+	}
+
+	/** POSTs to the voice program, starting it first if it is not running. Null on any failure (logged). */
+	private static byte[] post(Config config, String path, byte[] data, String type, boolean mayStart) {
+		HttpRequest request = HttpRequest.newBuilder(URI.create(config.url().replaceAll("/+$", "") + path))
 				.timeout(Duration.ofSeconds(60))
-				.header("Content-Type", "application/json")
-				.POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+				.header("Content-Type", type)
+				.POST(HttpRequest.BodyPublishers.ofByteArray(data))
 				.build();
 		try {
 			HttpResponse<byte[]> response = HTTP.send(request, HttpResponse.BodyHandlers.ofByteArray());
@@ -70,7 +83,7 @@ public final class BotVoice {
 			ButterBot.LOGGER.warn("Butter Bot voice server answered {}", response.statusCode());
 		} catch (ConnectException e) {
 			if (mayStart && startServer(config)) {
-				return request(config, text, false);
+				return post(config, path, data, type, false);
 			}
 			ButterBot.LOGGER.warn("Butter Bot voice server not reachable at {}", config.url());
 		} catch (Exception e) {
@@ -113,6 +126,109 @@ public final class BotVoice {
 			}
 		}
 		return false;
+	}
+
+	// ------------------------------------------------------------------ talking to the bot (push to talk)
+
+	private static final AudioFormat MIC_FORMAT = new AudioFormat(16000.0F, 16, 1, true, false);
+	/** Longest recording, in bytes (20 seconds). */
+	private static final int MAX_RECORDING = 16000 * 2 * 20;
+	private static volatile TargetDataLine mic;
+	private static volatile boolean busy;
+
+	/**
+	 * Called every tick with whether the talk key is held: holding it records from the microphone, letting go turns the
+	 * recording into text on this machine (Whisper in the voice program) and says it to the nearest bot.
+	 */
+	public static void tickTalk(Minecraft minecraft, boolean held) {
+		if (minecraft.player == null) {
+			return;
+		}
+		if (held && mic == null && !busy) {
+			Config config = loadConfig();
+			if (config == null || !config.enabled()) {
+				return;
+			}
+			startRecording(minecraft, config);
+		} else if (!held && mic != null) {
+			stopRecording(minecraft);
+		}
+	}
+
+	private static void startRecording(Minecraft minecraft, Config config) {
+		TargetDataLine line;
+		try {
+			line = AudioSystem.getTargetDataLine(MIC_FORMAT);
+			line.open(MIC_FORMAT);
+			line.start();
+		} catch (Exception e) {
+			minecraft.player.sendSystemMessage(Component.translatable("butterbot.voice.no_mic").withStyle(ChatFormatting.RED));
+			ButterBot.LOGGER.warn("Butter Bot could not open the microphone: {}", e.toString());
+			busy = true;
+			// Don't try again every tick while the key is still held.
+			CompletableFuture.delayedExecutor(3, java.util.concurrent.TimeUnit.SECONDS).execute(() -> busy = false);
+			return;
+		}
+		mic = line;
+		minecraft.player.sendOverlayMessage(Component.translatable("butterbot.voice.listening").withColor(0x7CFC5A));
+		CompletableFuture.runAsync(() -> {
+			ByteArrayOutputStream pcm = new ByteArrayOutputStream();
+			byte[] buffer = new byte[3200];
+			while (line.isOpen() && pcm.size() < MAX_RECORDING) {
+				int read = line.read(buffer, 0, buffer.length);
+				if (read <= 0) {
+					break;
+				}
+				pcm.write(buffer, 0, read);
+			}
+			line.close();
+			busy = true;
+			try {
+				transcribeAndSend(config, pcm.toByteArray());
+			} finally {
+				busy = false;
+			}
+		});
+	}
+
+	private static void stopRecording(Minecraft minecraft) {
+		TargetDataLine line = mic;
+		mic = null;
+		line.stop();
+		line.close();
+		minecraft.player.sendOverlayMessage(Component.translatable("butterbot.voice.recognizing").withColor(0xFFE680));
+	}
+
+	private static void transcribeAndSend(Config config, byte[] pcm) {
+		Minecraft minecraft = Minecraft.getInstance();
+		// Under half a second is a slip of the finger.
+		if (pcm.length < 16000) {
+			return;
+		}
+		String text = null;
+		try {
+			ByteArrayOutputStream wav = new ByteArrayOutputStream();
+			AudioSystem.write(new AudioInputStream(new ByteArrayInputStream(pcm), MIC_FORMAT, pcm.length / 2), AudioFileFormat.Type.WAVE, wav);
+			byte[] answer = post(config, "/stt", wav.toByteArray(), "audio/wav", true);
+			if (answer != null) {
+				text = JsonParser.parseString(new String(answer, StandardCharsets.UTF_8)).getAsJsonObject().get("text").getAsString().trim();
+			}
+		} catch (Exception e) {
+			ButterBot.LOGGER.warn("Butter Bot speech recognition failed: {}", e.toString());
+		}
+		String heard = text;
+		minecraft.execute(() -> {
+			if (minecraft.player == null || minecraft.getConnection() == null) {
+				return;
+			}
+			if (heard == null || heard.isEmpty()) {
+				minecraft.player.sendOverlayMessage(Component.translatable("butterbot.voice.not_heard").withColor(0xFF7070));
+				return;
+			}
+			String said = heard.length() > 230 ? heard.substring(0, 230) : heard;
+			minecraft.player.sendSystemMessage(Component.translatable("butterbot.voice.you", said).withColor(0xA8C8FF));
+			minecraft.getConnection().sendCommand("butterbot chat " + said);
+		});
 	}
 
 	public static synchronized void shutdown() {
@@ -164,12 +280,14 @@ public final class BotVoice {
 				template.addProperty("url", "http://127.0.0.1:47321");
 				template.addProperty("python", home + "/Downloads/butterbot-voice/venv/Scripts/python.exe");
 				template.addProperty("script", home + "/Downloads/butterbot-voice/server.py");
+				template.addProperty("style", "jepang");
 				Files.createDirectories(path.getParent());
 				Files.writeString(path, new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(template), StandardCharsets.UTF_8);
 			}
 			JsonObject json = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
 			return new Config(!json.has("enabled") || json.get("enabled").getAsBoolean(), json.get("url").getAsString(),
-					json.get("python").getAsString(), json.get("script").getAsString());
+					json.get("python").getAsString(), json.get("script").getAsString(),
+					json.has("style") ? json.get("style").getAsString() : "jepang");
 		} catch (Exception e) {
 			ButterBot.LOGGER.warn("Butter Bot voice config {} unreadable: {}", path, e.toString());
 			return null;

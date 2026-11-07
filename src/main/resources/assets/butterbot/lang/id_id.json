@@ -1107,5 +1107,11 @@
   "butterbot.ai.thinking": "...",
   "butterbot.ai.busy": "Sebentar, aku masih mikir...",
   "butterbot.ai.error": "Maaf, kepalaku pusing... aku tidak bisa berpikir sekarang.",
-  "butterbot.ai.no_config": "Butter Bot belum tersambung ke AI. Isi endpoint dan apiKey di %s"
+  "butterbot.ai.no_config": "Butter Bot belum tersambung ke AI. Isi endpoint dan apiKey di %s",
+  "key.butterbot.talk": "Bicara ke bot (tahan)",
+  "butterbot.voice.listening": "Mendengarkan... lepas G untuk mengirim",
+  "butterbot.voice.recognizing": "Mengenali suaramu...",
+  "butterbot.voice.not_heard": "Suaramu tidak terdengar, coba lagi",
+  "butterbot.voice.you": "Kamu (suara): %s",
+  "butterbot.voice.no_mic": "Mikrofon tidak bisa dibuka. Cek izin mikrofon Windows untuk Java."
 }
