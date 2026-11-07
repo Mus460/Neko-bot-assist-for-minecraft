@@ -74,6 +74,10 @@ public final class BotChat {
 	/** Recent conversation per bot (not saved: a reload starts fresh). */
 	private static final Map<UUID, Deque<JsonObject>> HISTORIES = new HashMap<>();
 	private static final Set<UUID> PENDING = new HashSet<>();
+	/** Designs waiting for the owner's yes before the bot builds them. */
+	private static final Map<UUID, Blueprint.Plan> PROPOSALS = new HashMap<>();
+	private static final Pattern YES = Pattern.compile("\\b(ya|iya|yes|y|ok|oke|okay|gas|gass|gaskan|lanjut|lanjutkan|bangun|setuju|boleh|mulai|sip)\\b");
+	private static final Pattern NO = Pattern.compile("\\b(batal|batalkan|tidak|nggak|gak|enggak|jangan|no|cancel|stop|ga)\\b");
 
 	private record Config(boolean enabled, String endpoint, String apiKey, String model, int maxTokens) {
 	}
@@ -88,7 +92,7 @@ public final class BotChat {
 		for (ButterBotEntity bot : player.level().getEntitiesOfClass(ButterBotEntity.class, player.getBoundingBox().inflate(NAME_RANGE),
 				bot -> bot.isAlive() && bot.isOwnedBy(player))) {
 			String name = bot.getName().getString().toLowerCase(Locale.ROOT);
-			if (!name.isBlank() && lower.contains(name)) {
+			if (!name.isBlank() && lower.contains(name) || PROPOSALS.containsKey(bot.getUUID()) && answerToProposal(lower) != null) {
 				ask(bot, player, text);
 				return;
 			}
@@ -99,6 +103,18 @@ public final class BotChat {
 		Config config = loadConfig();
 		if (config == null || !config.enabled() || config.apiKey().isBlank()) {
 			player.sendSystemMessage(Component.translatable("butterbot.ai.no_config", configPath().toString()));
+			return;
+		}
+		Blueprint.Plan proposal = PROPOSALS.get(bot.getUUID());
+		Boolean agreed = proposal == null ? null : answerToProposal(text.toLowerCase(Locale.ROOT).replace(bot.getName().getString().toLowerCase(Locale.ROOT), ""));
+		if (agreed != null) {
+			PROPOSALS.remove(bot.getUUID());
+			if (agreed) {
+				bot.assignBuildTask(proposal);
+				bot.emote(ButterBotEntity.EMOTE_CHECK);
+			} else {
+				bot.say(Component.translatable("butterbot.build.cancelled"));
+			}
 			return;
 		}
 		if (!PENDING.add(bot.getUUID())) {
@@ -238,7 +254,7 @@ public final class BotChat {
 		bot.say(Component.translatable("butterbot.build.designing"));
 		JsonArray messages = new JsonArray();
 		messages.add(message("system", DESIGN_PROMPT));
-		messages.add(message("user", "Rancang: " + what));
+		messages.add(message("user", "Rancang: " + what + "\n\n" + terrain((ServerLevel) bot.level(), origin, facing)));
 		JsonObject body = new JsonObject();
 		body.addProperty("model", config.model());
 		body.addProperty("stream", false);
@@ -293,6 +309,13 @@ public final class BotChat {
 			"redstone (redstone_wire, lever, stone_button, redstone_lamp, repeater[facing=..], piston[facing=..], sticky_piston,",
 			"daylight_detector, observer, hopper[facing=..], dropper), pertanian otomatis, kandang hewan, taman, jalan setapak.",
 			"Kebun: farmland di y=-1, tanaman di y=0, air setiap 4 blok, pagar mengelilingi.",
+			"Perhatikan peta medan yang diberikan. Rumah di dalam gunung/bukit/goa: JANGAN buat dinding luar, gunungnya adalah dindingnya.",
+			"Pahat lorong masuk dari depan (z kecil) lalu ruangan-ruangan di dalam batu dengan fill \"air\"; sisakan atap batu minimal 2 lapis",
+			"di bawah permukaan. Lapisi lantai, dinding dan langit-langit dalam dengan blok bertekstur yang dipadukan (stone_bricks,",
+			"mossy_stone_bricks, cracked_stone_bricks, chiseled_stone_bricks, deepslate_tiles, polished_deepslate, polished_andesite,",
+			"tuff_bricks, calcite, dripstone, kayu gelap untuk balok dan tiang), lampu (lantern, sea_lantern, candle, glow_lichen),",
+			"tanaman (moss_block, moss_carpet, azalea, hanging_roots, flower_pot), dan ruangan lengkap (ruang tamu, dapur, kamar, gudang,",
+			"ruang enchant, dll.) yang dihubungkan lorong/tangga. Jendela boleh menembus ke luar gunung bila sisinya dekat permukaan.",
 			"Rumah: lantai, dinding dengan tiang, atap tangga/slab yang rapi, pintu di depan (north), jendela, lampu di dalam, dan interior",
 			"lengkap. Buat rapi, detail dan indah, bukan kotak polos. Ikuti SEMUA permintaan pemilik persis.",
 			"Batas: paling besar 48x40x48 dan 20000 blok. Jangan pakai lava, api, TNT, bedrock atau blok perintah."));
@@ -325,6 +348,34 @@ public final class BotChat {
 			}
 		}
 		return true;
+	}
+
+	/**
+	 * The ground in front of the owner, in the design's frame, for the designer: per spot how many blocks the ground
+	 * stands above the flat level (0 = flat, 12 = a 12 high hill, -3 = a dip).
+	 */
+	private static String terrain(ServerLevel level, net.minecraft.core.BlockPos origin, net.minecraft.core.Direction facing) {
+		net.minecraft.world.level.block.Rotation rotation = Blueprint.rotationFor(facing);
+		StringBuilder out = new StringBuilder("Peta medan: tinggi permukaan tanah di atas y=-1 (0 = rata, 12 = bukit/gunung setinggi 12 blok,"
+				+ " negatif = cekungan). Baris = z (0 dekat pemilik .. 48 jauh), kolom = x dari -24 sampai 24, tiap 4 blok:\n");
+		for (int z = 0; z <= 48; z += 4) {
+			out.append("z=").append(z).append(":");
+			for (int x = -24; x <= 24; x += 4) {
+				net.minecraft.core.BlockPos at = origin.offset(new net.minecraft.core.BlockPos(x, 0, z).rotate(rotation));
+				int top = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, at.getX(), at.getZ());
+				out.append(' ').append(top - origin.getY());
+			}
+			out.append('\n');
+		}
+		return out.toString();
+	}
+
+	/** A short yes or no to a waiting design; null when the line is about something else (a change, a question). */
+	private static Boolean answerToProposal(String text) {
+		if (text.trim().split("\\s+").length > 4) {
+			return null;
+		}
+		return NO.matcher(text).find() ? Boolean.FALSE : YES.matcher(text).find() ? Boolean.TRUE : null;
 	}
 
 	/** Every /butterbot subcommand with its arguments, so the AI can use any of them. */

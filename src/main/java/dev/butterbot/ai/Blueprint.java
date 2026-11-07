@@ -116,7 +116,7 @@ public final class Blueprint {
 	}
 
 	/** The design's +z (south) turned to where the owner looks. */
-	private static Rotation rotationFor(Direction facing) {
+	public static Rotation rotationFor(Direction facing) {
 		return switch (facing) {
 			case WEST -> Rotation.CLOCKWISE_90;
 			case NORTH -> Rotation.CLOCKWISE_180;

@@ -1115,6 +1115,8 @@
   "butterbot.voice.you": "You (voice): %s",
   "butterbot.voice.no_mic": "Can't open the microphone. Check the Windows microphone permission for Java.",
   "butterbot.build.start": "Okay! Building %s (%s blocks)!",
+  "butterbot.build.confirm": "%s is designed: %s blocks, breaking %s existing built blocks. Build it? Answer \"yes\" or \"cancel\" (or ask for changes).",
+  "butterbot.build.cancelled": "Okay, I dropped that design.",
   "butterbot.build.done": "%s is built! (%s blocks, %s from my bag)",
   "butterbot.build.failed": "Hmm, I couldn't work out a design... could you explain again?",
   "butterbot.hud.s.building": "Building (%s left)",

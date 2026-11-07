@@ -108,8 +108,8 @@ public class BuildAction implements BotAction {
 	}
 
 	private static void place(ButterBotEntity bot, ServerLevel level, BlockPos pos, BlockState state) {
+		clear(bot, level, pos);
 		if (state.isAir()) {
-			level.destroyBlock(pos, false, bot);
 			return;
 		}
 		take(bot, state);
@@ -119,18 +119,36 @@ public class BuildAction implements BotAction {
 		// Two-block things (doors, tall flowers) get their top half, beds their head.
 		if (state.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) && state.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.LOWER
 				&& canPlace(level, pos.above(), state)) {
+			clear(bot, level, pos.above());
 			level.setBlock(pos.above(), state.setValue(BlockStateProperties.DOUBLE_BLOCK_HALF, DoubleBlockHalf.UPPER), 3);
 		}
 		if (state.hasProperty(BlockStateProperties.BED_PART) && state.getValue(BlockStateProperties.BED_PART) == BedPart.FOOT) {
 			Direction facing = state.getValue(BlockStateProperties.HORIZONTAL_FACING);
 			BlockPos head = pos.relative(facing);
 			if (canPlace(level, head, state)) {
+				clear(bot, level, head);
 				level.setBlock(head, state.setValue(BlockStateProperties.BED_PART, BedPart.HEAD), 3);
 			}
 		}
 		level.playSound(null, pos, state.getSoundType().getPlaceSound(), SoundSource.BLOCKS, 0.8F, 1.0F);
 		Item item = state.getBlock().asItem();
 		bot.showTool(new ItemStack(item == Items.AIR ? Items.BRICKS : item), 6);
+	}
+
+	/**
+	 * Empties a spot. Natural terrain just goes (carving a mountain would otherwise flood the place with items);
+	 * anything built is broken and drops itself and what it held, so nothing of the owner's is lost.
+	 */
+	private static void clear(ButterBotEntity bot, ServerLevel level, BlockPos pos) {
+		BlockState existing = level.getBlockState(pos);
+		if (existing.isAir()) {
+			return;
+		}
+		if (isNatural(existing)) {
+			level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+		} else {
+			level.destroyBlock(pos, true, bot);
+		}
 	}
 
 	/** Uses the block from the backpack if it has one; otherwise makes it itself. */
@@ -143,18 +161,31 @@ public class BuildAction implements BotAction {
 		}
 	}
 
-	/** Only into empty spots or soft ground, and not where the same block already is. */
+	/** Anywhere the owner asked for, except where the same block already is or the block can't be broken (bedrock). */
 	private static boolean canPlace(ServerLevel level, BlockPos pos, BlockState state) {
 		BlockState existing = level.getBlockState(pos);
-		if (existing.equals(state) || level.getBlockEntity(pos) != null) {
-			return false;
+		return !existing.equals(state) && existing.getDestroySpeed(level, pos) >= 0.0F;
+	}
+
+	/** Terrain the world made, as opposed to something built. */
+	public static boolean isNatural(BlockState state) {
+		return state.isAir() || state.canBeReplaced() || state.is(BlockTags.DIRT) || state.is(BlockTags.SAND) || state.is(BlockTags.BASE_STONE_OVERWORLD)
+				|| state.is(BlockTags.BASE_STONE_NETHER) || state.is(BlockTags.LEAVES) || state.is(BlockTags.SNOW) || state.is(BlockTags.ICE)
+				|| state.is(BlockTags.ORES) || state.is(Blocks.GRAVEL) || state.is(Blocks.CLAY) || state.is(Blocks.FARMLAND)
+				|| state.is(Blocks.DIRT_PATH) || state.is(Blocks.DRIPSTONE_BLOCK) || state.is(Blocks.CALCITE) || state.is(Blocks.MOSS_BLOCK)
+				|| state.is(Blocks.SANDSTONE) || state.is(Blocks.RED_SANDSTONE) || state.is(BlockTags.TERRACOTTA) || state.is(Blocks.OBSIDIAN);
+	}
+
+	/** How many built (not natural) blocks the plan would break, for the owner to agree to first. */
+	public static int countBreaks(ServerLevel level, List<Blueprint.Placement> plan) {
+		int breaks = 0;
+		for (Blueprint.Placement placement : plan) {
+			BlockState existing = level.getBlockState(placement.pos());
+			if (!isNatural(existing) && !existing.equals(placement.state())) {
+				breaks++;
+			}
 		}
-		if (existing.canBeReplaced()) {
-			return true;
-		}
-		return existing.is(BlockTags.DIRT) || existing.is(BlockTags.SAND) || existing.is(BlockTags.BASE_STONE_OVERWORLD)
-				|| existing.is(BlockTags.LEAVES) || existing.is(BlockTags.SNOW) || existing.is(BlockTags.ICE)
-				|| existing.is(Blocks.GRAVEL) || existing.is(Blocks.CLAY) || existing.is(Blocks.FARMLAND) || existing.is(Blocks.DIRT_PATH);
+		return breaks;
 	}
 
 	private static void finish(ButterBotEntity bot) {
