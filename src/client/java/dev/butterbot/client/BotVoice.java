@@ -45,7 +45,8 @@ public final class BotVoice {
 	private static Process server;
 
 	/** {@code style}: "jepang" (a Japanese voice speaking Indonesian) or "indonesia". */
-	private record Config(boolean enabled, String url, String python, String script, String style) {
+	/** {@code enabled}: answers read aloud; {@code mic}: push to talk. Both use the same voice program. */
+	private record Config(boolean enabled, boolean mic, String url, String python, String script, String style) {
 	}
 
 	public static void speak(int entityId, String text) {
@@ -146,7 +147,7 @@ public final class BotVoice {
 		}
 		if (held && mic == null && !busy) {
 			Config config = loadConfig();
-			if (config == null || !config.enabled()) {
+			if (config == null || !config.mic()) {
 				return;
 			}
 			startRecording(minecraft, config);
@@ -277,6 +278,7 @@ public final class BotVoice {
 				String home = System.getProperty("user.home").replace('\\', '/');
 				JsonObject template = new JsonObject();
 				template.addProperty("enabled", true);
+				template.addProperty("mic", true);
 				template.addProperty("url", "http://127.0.0.1:47321");
 				template.addProperty("python", home + "/Downloads/butterbot-voice/venv/Scripts/python.exe");
 				template.addProperty("script", home + "/Downloads/butterbot-voice/server.py");
@@ -285,7 +287,8 @@ public final class BotVoice {
 				Files.writeString(path, new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(template), StandardCharsets.UTF_8);
 			}
 			JsonObject json = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
-			return new Config(!json.has("enabled") || json.get("enabled").getAsBoolean(), json.get("url").getAsString(),
+			return new Config(!json.has("enabled") || json.get("enabled").getAsBoolean(), !json.has("mic") || json.get("mic").getAsBoolean(),
+					json.get("url").getAsString(),
 					json.get("python").getAsString(), json.get("script").getAsString(),
 					json.has("style") ? json.get("style").getAsString() : "jepang");
 		} catch (Exception e) {
