@@ -242,10 +242,10 @@ public final class BotChat {
 		JsonObject body = new JsonObject();
 		body.addProperty("model", config.model());
 		body.addProperty("stream", false);
-		body.addProperty("max_tokens", 8000);
+		body.addProperty("max_tokens", 16000);
 		body.add("messages", messages);
 		HttpRequest request = HttpRequest.newBuilder(URI.create(config.endpoint().replaceAll("/+$", "") + "/chat/completions"))
-				.timeout(Duration.ofSeconds(180))
+				.timeout(Duration.ofSeconds(300))
 				.header("Authorization", "Bearer " + config.apiKey())
 				.header("Content-Type", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body), StandardCharsets.UTF_8))
@@ -272,21 +272,30 @@ public final class BotChat {
 	}
 
 	private static final String DESIGN_PROMPT = String.join("\n", List.of(
-			"Kamu arsitek Minecraft (Java 1.21+). Rancang bangunan yang diminta dan jawab HANYA dengan JSON, tanpa teks lain:",
+			"Kamu arsitek Minecraft (Java 1.21+) kelas dunia. Rancang bangunan yang diminta dan jawab HANYA dengan JSON, tanpa teks lain:",
 			"{\"name\": \"nama singkat\", \"ops\": [ ... ]}",
 			"Setiap op salah satu dari:",
 			"  {\"fill\": [x1,y1,z1,x2,y2,z2], \"block\": \"id\", \"hollow\": true/false}  (kotak; hollow = hanya kulitnya)",
 			"  {\"set\": [x,y,z], \"block\": \"id\"}",
 			"Op belakangan menimpa yang sebelumnya: buat dinding dulu, lalu lubangi pintu/jendela dengan \"air\" atau isi dengan pintu/kaca.",
-			"Koordinat: x kiri-kanan (-16..16), y ke atas (0 = lapisan pertama di atas tanah, -1 = tanah itu sendiri), z menjauh dari pemilik (0..32).",
+			"Hemat: pakai fill untuk bidang besar, set hanya untuk detail.",
+			"Koordinat: x kiri-kanan (-24..24), y ke atas (0 = lapisan pertama di atas tanah, -1 = tanah itu sendiri, boleh sampai -8",
+			"untuk ruang bawah tanah/fondasi), z menjauh dari pemilik (0..48).",
 			"Arah: north = menghadap pemilik (sisi depan, z kecil), south = menjauh, east = kanan (+x), west = kiri.",
-			"Blok ditulis seperti perintah Minecraft: oak_planks, stone_bricks, glass_pane, oak_stairs[facing=north,half=bottom],",
-			"oak_door[facing=north,half=lower] (cukup bagian bawah), red_bed[facing=east,part=foot] (cukup kaki), wall_torch[facing=south],",
-			"farmland, wheat[age=7], carrots, potatoes, water, oak_fence, lantern, chest[facing=north], crafting_table, furnace, flower_pot.",
-			"Lantai di y=-1 boleh (menggantikan tanah). Kebun: farmland di y=-1, tanaman di y=0, air setiap 4 blok, pagar mengelilingi.",
-			"Rumah: lantai, dinding, atap tangga/slab yang rapi, pintu di depan (north), jendela, lampu di dalam, dan interior yang",
-			"masuk akal (kasur, peti, meja kerja, tungku, rak buku, karpet, pot bunga). Buat rapi dan indah, bukan kotak polos.",
-			"Batas: paling besar 32x24x32 dan 4000 blok. Jangan pakai lava, api, TNT, bedrock atau blok perintah."));
+			"Tanah belum tentu rata: mulai dengan fill \"air\" di seluruh area bangunan dari y=0 sampai atas untuk membersihkan bukit,",
+			"dan fondasi (misal cobblestone) dari y=-3 sampai y=-1 supaya tidak melayang. Batu, tanah, pasir, daun, salju bisa dibersihkan.",
+			"Blok ditulis seperti perintah Minecraft dengan properti: oak_planks, stone_bricks, glass_pane, oak_stairs[facing=north,half=bottom],",
+			"oak_slab[type=top], oak_door[facing=north,half=lower] (cukup bagian bawah), red_bed[facing=east,part=foot] (cukup kaki),",
+			"wall_torch[facing=south], lantern[hanging=true], ladder[facing=north], chest[facing=north], barrel, smoker, blast_furnace,",
+			"farmland, wheat[age=7], carrots, potatoes, water, oak_fence, oak_fence_gate, flower_pot, potted_poppy, bookshelf, anvil.",
+			"Fitur kompleks boleh dan dianjurkan bila diminta: banyak lantai dengan tangga (stairs atau ladder), ruang bawah tanah,",
+			"balkon, kolam, perapian (campfire di bawah cerobong), dapur, ruang enchant (enchanting_table + 15 bookshelf berjarak 1),",
+			"redstone (redstone_wire, lever, stone_button, redstone_lamp, repeater[facing=..], piston[facing=..], sticky_piston,",
+			"daylight_detector, observer, hopper[facing=..], dropper), pertanian otomatis, kandang hewan, taman, jalan setapak.",
+			"Kebun: farmland di y=-1, tanaman di y=0, air setiap 4 blok, pagar mengelilingi.",
+			"Rumah: lantai, dinding dengan tiang, atap tangga/slab yang rapi, pintu di depan (north), jendela, lampu di dalam, dan interior",
+			"lengkap. Buat rapi, detail dan indah, bukan kotak polos. Ikuti SEMUA permintaan pemilik persis.",
+			"Batas: paling besar 48x40x48 dan 20000 blok. Jangan pakai lava, api, TNT, bedrock atau blok perintah."));
 
 	/** The orders the AI may give, all ones the owner could give by command. */
 	private static boolean act(ButterBotEntity bot, String action, String what, String count) {
@@ -316,6 +325,19 @@ public final class BotChat {
 			}
 		}
 		return true;
+	}
+
+	/** Every /butterbot subcommand with its arguments, so the AI can use any of them. */
+	private static String commandList(ServerPlayer owner) {
+		var dispatcher = owner.level().getServer().getCommands().getDispatcher();
+		var root = dispatcher.getRoot().getChild("butterbot");
+		if (root == null) {
+			return "";
+		}
+		StringBuilder out = new StringBuilder();
+		dispatcher.getSmartUsage(root, owner.createCommandSourceStack()).values()
+				.forEach(usage -> out.append("  butterbot ").append(usage).append("\n"));
+		return out.toString().stripTrailing();
 	}
 
 	/** Who the bot is and what is going on around it right now. */
@@ -354,7 +376,10 @@ public final class BotChat {
 				"     butterbot fetch <item> <jumlah>, butterbot light 24, butterbot guard true, butterbot smelt all,",
 				"     butterbot job set <miner|gatherer|guard|farmer|rancher|courier|bodyguard|none>, butterbot job need <item> <jumlah>,",
 				"     butterbot tunnel <dariX> <dariZ> <keX> <keZ>, butterbot sort, butterbot skill <nama>, butterbot party.",
-				"Jangan menolak dengan kaku: kalau bisa dilakukan dengan tag di atas, lakukan.",
+				"Semua perintah Butter Bot yang ada (pakai lewat [perintah: ...]):",
+				commandList(owner),
+				"Jangan menolak dengan kaku: kalau bisa dilakukan dengan tag di atas, lakukan. Kalau satu permintaan butuh beberapa",
+				"langkah, pakai beberapa tag sekaligus. Kalau sungguh tidak bisa, jelaskan jujur dan tawarkan cara terdekat.",
 				"Keadaanmu sekarang:",
 				"- Level " + bot.getBotLevel() + " (" + BotTier.of(bot.getBotLevel()).displayName().getString() + ")"
 						+ (bot.getStars() > 0 ? ", " + bot.getStars() + " bintang" : "")

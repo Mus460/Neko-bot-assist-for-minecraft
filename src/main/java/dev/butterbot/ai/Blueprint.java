@@ -31,9 +31,9 @@ import java.util.Set;
  */
 public final class Blueprint {
 
-	public static final int MAX_SIZE = 32;
-	public static final int MAX_HEIGHT = 24;
-	public static final int MAX_BLOCKS = 4000;
+	public static final int MAX_SIZE = 48;
+	public static final int MAX_HEIGHT = 40;
+	public static final int MAX_BLOCKS = 20000;
 	/** Never built, whatever the design says. */
 	private static final Set<Block> FORBIDDEN = Set.of(Blocks.LAVA, Blocks.FIRE, Blocks.SOUL_FIRE, Blocks.TNT, Blocks.BEDROCK,
 			Blocks.COMMAND_BLOCK, Blocks.CHAIN_COMMAND_BLOCK, Blocks.REPEATING_COMMAND_BLOCK, Blocks.STRUCTURE_BLOCK,
@@ -103,19 +103,16 @@ public final class Blueprint {
 			}
 		}
 		List<Placement> placements = new ArrayList<>();
-		local.forEach((pos, state) -> {
-			if (!state.isAir() || pos.getY() >= 0) {
-				placements.add(new Placement(origin.offset(pos.rotate(rotation)), state.rotate(rotation)));
-			}
-		});
-		// Solid blocks first, bottom up; then what hangs on them (doors, torches, crops, carpets...).
-		placements.sort(Comparator.<Placement>comparingInt(p -> p.state().isSolid() ? 0 : 1).thenComparingInt(p -> p.pos().getY()));
+		local.forEach((pos, state) -> placements.add(new Placement(origin.offset(pos.rotate(rotation)), state.rotate(rotation))));
+		// Clearing (air) first, top down; then solid blocks bottom up; then what hangs on them (doors, torches, crops...).
+		placements.sort(Comparator.<Placement>comparingInt(p -> p.state().isAir() ? 0 : p.state().isSolid() ? 1 : 2)
+				.thenComparingInt(p -> p.state().isAir() ? -p.pos().getY() : p.pos().getY()));
 		String name = json.has("name") ? json.get("name").getAsString() : "bangunan";
 		return placements.isEmpty() ? null : new Plan(name.length() > 40 ? name.substring(0, 40) : name, placements);
 	}
 
 	private static boolean inBounds(int x, int y, int z) {
-		return Math.abs(x) <= MAX_SIZE / 2 && z >= -2 && z <= MAX_SIZE && y >= -3 && y <= MAX_HEIGHT;
+		return Math.abs(x) <= MAX_SIZE / 2 && z >= -2 && z <= MAX_SIZE && y >= -8 && y <= MAX_HEIGHT;
 	}
 
 	/** The design's +z (south) turned to where the owner looks. */

@@ -27,9 +27,9 @@ import net.minecraft.world.phys.Vec3;
 import java.util.List;
 
 /**
- * Builds a design the AI made ({@link Blueprint}): walks around placing it block by block, solid blocks first and
- * bottom up. It only fills empty spots (air, grass, flowers, water) and soft ground (dirt, sand, gravel): stone,
- * logs and anything already built are left alone, so nothing of the owner's is ever broken. Blocks come from the
+ * Builds a design the AI made ({@link Blueprint}): walks around clearing and placing it block by block. It replaces
+ * empty spots and natural terrain (stone, dirt, sand, gravel, leaves, snow...) so it can level a hill or dig a
+ * basement; logs, planks and anything else built are left alone, so nothing of the owner's is ever broken. Blocks come from the
  * backpack when it has them; what is missing it makes itself, like the torches it lights areas with.
  */
 public class BuildAction implements BotAction {
@@ -108,6 +108,10 @@ public class BuildAction implements BotAction {
 	}
 
 	private static void place(ButterBotEntity bot, ServerLevel level, BlockPos pos, BlockState state) {
+		if (state.isAir()) {
+			level.destroyBlock(pos, false, bot);
+			return;
+		}
 		take(bot, state);
 		// Fences, panes, walls and stairs join up with what is already around them.
 		state = net.minecraft.world.level.block.Block.updateFromNeighbourShapes(state, level, pos);
@@ -148,8 +152,9 @@ public class BuildAction implements BotAction {
 		if (existing.canBeReplaced()) {
 			return true;
 		}
-		return existing.is(BlockTags.DIRT) || existing.is(BlockTags.SAND) || existing.is(Blocks.GRAVEL) || existing.is(Blocks.FARMLAND)
-				|| existing.is(Blocks.DIRT_PATH);
+		return existing.is(BlockTags.DIRT) || existing.is(BlockTags.SAND) || existing.is(BlockTags.BASE_STONE_OVERWORLD)
+				|| existing.is(BlockTags.LEAVES) || existing.is(BlockTags.SNOW) || existing.is(BlockTags.ICE)
+				|| existing.is(Blocks.GRAVEL) || existing.is(Blocks.CLAY) || existing.is(Blocks.FARMLAND) || existing.is(Blocks.DIRT_PATH);
 	}
 
 	private static void finish(ButterBotEntity bot) {
